@@ -92,7 +92,9 @@ fun Home(repo: Repo, go: (Screen) -> Unit, play: (List<Item>, Int) -> Unit, tick
     val recent = remember(tick) { repo.store.list("recent") }
     val favs = repo.favs.filter { !it.locked }
     Column(Modifier.fillMaxSize().padding(horizontal = 64.dp, vertical = 40.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Label("TVStreamer v1.7", 28)
+        val ctx = LocalContext.current
+        val ver = try { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName } catch (e: Exception) { "?" }
+        Label("TVStreamer v$ver", 26)
         if (repo.status.isNotEmpty()) Label(repo.status, 16, WARN, maxLines = 5)
         val ctx = LocalContext.current
         val scope = rememberCoroutineScope()

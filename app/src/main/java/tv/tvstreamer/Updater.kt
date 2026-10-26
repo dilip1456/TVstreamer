@@ -39,7 +39,7 @@ object Updater {
                 if (downloadUrl.isNullOrEmpty()) return@withContext "No APK in latest release"
                 // Parse version from tag like build-3 or just compare tag number
                 val remote = tag.removePrefix("build-").toIntOrNull() ?: 0
-                if (remote <= currentCode) return@withContext "Up to date (v$currentCode)"
+                if (remote <= currentCode) return@withContext "Up to date (installed code $currentCode)"
                 // Download
                 val file = File(ctx.cacheDir, "update.apk")
                 val dReq = Request.Builder().url(downloadUrl).build()
