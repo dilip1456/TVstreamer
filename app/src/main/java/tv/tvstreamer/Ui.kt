@@ -785,37 +785,41 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int) {
                 }
             }
     ) {
+        var menu by remember { mutableStateOf(false) }
+        var fit by remember { mutableStateOf("fit") } // fit = no clip, fill = crop
+        var barPos by remember { mutableStateOf("bottom") }
+        var fullScreen by remember { mutableStateOf(false) }
         AndroidView(
             factory = {
                 PlayerView(it).apply {
-                    useController = item.kind != "itv" && !fullScreen
+                    useController = false
                     keepScreenOn = true
                     isFocusable = false
                     isFocusableInTouchMode = false
                     player = exo
-                    resizeMode = if (item.kind == "vod") AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                 }
+            },
+            update = { view ->
+                view.resizeMode = if (fit == "fill") AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT
             },
             modifier = Modifier.fillMaxSize()
         )
-        var menu by remember { mutableStateOf(false) }
-        var fit by remember { mutableStateOf("fit") }
-        var barPos by remember { mutableStateOf("bottom") } // bottom, left, right
-        var fullScreen by remember { mutableStateOf(item.kind == "vod") }
         // Error overlay
         if (err.isNotEmpty()) {
             Label(err, 16, Color(0xFFFF8A80), Modifier.align(Alignment.Center).padding(16.dp), maxLines = 4)
         }
-        // Floating controls for live
-        if (item.kind == "itv" && !fullScreen) {
+        // Floating controls
+        if (!fullScreen) {
             val fav = repo.isFav(item)
             val buttons = listOf(
                 (if (fav) "★" else "☆") to { repo.toggleFav(item) },
                 (if (exo.isPlaying) "⏸" else "▶") to { exo.playWhenReady = !exo.playWhenReady },
-                "Fit" to { fit = if (fit == "fit") "fill" else "fit" },
-                "Hide" to { repo.toggleHideChannel(item) },
-                "Move" to { barPos = when (barPos) { "bottom" -> "left"; "left" -> "right"; else -> "bottom" } },
-                "Full" to { fullScreen = true }
+                "Fit" to { fit = "fit" },
+                "Fill" to { fit = "fill" },
+                "Full" to { fullScreen = true },
+                "Hide" to { if (item.kind == "itv") repo.toggleHideChannel(item) },
+                "Move" to { barPos = when (barPos) { "bottom" -> "left"; "left" -> "right"; else -> "bottom" } }
             )
             val align = when (barPos) {
                 "left" -> Alignment.CenterStart
