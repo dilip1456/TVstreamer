@@ -24,6 +24,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -58,8 +59,8 @@ fun Modifier.tv(onClick: () -> Unit, onMenu: (() -> Unit)? = null): Modifier = c
 }
 
 @Composable
-fun Label(text: String, size: Int = 18, color: Color = Color.White, modifier: Modifier = Modifier) {
-    Text(text, color = color, fontSize = size.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = modifier)
+fun Label(text: String, size: Int = 18, color: Color = Color.White, modifier: Modifier = Modifier, maxLines: Int = 1) {
+    Text(text, color = color, fontSize = size.sp, maxLines = maxLines, overflow = TextOverflow.Ellipsis, modifier = modifier)
 }
 
 @Composable
@@ -92,7 +93,7 @@ fun Home(repo: Repo, go: (Screen) -> Unit, play: (List<Item>, Int) -> Unit, tick
     val favs = repo.favs.filter { !it.locked }
     Column(Modifier.fillMaxSize().padding(32.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
         Label("TVStreamer", 32)
-        if (repo.status.isNotEmpty()) Label(repo.status, 16, WARN)
+        if (repo.status.isNotEmpty()) Label(repo.status, 16, WARN, maxLines = 4)
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             val tabs = listOf<Pair<String, Screen>>(
                 "Live TV" to Screen.Live, "Movies" to Screen.Movies,
@@ -234,13 +235,14 @@ fun Search(repo: Repo, play: (List<Item>, Int) -> Unit) {
 fun SettingsScreen(repo: Repo) {
     val s = repo.store
     val scope = rememberCoroutineScope()
+    val keyboard = LocalSoftwareKeyboardController.current
     var portal by remember { mutableStateOf(s.portal) }
     var mac by remember { mutableStateOf(s.mac) }
     var serial by remember { mutableStateOf(s.serial) }
     var pw by remember { mutableStateOf(s.password) }
     var note by remember { mutableStateOf("") }
-    LazyColumn(Modifier.fillMaxSize().padding(32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        item { Label("Settings", 28) }
+    LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        item { Label("Settings", 24) }
         item {
             TextField(portal, { portal = it }, label = { Text("Portal URL") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         }
@@ -255,19 +257,30 @@ fun SettingsScreen(repo: Repo) {
                 visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
         }
         item {
+            Row1("Hide keyboard", { keyboard?.hide() })
+        }
+        item {
             Row1("Save and reload", {
+                keyboard?.hide()
                 s.portal = portal
                 s.mac = mac.trim().uppercase()
                 s.serial = serial.trim()
                 s.password = pw
                 note = "Saved. Reloading..."
-                scope.launch { repo.api.reset(); repo.load(); note = repo.status.ifEmpty { "Loaded" } }
+                scope.launch {
+                    repo.api.reset()
+                    repo.load()
+                    note = repo.status.ifEmpty { "Loaded" }
+                }
             })
         }
         item { Row1("Clear saved password", { s.password = ""; pw = ""; note = "Password cleared" }) }
         item { Row1("Clear history (recent and resume)", { s.clearHistory(); note = "History cleared" }) }
-        item { if (note.isNotEmpty()) Label(note, 16, WARN) }
-        item { Label("Categories: click to hide or show", 20) }
+        item {
+            if (note.isNotEmpty()) Label(note, 16, WARN, maxLines = 6)
+            if (repo.status.isNotEmpty()) Label(repo.status, 16, WARN, maxLines = 6)
+        }
+        item { Label("Categories: click to hide or show", 18) }
         items(repo.liveCats) { c ->
             Row1((if ("itv:${c.id}" in repo.hidden) "[hidden]  " else "[shown]   ") + "TV   " + c.title,
                 { repo.toggleHide("itv", c.id) })

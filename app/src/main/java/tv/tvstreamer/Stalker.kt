@@ -49,9 +49,17 @@ class Stalker(private val store: Store) {
     private fun candidates(): List<String> {
         var u = store.portal.trim().trimEnd('/')
         if (!u.startsWith("http")) u = "http://$u"
-        val root = if (u.endsWith("/c")) u.removeSuffix("/c") else u
-        return if (root.endsWith(".php")) listOf(root)
-        else listOf("$root/portal.php", "$root/server/load.php")
+        if (u.endsWith(".php")) return listOf(u)
+        val paths = mutableListOf<String>()
+        val bases = mutableListOf(u)
+        if (u.endsWith("/c")) bases.add(u.removeSuffix("/c"))
+        else bases.add("$u/c")
+        for (b in bases.distinct()) {
+            paths.add("$b/portal.php")
+            paths.add("$b/server/load.php")
+            paths.add("$b/stalker_portal/server/load.php")
+        }
+        return paths.distinct()
     }
 
     fun connect() {

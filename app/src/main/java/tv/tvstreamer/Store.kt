@@ -2,8 +2,6 @@ package tv.tvstreamer
 
 import android.content.Context
 import android.content.SharedPreferences
-import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKey
 import org.json.JSONArray
 import java.io.File
 
@@ -11,16 +9,8 @@ class Store(ctx: Context) {
     private val p: SharedPreferences = ctx.getSharedPreferences("data", Context.MODE_PRIVATE)
     private val dir: File = ctx.filesDir
 
-    private val sec: SharedPreferences = try {
-        val mk = MasterKey.Builder(ctx).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build()
-        EncryptedSharedPreferences.create(
-            ctx, "secure", mk,
-            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-        )
-    } catch (e: Exception) {
-        ctx.getSharedPreferences("secure_fallback", Context.MODE_PRIVATE)
-    }
+    // Plain prefs for reliable persistence on Fire Stick / Android TV
+    private val sec: SharedPreferences = ctx.getSharedPreferences("secure", Context.MODE_PRIVATE)
 
     var portal: String
         get() = sec.getString("portal", "") ?: ""
