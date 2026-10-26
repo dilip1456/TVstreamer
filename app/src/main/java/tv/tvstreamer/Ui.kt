@@ -238,6 +238,7 @@ fun Search(repo: Repo, play: (List<Item>, Int) -> Unit) {
         LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             itemsIndexed(live) { i, c -> Row1("LIVE   ${c.name}", { play(live, i) }, onMenu = { repo.toggleFav(c) }) }
             itemsIndexed(vod) { _, m -> Row1("MOVIE   ${m.name}", { play(listOf(m), 0) }, onMenu = { repo.toggleFav(m) }) }
+        }
     }
 }
 
