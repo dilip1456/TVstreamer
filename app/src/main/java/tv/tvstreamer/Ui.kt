@@ -8,6 +8,9 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -123,34 +126,110 @@ fun Home(repo: Repo, go: (Screen) -> Unit, play: (List<Item>, Int) -> Unit, tick
 
 @Composable
 fun Live(repo: Repo, play: (List<Item>, Int) -> Unit) {
-    var sel by remember { mutableStateOf<Cat?>(null) }
+    var group by remember { mutableStateOf(repo.lastLiveCat.ifEmpty { "All" }) }
     var msg by remember { mutableStateOf("") }
     val cats = repo.visibleLive()
-    val list = remember(sel, repo.channels) {
-        sel?.let { c -> repo.channels.filter { it.cat == c.id } } ?: emptyList()
+    val groups = remember(cats) { groupCategories(cats) }
+    val currentGroup = groups.keys.find { it == group } ?: groups.keys.firstOrNull() ?: "All"
+    val groupCats = groups[currentGroup] ?: emptyList()
+    var selCat by remember { mutableStateOf<Cat?>(groupCats.firstOrNull()) }
+    val channels = remember(selCat, repo.channels) {
+        selCat?.let { c -> repo.channels.filter { it.cat == c.id } } ?: emptyList()
     }
-    Row(Modifier.fillMaxSize().padding(24.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-        LazyColumn(Modifier.width(300.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            items(cats) { c ->
-                Row1((if (c.locked) "[lock] " else "") + c.title,
-                    onClick = {
-                        val e = repo.gate(c.locked)
-                        if (e == null) { sel = c; msg = "" } else msg = e
-                    },
-                    onMenu = { repo.toggleHide("itv", c.id) })
+
+    Column(Modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 16.dp)) {
+        Label("Live TV", 28)
+        Spacer(Modifier.height(8.dp))
+        // Language / region groups
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            items(groups.keys.toList()) { g ->
+                Box(
+                    Modifier.tv({ group = g; selCat = groups[g]?.firstOrNull(); repo.lastLiveCat = g })
+                        .background(if (g == currentGroup) Color(0xFF3A6BFF) else Color(0xFF1E1E26), RoundedCornerShape(20.dp))
+                        .padding(horizontal = 18.dp, vertical = 10.dp)
+                ) { Label(g, 16) }
             }
         }
-        Column(Modifier.weight(1f)) {
-            Label("Menu button: favorite a channel, or hide a category", 14, DIM)
-            if (msg.isNotEmpty()) Label(msg, 16, WARN)
-            Spacer(Modifier.height(8.dp))
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                itemsIndexed(list) { i, ch ->
-                    Row1((if (repo.isFav(ch)) "* " else "") + "${ch.num}  ${ch.name}",
-                        onClick = { play(list, i) }, onMenu = { repo.toggleFav(ch) })
+        Spacer(Modifier.height(12.dp))
+        // Categories in this group as large selectable chips
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(groupCats) { c ->
+                val selected = selCat?.id == c.id
+                Box(
+                    Modifier.tv({
+                        val e = repo.gate(c.locked)
+                        if (e == null) { selCat = c; msg = "" } else msg = e
+                    }, onMenu = { repo.toggleHide("itv", c.id) })
+                        .background(if (selected) Color(0xFF2A4A9F) else Color(0xFF1A1A22), RoundedCornerShape(12.dp))
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                ) { Label((if (c.locked) "🔒 " else "") + c.title, 15) }
+            }
+        }
+        if (msg.isNotEmpty()) { Spacer(Modifier.height(6.dp)); Label(msg, 14, WARN) }
+        Spacer(Modifier.height(12.dp))
+        // Netflix-style grid of channel thumbnails
+        if (channels.isEmpty()) {
+            Label("Select a category", 16, DIM)
+        } else {
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(minSize = 180.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                itemsIndexed(channels) { i, ch ->
+                    ChannelCard(ch, repo.isFav(ch), {
+                        repo.lastLiveIndex = i
+                        play(channels, i)
+                    }, { repo.toggleFav(ch) })
                 }
             }
         }
+    }
+}
+
+private fun groupCategories(cats: List<Cat>): Map<String, List<Cat>> {
+    val order = listOf("English", "Indian", "Spanish", "Portuguese", "French", "Arabic", "Asian", "European", "African", "Other")
+    val map = mutableMapOf<String, MutableList<Cat>>()
+    for (c in cats) {
+        val t = c.title.uppercase()
+        val g = when {
+            "ENGLISH" in t || "UK" in t || "USA" in t || "US " in t || "CANADA" in t || "AUSTRALIA" in t -> "English"
+            "HINDI" in t || "KANNADA" in t || "TAMIL" in t || "TELUGU" in t || "MALAYALAM" in t ||
+            "PUNJABI" in t || "BENGALI" in t || "MARATHI" in t || "GUJARATI" in t || "INDIAN" in t || "INDIA" in t -> "Indian"
+            "SPANISH" in t || "ESPAÑOL" in t || "MEXICO" in t || "ARGENTINA" in t || "COLOMBIA" in t ||
+            "CHILE" in t || "PERU" in t || "ECUADOR" in t || "PARAGUAY" in t -> "Spanish"
+            "PORTUGUESE" in t || "BRASIL" in t || "BRAZIL" in t || "PORTUGAL" in t -> "Portuguese"
+            "FRENCH" in t || "FRANCE" in t -> "French"
+            "ARABIC" in t || "ARAB" in t -> "Arabic"
+            "CHINESE" in t || "JAPAN" in t || "KOREA" in t || "FILIPINO" in t || "THAI" in t || "VIET" in t -> "Asian"
+            "POLISH" in t || "GERMAN" in t || "ITALIAN" in t || "DUTCH" in t || "RUSSIAN" in t || "TURK" in t || "GREEK" in t -> "European"
+            "AFRICAN" in t || "AFRICA" in t -> "African"
+            else -> "Other"
+        }
+        map.getOrPut(g) { mutableListOf() }.add(c)
+    }
+    return order.filter { it in map }.associateWith { map[it]!! }
+}
+
+@Composable
+private fun ChannelCard(ch: Item, fav: Boolean, onClick: () -> Unit, onMenu: () -> Unit) {
+    val hue = (ch.name.hashCode() and 0xFFFFFF) % 360
+    val bg = Color.hsl(hue.toFloat(), 0.45f, 0.28f)
+    Column(
+        Modifier.width(170.dp).tv(onClick, onMenu).padding(10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(
+            Modifier.size(140.dp, 90.dp).background(bg, RoundedCornerShape(8.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            Label(ch.name.take(2).uppercase(), 28)
+            if (fav) Label("★", 16, Color.Yellow, Modifier.align(Alignment.TopEnd).padding(4.dp))
+        }
+        Spacer(Modifier.height(6.dp))
+        Label(ch.name, 13, maxLines = 2)
+        if (ch.num > 0) Label("#${ch.num}", 11, DIM)
     }
 }
 
@@ -451,7 +530,7 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int) {
         AndroidView(
             factory = {
                 PlayerView(it).apply {
-                    useController = false
+                    useController = true
                     keepScreenOn = true
                     isFocusable = false
                     isFocusableInTouchMode = false
@@ -460,14 +539,34 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int) {
             },
             modifier = Modifier.fillMaxSize()
         )
-        if (showHud || err.isNotEmpty()) {
+        var menu by remember { mutableStateOf(false) }
+        var fit by remember { mutableStateOf("fit") }
+        if (showHud || err.isNotEmpty() || menu) {
             Column(
                 Modifier.align(Alignment.BottomStart).fillMaxWidth()
                     .background(Color(0xAA000000)).padding(20.dp)
             ) {
                 Label(item.name, 22)
+                Label("Menu = options", 12, DIM)
                 if (item.kind == "vod") Label("${fmt(pos)} / ${fmt(dur)}", 16, DIM)
                 if (err.isNotEmpty()) Label(err, 18, Color(0xFFFF8A80))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row1("Menu", { menu = !menu }, Modifier.width(120.dp))
+                    Row1("Fav", { repo.toggleFav(item) }, Modifier.width(100.dp))
+                    Row1("Back", { menu = false }, Modifier.width(100.dp))
+                }
+            }
+        }
+        if (menu) {
+            Column(
+                Modifier.align(Alignment.Center).background(Color(0xDD111118), RoundedCornerShape(12.dp)).padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Label("Channel options", 20)
+                Row1("Fit to screen", { fit = "fit"; menu = false })
+                Row1("Stretch / fill", { fit = "fill"; menu = false })
+                Row1(if (repo.isFav(item)) "Remove favorite" else "Add favorite", { repo.toggleFav(item); menu = false })
+                Row1("Close menu", { menu = false })
             }
         }
     }

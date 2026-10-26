@@ -157,29 +157,31 @@ class Stalker(private val store: Store) {
     }
 
     fun link(i: Item): String {
-        val cmd = i.cmd.ifEmpty { "/media/${i.id}.mpg" }
-        val q = "type=${i.kind}&action=create_link&cmd=${enc(cmd)}&series=&forced_storage=&disable_ad=0&download=0&force_ch_link_check=0"
-        val resp = call(q)
-        val js = resp.opt("js")
-        var raw = when (js) {
-            is JSONObject -> js.optString("cmd").ifEmpty { js.optString("url") }.ifEmpty { js.optString("link") }
-            is String -> js
-            else -> ""
+        val candidates = mutableListOf<String>()
+        if (i.cmd.isNotEmpty()) candidates += i.cmd
+        if (i.kind == "vod") {
+            candidates += "/media/${i.id}.mpg"
+            candidates += "ffmpeg /media/${i.id}.mpg"
         }
-        // Strip common Stalker prefixes
-        raw = raw.trim()
-            .removePrefix("ffmpeg ")
-            .removePrefix("ffrt ")
-            .removePrefix("ffrt2 ")
-            .removePrefix("ffrt3 ")
-            .removePrefix("ffrt4 ")
-            .trim()
-        // Take the last token if there are still spaces
-        if (raw.contains(" ")) raw = raw.substringAfterLast(" ").trim()
-        if (raw.isEmpty() || !raw.startsWith("http")) {
-            val snippet = resp.toString().take(200)
-            throw IllegalStateException("No stream link. Portal said: $snippet")
+        var lastResp = ""
+        for (cmd in candidates.distinct()) {
+            try {
+                val q = "type=${i.kind}&action=create_link&cmd=${enc(cmd)}&series=0&forced_storage=&disable_ad=0&download=0&force_ch_link_check=0"
+                val resp = call(q)
+                lastResp = resp.toString().take(180)
+                val js = resp.opt("js")
+                var raw = when (js) {
+                    is JSONObject -> js.optString("cmd").ifEmpty { js.optString("url") }.ifEmpty { js.optString("link") }
+                    is String -> js
+                    else -> ""
+                }
+                raw = raw.trim()
+                    .removePrefix("ffmpeg ").removePrefix("ffrt ").removePrefix("ffrt2 ")
+                    .removePrefix("ffrt3 ").removePrefix("ffrt4 ").trim()
+                if (raw.contains(" ")) raw = raw.substringAfterLast(" ").trim()
+                if (raw.startsWith("http")) return raw
+            } catch (_: Exception) {}
         }
-        return raw
+        throw IllegalStateException("No stream link. Portal said: $lastResp")
     }
 }

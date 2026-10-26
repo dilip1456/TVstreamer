@@ -25,6 +25,8 @@ class Repo(ctx: Context) {
     var status by mutableStateOf("")
     var hidden by mutableStateOf(store.hidden)
     var favs by mutableStateOf(store.list("fav"))
+    var lastLiveCat by mutableStateOf("")
+    var lastLiveIndex by mutableStateOf(0)
 
     private fun setLive(lc: List<Cat>, ch: List<Item>) {
         val lockedIds = lc.filter { it.locked }.map { it.id }.toSet()
