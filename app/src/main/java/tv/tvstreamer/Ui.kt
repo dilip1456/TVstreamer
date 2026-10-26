@@ -152,8 +152,10 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit) {
     }
 
     var menuTarget by remember { mutableStateOf<Any?>(null) }
+    var asList by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().padding(horizontal = if (LocalContext.current.resources.configuration.smallestScreenWidthDp >= 600) 32.dp else 12.dp, vertical = 12.dp)) {
         Label("Live TV", 28)
+        Row1(if (asList) "Show as icons" else "Show as list", { asList = !asList }, Modifier.width(180.dp))
         val favItems = repo.favs
         if (favItems.isNotEmpty()) {
             Spacer(Modifier.height(6.dp))
@@ -209,17 +211,28 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit) {
         if (channels.isEmpty()) {
             Label("Select a category", 16, DIM)
         } else {
-            LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 180.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.fillMaxSize()
-            ) {
-                itemsIndexed(channels) { i, ch ->
-                    ChannelCard(ch, repo.isFav(ch), {
-                        repo.lastLiveIndex = i
-                        play(channels, i)
-                    }, { menuTarget = ch })
+            if (asList) {
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    itemsIndexed(channels) { i, ch ->
+                        Row1((if (repo.isFav(ch)) "★ " else "") + ch.name, {
+                            repo.lastLiveIndex = i
+                            play(channels, i)
+                        }, onMenu = { menuTarget = ch })
+                    }
+                }
+            } else {
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(minSize = 160.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    itemsIndexed(channels) { i, ch ->
+                        ChannelCard(ch, repo.isFav(ch), {
+                            repo.lastLiveIndex = i
+                            play(channels, i)
+                        }, { menuTarget = ch })
+                    }
                 }
             }
         }
@@ -630,31 +643,42 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int) {
         AndroidView(
             factory = {
                 PlayerView(it).apply {
-                    useController = true
+                    useController = item.kind != "itv"
                     keepScreenOn = true
                     isFocusable = false
                     isFocusableInTouchMode = false
                     player = exo
                 }
             },
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier.fillMaxSize().padding(bottom = if (item.kind == "itv") 56.dp else 0.dp)
         )
         var menu by remember { mutableStateOf(false) }
         var fit by remember { mutableStateOf("fit") }
-        if (showHud || err.isNotEmpty() || menu) {
+        // Error overlay
+        if (err.isNotEmpty()) {
+            Label(err, 16, Color(0xFFFF8A80), Modifier.align(Alignment.Center).padding(16.dp), maxLines = 4)
+        }
+        // Thin bottom bar for live
+        if (item.kind == "itv") {
+            Row(
+                Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(52.dp)
+                    .background(Color(0xCC000000)).padding(horizontal = 8.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                val fav = repo.isFav(item)
+                Row1(if (fav) "★ Fav" else "☆ Fav", { repo.toggleFav(item) }, Modifier.weight(1f))
+                Row1(if (exo.isPlaying) "Pause" else "Resume", { exo.playWhenReady = !exo.playWhenReady }, Modifier.weight(1f))
+                Row1("Fit", { fit = if (fit == "fit") "fill" else "fit" }, Modifier.weight(1f))
+                Row1("Hide", { repo.toggleHide("itv", item.cat); menu = false }, Modifier.weight(1f))
+            }
+        } else if (showHud || menu) {
             Column(
                 Modifier.align(Alignment.BottomStart).fillMaxWidth()
-                    .background(Color(0xAA000000)).padding(20.dp)
+                    .background(Color(0xAA000000)).padding(16.dp)
             ) {
-                Label(item.name, 22)
-                Label("Menu = options", 12, DIM)
-                if (item.kind == "vod") Label("${fmt(pos)} / ${fmt(dur)}", 16, DIM)
-                if (err.isNotEmpty()) Label(err, 18, Color(0xFFFF8A80))
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row1("Menu", { menu = !menu }, Modifier.width(120.dp))
-                    Row1("Fav", { repo.toggleFav(item) }, Modifier.width(100.dp))
-                    Row1("Back", { menu = false }, Modifier.width(100.dp))
-                }
+                Label(item.name, 20)
+                if (err.isNotEmpty()) Label(err, 16, Color(0xFFFF8A80))
             }
         }
         if (menu) {

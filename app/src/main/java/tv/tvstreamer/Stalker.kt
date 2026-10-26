@@ -174,11 +174,15 @@ class Stalker(private val store: Store) {
     }
 
     fun link(i: Item): String {
+        // If cmd is already a full URL, use it directly
+        val rawCmd = i.cmd.trim().removePrefix("ffmpeg ").removePrefix("ffrt ").trim()
+        if (rawCmd.startsWith("http")) return rawCmd
         val candidates = mutableListOf<String>()
         if (i.cmd.isNotEmpty()) candidates += i.cmd
         if (i.kind == "vod") {
             candidates += "/media/${i.id}.mpg"
             candidates += "ffmpeg /media/${i.id}.mpg"
+            candidates += i.id
         }
         var lastResp = ""
         for (cmd in candidates.distinct()) {
