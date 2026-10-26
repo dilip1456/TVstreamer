@@ -6,6 +6,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -142,7 +143,9 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit) {
     val groups = remember(cats) { groupCategories(cats) }
     val currentGroup = groups.keys.find { it == group } ?: groups.keys.firstOrNull() ?: "All"
     val groupCats = groups[currentGroup] ?: emptyList()
-    var selCat by remember { mutableStateOf<Cat?>(groupCats.firstOrNull()) }
+    var selCat by remember {
+        mutableStateOf(groupCats.find { it.id == repo.lastLiveCatId } ?: groupCats.firstOrNull())
+    }
     val channels = remember(selCat, repo.channels) {
         selCat?.let { c -> repo.channels.filter { it.cat == c.id } } ?: emptyList()
     }
@@ -168,7 +171,7 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit) {
                 Box(
                     Modifier.tv({
                         val e = repo.gate(c.locked)
-                        if (e == null) { selCat = c; msg = "" } else msg = e
+                        if (e == null) { selCat = c; repo.lastLiveCatId = c.id; msg = "" } else msg = e
                     }, onMenu = { repo.toggleHide("itv", c.id) })
                         .background(if (selected) Color(0xFF2A4A9F) else Color(0xFF1A1A22), RoundedCornerShape(12.dp))
                         .padding(horizontal = 16.dp, vertical = 8.dp)
@@ -596,6 +599,10 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int) {
                 Row1("Fit to screen", { fit = "fit"; menu = false })
                 Row1("Stretch / fill", { fit = "fill"; menu = false })
                 Row1(if (repo.isFav(item)) "Remove favorite" else "Add favorite", { repo.toggleFav(item); menu = false })
+                Row1("Move to My Channels", {
+                    repo.moveToCustom(item, "My Channels")
+                    menu = false
+                })
                 Row1("Close menu", { menu = false })
             }
         }

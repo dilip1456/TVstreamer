@@ -27,6 +27,8 @@ class Repo(ctx: Context) {
     var favs by mutableStateOf(store.list("fav"))
     var lastLiveCat by mutableStateOf("")
     var lastLiveIndex by mutableStateOf(0)
+    var lastLiveCatId by mutableStateOf("")
+    var customCats by mutableStateOf(store.customCats())
 
     private fun setLive(lc: List<Cat>, ch: List<Item>) {
         val lockedIds = lc.filter { it.locked }.map { it.id }.toSet()
@@ -73,6 +75,10 @@ class Repo(ctx: Context) {
     }
 
     fun isFav(i: Item) = favs.any { it.key == i.key }
+    fun moveToCustom(i: Item, catName: String) {
+        store.addToCustom(catName, i)
+        customCats = store.customCats()
+    }
     fun toggleFav(i: Item) {
         favs = if (isFav(i)) favs.filter { it.key != i.key } else favs + i
         store.saveList("fav", favs)

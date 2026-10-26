@@ -116,6 +116,22 @@ class Store(ctx: Context) {
         return out
     }
 
+    fun customCats(): Map<String, List<Item>> {
+        val raw = p.getString("custom_cats", "{}") ?: "{}"
+        return try {
+            val o = org.json.JSONObject(raw)
+            o.keys().asSequence().associateWith { k -> o.getJSONArray(k).toItems() }
+        } catch (_: Exception) { emptyMap() }
+    }
+    fun addToCustom(name: String, item: Item) {
+        val m = customCats().toMutableMap()
+        val list = m.getOrPut(name) { emptyList() }.toMutableList()
+        if (list.none { it.key == item.key }) list += item
+        m[name] = list
+        val o = org.json.JSONObject()
+        m.forEach { (k, v) -> o.put(k, itemsJson(v)) }
+        p.edit().putString("custom_cats", o.toString()).apply()
+    }
     fun clearHistory() { p.edit().remove("recent").remove("resume").apply() }
 
     fun cacheWrite(name: String, text: String) { runCatching { File(dir, name).writeText(text) } }
