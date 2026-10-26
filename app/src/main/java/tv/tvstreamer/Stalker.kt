@@ -153,9 +153,29 @@ class Stalker(private val store: Store) {
     }
 
     fun link(i: Item): String {
-        val q = "type=${i.kind}&action=create_link&cmd=${enc(i.cmd)}&series=&forced_storage=&disable_ad=0&download=0&force_ch_link_check=0"
-        val u = call(q).getJSONObject("js").optString("cmd").removePrefix("ffmpeg ").trim()
-        if (u.isEmpty()) throw IllegalStateException("Portal returned no stream link")
-        return u
+        val cmd = i.cmd.ifEmpty { "/media/${i.id}.mpg" }
+        val q = "type=${i.kind}&action=create_link&cmd=${enc(cmd)}&series=&forced_storage=&disable_ad=0&download=0&force_ch_link_check=0"
+        val resp = call(q)
+        val js = resp.opt("js")
+        var raw = when (js) {
+            is JSONObject -> js.optString("cmd").ifEmpty { js.optString("url") }.ifEmpty { js.optString("link") }
+            is String -> js
+            else -> ""
+        }
+        // Strip common Stalker prefixes
+        raw = raw.trim()
+            .removePrefix("ffmpeg ")
+            .removePrefix("ffrt ")
+            .removePrefix("ffrt2 ")
+            .removePrefix("ffrt3 ")
+            .removePrefix("ffrt4 ")
+            .trim()
+        // Take the last token if there are still spaces
+        if (raw.contains(" ")) raw = raw.substringAfterLast(" ").trim()
+        if (raw.isEmpty() || !raw.startsWith("http")) {
+            val snippet = resp.toString().take(200)
+            throw IllegalStateException("No stream link. Portal said: $snippet")
+        }
+        return raw
     }
 }

@@ -92,7 +92,7 @@ fun Home(repo: Repo, go: (Screen) -> Unit, play: (List<Item>, Int) -> Unit, tick
     val recent = remember(tick) { repo.store.list("recent") }
     val favs = repo.favs.filter { !it.locked }
     Column(Modifier.fillMaxSize().padding(32.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-        Label("TVStreamer v1.6", 28)
+        Label("TVStreamer v1.7", 28)
         if (repo.status.isNotEmpty()) Label(repo.status, 16, WARN, maxLines = 4)
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             val tabs = listOf<Pair<String, Screen>>(
