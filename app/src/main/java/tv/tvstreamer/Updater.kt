@@ -20,6 +20,7 @@ object Updater {
     private const val APK_NAME = "tvstreamer.apk"
 
     suspend fun checkAndUpdate(ctx: Context, currentCode: Int): String = withContext(Dispatchers.IO) {
+        val currentName = try { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName ?: "" } catch (e: Exception) { "" }
         try {
             val req = Request.Builder()
                 .url("https://api.github.com/repos/$REPO/releases/latest")
@@ -39,8 +40,12 @@ object Updater {
                     }
                 }
                 if (downloadUrl.isNullOrEmpty()) return@withContext "No APK in latest release"
-                val remote = tag.removePrefix("build-").toIntOrNull() ?: 0
-                if (remote <= currentCode) return@withContext "Up to date (installed code $currentCode)"
+                val remoteName = tag.removePrefix("v").removePrefix("build-")
+                val remoteCode = remoteName.substringBefore(".").toIntOrNull() ?: remoteName.toIntOrNull() ?: 0
+                // Prefer name match; fall back to code. Don't reinstall same version.
+                if (remoteName == currentName || remoteCode <= currentCode) {
+                    return@withContext "Up to date ($currentName / code $currentCode)"
+                }
 
                 val file = File(ctx.cacheDir, "update.apk")
                 val dReq = Request.Builder().url(downloadUrl).build()

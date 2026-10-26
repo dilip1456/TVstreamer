@@ -18,10 +18,16 @@ jobs:
         with:
           gradle-version: 8.7
       - run: gradle assembleDebug --no-daemon
+      - id: ver
+        run: |
+          CODE=$(grep -oP 'versionCode = \K[0-9]+' app/build.gradle.kts)
+          NAME=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)
+          echo "code=$CODE" >> $GITHUB_OUTPUT
+          echo "name=$NAME" >> $GITHUB_OUTPUT
       - run: cp app/build/outputs/apk/debug/app-debug.apk tvstreamer.apk
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: build-${{ github.run_number }}
-          name: Build ${{ github.run_number }}
+          tag_name: v${{ steps.ver.outputs.name }}
+          name: TVStreamer ${{ steps.ver.outputs.name }} (code ${{ steps.ver.outputs.code }})
           make_latest: true
           files: tvstreamer.apk

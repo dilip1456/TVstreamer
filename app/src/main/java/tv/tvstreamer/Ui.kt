@@ -65,7 +65,7 @@ fun Label(text: String, size: Int = 18, color: Color = Color.White, modifier: Mo
 
 @Composable
 fun Row1(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, onMenu: (() -> Unit)? = null) {
-    Box(modifier.fillMaxWidth().tv(onClick, onMenu).padding(horizontal = 14.dp, vertical = 12.dp)) {
+    Box(modifier.fillMaxWidth().tv(onClick, onMenu).padding(horizontal = 12.dp, vertical = 8.dp)) {
         Label(text)
     }
 }
@@ -263,8 +263,8 @@ fun SettingsScreen(repo: Repo) {
     val statusText = note.ifEmpty { repo.status }
 
     LazyColumn(
-        Modifier.fillMaxSize().padding(horizontal = 72.dp, vertical = 36.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        Modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         item { Label("Settings", 32) }
         if (statusText.isNotEmpty()) {
@@ -320,20 +320,21 @@ fun SettingsScreen(repo: Repo) {
 
 @Composable
 fun SettingField(label: String, value: String, password: Boolean = false, onChange: (String) -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Label(label, 16, DIM)
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Label(label, 13, DIM)
         TextField(
             value = value,
             onValueChange = onChange,
             singleLine = true,
             visualTransformation = if (password) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().height(48.dp),
             colors = androidx.compose.material3.TextFieldDefaults.colors(
                 focusedContainerColor = Color(0xFF1E1E26),
                 unfocusedContainerColor = Color(0xFF1A1A22),
                 focusedTextColor = Color.White,
                 unfocusedTextColor = Color.White
-            )
+            ),
+            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp)
         )
     }
 }
