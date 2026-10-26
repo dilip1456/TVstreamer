@@ -152,6 +152,18 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit) {
 
     Column(Modifier.fillMaxSize().padding(horizontal = if (LocalContext.current.resources.configuration.smallestScreenWidthDp >= 600) 32.dp else 12.dp, vertical = 12.dp)) {
         Label("Live TV", 28)
+        if (repo.customCats.isNotEmpty()) {
+            Spacer(Modifier.height(6.dp))
+            repo.customCats.forEach { (name, items) ->
+                Label(name, 16, DIM)
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    itemsIndexed(items) { i, ch ->
+                        ChannelCard(ch, repo.isFav(ch), { play(items, i) }, { repo.toggleFav(ch) })
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+        }
         Spacer(Modifier.height(8.dp))
         // Language / region groups
         LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
