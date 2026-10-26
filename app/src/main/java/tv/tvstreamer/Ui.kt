@@ -148,7 +148,8 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit) {
     var selCat by remember {
         mutableStateOf(groupCats.find { it.id == repo.lastLiveCatId } ?: groupCats.firstOrNull())
     }
-    val channels = remember(selCat, repo.channels) {
+    var sortAz by remember { mutableStateOf(false) }
+    val channels = remember(selCat, repo.channels, sortAz) {
         selCat?.let { c -> repo.channels.filter { it.cat == c.id && !repo.isChannelHidden(it) }.let { if (sortAz) it.sortedBy { ch -> ch.name } else it } } ?: emptyList()
     }
 
@@ -156,7 +157,6 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit) {
     var asList by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().padding(horizontal = if (LocalContext.current.resources.configuration.smallestScreenWidthDp >= 600) 32.dp else 12.dp, vertical = 12.dp)) {
         Label("Live TV", 28)
-        var sortAz by remember { mutableStateOf(false) }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Row1(if (asList) "Icons" else "List", { asList = !asList }, Modifier.width(100.dp))
             Row1(if (sortAz) "A-Z" else "Default", { sortAz = !sortAz }, Modifier.width(100.dp))
