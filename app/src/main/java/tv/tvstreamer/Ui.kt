@@ -247,11 +247,16 @@ fun SettingsScreen(repo: Repo) {
     val scope = rememberCoroutineScope()
     val keyboard = LocalSoftwareKeyboardController.current
     var portal by remember { mutableStateOf(s.portal) }
-    LaunchedEffect(Unit) { portal = s.portal; mac = s.mac; serial = s.serial; pw = s.password }
     var mac by remember { mutableStateOf(s.mac) }
     var serial by remember { mutableStateOf(s.serial) }
     var pw by remember { mutableStateOf(s.password) }
     var note by remember { mutableStateOf("") }
+    LaunchedEffect(Unit) {
+        portal = s.portal
+        mac = s.mac
+        serial = s.serial
+        pw = s.password
+    }
     val statusText = note.ifEmpty { repo.status }
 
     LazyColumn(
@@ -311,7 +316,7 @@ fun SettingsScreen(repo: Repo) {
 }
 
 @Composable
-private fun SettingField(label: String, value: String, password: Boolean = false, onChange: (String) -> Unit) {
+fun SettingField(label: String, value: String, password: Boolean = false, onChange: (String) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Label(label, 16, DIM)
         TextField(
@@ -327,11 +332,6 @@ private fun SettingField(label: String, value: String, password: Boolean = false
                 unfocusedTextColor = Color.White
             )
         )
-    }
-}
-
-", c.id) })
-        }
     }
 }
 
