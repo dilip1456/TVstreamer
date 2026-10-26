@@ -747,7 +747,7 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int) {
             .pointerInput(list.size) {
                 detectVerticalDragGestures(
                     onDragEnd = {
-                        if (item.kind == "itv" && list.size > 1) {
+                        if (list.size > 1) {
                             if (drag < -100) idx = (idx + 1) % list.size
                             else if (drag > 100) idx = (idx - 1 + list.size) % list.size
                         }
@@ -762,11 +762,11 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int) {
                 val live = item.kind == "itv"
                 when (e.key) {
                     Key.DirectionUp, Key.ChannelUp -> {
-                        if (live && list.size > 1) idx = (idx + 1) % list.size
+                        if (list.size > 1) idx = (idx + 1) % list.size
                         hud++; true
                     }
                     Key.DirectionDown, Key.ChannelDown -> {
-                        if (live && list.size > 1) idx = (idx - 1 + list.size) % list.size
+                        if (list.size > 1) idx = (idx - 1 + list.size) % list.size
                         hud++; true
                     }
                     Key.DirectionLeft -> {

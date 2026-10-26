@@ -155,22 +155,62 @@ class Stalker(private val store: Store) {
         return items to (page * per < total)
     }
 
-    /** For a series (num == -1), return its episodes as playable items. */
+    /** Dig into a series and return a flat list of all episodes across seasons. */
     fun seasons(seriesId: String): List<Item> {
-        val resp = call("type=vod&action=get_ordered_list&movie_id=$seriesId&season_id=0&episode_id=0")
-        val js = resp.opt("js")
-        val a = when (js) {
-            is JSONObject -> js.optJSONArray("data") ?: JSONArray()
-            is JSONArray -> js
-            else -> JSONArray()
+        val out = mutableListOf<Item>()
+        // Try a few ways to get seasons/episodes
+        val queries = listOf(
+            "type=vod&action=get_ordered_list&movie_id=$seriesId",
+            "type=vod&action=get_ordered_list&movie_id=$seriesId&season_id=0&episode_id=0",
+            "type=vod&action=get_seasons&movie_id=$seriesId"
+        )
+        for (q in queries) {
+            try {
+                val resp = call(q)
+                val js = resp.opt("js")
+                val a = when (js) {
+                    is JSONObject -> js.optJSONArray("data") ?: js.optJSONArray("seasons") ?: JSONArray()
+                    is JSONArray -> js
+                    else -> JSONArray()
+                }
+                if (a.length() == 0) continue
+                for (i in 0 until a.length()) {
+                    val o = a.optJSONObject(i) ?: continue
+                    val sid = o.optString("id").ifEmpty { o.optString("season_id") }
+                    val sname = o.optString("name").ifEmpty { "Season ${i + 1}" }
+                    val isSeason = o.optInt("is_season") == 1 || o.has("season_id") || sname.contains("Season", true)
+                    if (isSeason && sid.isNotEmpty()) {
+                        // Dig into this season for episodes
+                        try {
+                            val epResp = call("type=vod&action=get_ordered_list&movie_id=$seriesId&season_id=$sid")
+                            val epJs = epResp.opt("js")
+                            val eps = when (epJs) {
+                                is JSONObject -> epJs.optJSONArray("data") ?: JSONArray()
+                                is JSONArray -> epJs
+                                else -> JSONArray()
+                            }
+                            for (e in 0 until eps.length()) {
+                                val ep = eps.optJSONObject(e) ?: continue
+                                val eid = ep.optString("id").ifEmpty { "$seriesId:$sid:$e" }
+                                val ename = ep.optString("name").ifEmpty { "Episode ${e + 1}" }
+                                out += Item("vod", eid, "$sname - $ename",
+                                    ep.optString("cmd").ifEmpty { "/media/$eid.mpg" },
+                                    ep.optString("category_id"), out.size + 1, false)
+                            }
+                        } catch (_: Exception) {}
+                    } else {
+                        // Direct episode
+                        val eid = sid.ifEmpty { seriesId }
+                        val ename = sname.ifEmpty { "Episode ${i + 1}" }
+                        out += Item("vod", eid, ename,
+                            o.optString("cmd").ifEmpty { "/media/$eid.mpg" },
+                            o.optString("category_id"), out.size + 1, false)
+                    }
+                }
+                if (out.isNotEmpty()) break
+            } catch (_: Exception) {}
         }
-        return (0 until a.length()).mapNotNull { i ->
-            val o = a.optJSONObject(i) ?: return@mapNotNull null
-            val id = o.optString("id").ifEmpty { seriesId }
-            val name = o.optString("name").ifEmpty { "Episode ${i + 1}" }
-            Item("vod", id, name, o.optString("cmd").ifEmpty { "/media/$id.mpg" },
-                o.optString("category_id"), i + 1, false)
-        }
+        return out
     }
 
     fun link(i: Item): String {
