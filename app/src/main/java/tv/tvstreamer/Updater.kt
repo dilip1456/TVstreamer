@@ -41,10 +41,10 @@ object Updater {
                 }
                 if (downloadUrl.isNullOrEmpty()) return@withContext "No APK in latest release"
                 val remoteName = tag.removePrefix("v").removePrefix("build-")
-                val remoteCode = remoteName.substringBefore(".").toIntOrNull() ?: remoteName.toIntOrNull() ?: 0
-                // Prefer name match; fall back to code. Don't reinstall same version.
-                if (remoteName == currentName || remoteCode <= currentCode) {
-                    return@withContext "Up to date ($currentName / code $currentCode)"
+                // Compare dotted versions properly (1.22 > 1.21)
+                fun verNum(s: String): Int = s.split(".").mapNotNull { it.toIntOrNull() }.fold(0) { acc, n -> acc * 100 + n }
+                if (remoteName == currentName || verNum(remoteName) <= verNum(currentName)) {
+                    return@withContext "Up to date (v$currentName)"
                 }
 
                 val file = File(ctx.cacheDir, "update.apk")

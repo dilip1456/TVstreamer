@@ -153,6 +153,17 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit) {
     var menuTarget by remember { mutableStateOf<Any?>(null) }
     Column(Modifier.fillMaxSize().padding(horizontal = if (LocalContext.current.resources.configuration.smallestScreenWidthDp >= 600) 32.dp else 12.dp, vertical = 12.dp)) {
         Label("Live TV", 28)
+        val favItems = repo.favs
+        if (favItems.isNotEmpty()) {
+            Spacer(Modifier.height(6.dp))
+            Label("Favorites", 16, Color(0xFFFFD54F))
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                itemsIndexed(favItems) { i, ch ->
+                    ChannelCard(ch, true, { play(favItems, i) }, { menuTarget = ch })
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+        }
         if (repo.customCats.isNotEmpty()) {
             Spacer(Modifier.height(6.dp))
             repo.customCats.forEach { (name, items) ->
