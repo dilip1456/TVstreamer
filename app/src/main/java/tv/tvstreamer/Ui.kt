@@ -398,22 +398,37 @@ fun SettingsScreen(repo: Repo) {
 
 @Composable
 fun SettingField(label: String, value: String, password: Boolean = false, onChange: (String) -> Unit) {
+    var editing by remember { mutableStateOf(false) }
+    val fr = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Label(label, 13, DIM)
-        TextField(
-            value = value,
-            onValueChange = onChange,
-            singleLine = true,
-            visualTransformation = if (password) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
-            modifier = Modifier.fillMaxWidth().height(48.dp),
-            colors = androidx.compose.material3.TextFieldDefaults.colors(
-                focusedContainerColor = Color(0xFF1E1E26),
-                unfocusedContainerColor = Color(0xFF1A1A22),
-                focusedTextColor = Color.White,
-                unfocusedTextColor = Color.White
-            ),
-            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp)
-        )
+        if (editing) {
+            TextField(
+                value = value,
+                onValueChange = onChange,
+                singleLine = true,
+                visualTransformation = if (password) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
+                modifier = Modifier.fillMaxWidth().height(48.dp).focusRequester(fr)
+                    .onFocusChanged { if (!it.isFocused) { editing = false; keyboard?.hide() } },
+                colors = androidx.compose.material3.TextFieldDefaults.colors(
+                    focusedContainerColor = Color(0xFF1E1E26),
+                    unfocusedContainerColor = Color(0xFF1A1A22),
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White
+                ),
+                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp)
+            )
+            LaunchedEffect(Unit) { fr.requestFocus(); keyboard?.show() }
+        } else {
+            Box(
+                Modifier.fillMaxWidth().height(48.dp)
+                    .tv({ editing = true })
+                    .padding(horizontal = 12.dp, vertical = 12.dp)
+            ) {
+                Label(if (password && value.isNotEmpty()) "••••••••" else value.ifEmpty { "Tap to enter" }, 14, if (value.isEmpty()) DIM else Color.White)
+            }
+        }
     }
 }
 

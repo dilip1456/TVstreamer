@@ -10,8 +10,8 @@ android {
         applicationId = "tv.tvstreamer"
         minSdk = 23
         targetSdk = 34
-        versionCode = 15
-        versionName = "1.15"
+        versionCode = 16
+        versionName = "1.16"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
