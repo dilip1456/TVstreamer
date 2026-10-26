@@ -42,6 +42,7 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
+import androidx.media3.ui.AspectRatioFrameLayout
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -787,11 +788,12 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int) {
         AndroidView(
             factory = {
                 PlayerView(it).apply {
-                    useController = item.kind != "itv"
+                    useController = item.kind != "itv" && !fullScreen
                     keepScreenOn = true
                     isFocusable = false
                     isFocusableInTouchMode = false
                     player = exo
+                    resizeMode = if (item.kind == "vod") AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT
                 }
             },
             modifier = Modifier.fillMaxSize()
@@ -799,7 +801,7 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int) {
         var menu by remember { mutableStateOf(false) }
         var fit by remember { mutableStateOf("fit") }
         var barPos by remember { mutableStateOf("bottom") } // bottom, left, right
-        var fullScreen by remember { mutableStateOf(false) }
+        var fullScreen by remember { mutableStateOf(item.kind == "vod") }
         // Error overlay
         if (err.isNotEmpty()) {
             Label(err, 16, Color(0xFFFF8A80), Modifier.align(Alignment.Center).padding(16.dp), maxLines = 4)
@@ -849,7 +851,7 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int) {
                 }
             }
         }
-        if (fullScreen && item.kind == "itv") {
+        if (fullScreen) {
             Box(Modifier.align(Alignment.TopEnd).padding(12.dp).tv({ fullScreen = false })) {
                 Label("Exit full", 14, Color.White)
             }
