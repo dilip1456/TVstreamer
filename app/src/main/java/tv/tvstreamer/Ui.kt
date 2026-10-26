@@ -148,14 +148,18 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit) {
         mutableStateOf(groupCats.find { it.id == repo.lastLiveCatId } ?: groupCats.firstOrNull())
     }
     val channels = remember(selCat, repo.channels) {
-        selCat?.let { c -> repo.channels.filter { it.cat == c.id && !repo.isChannelHidden(it) } } ?: emptyList()
+        selCat?.let { c -> repo.channels.filter { it.cat == c.id && !repo.isChannelHidden(it) }.let { if (sortAz) it.sortedBy { ch -> ch.name } else it } } ?: emptyList()
     }
 
     var menuTarget by remember { mutableStateOf<Any?>(null) }
     var asList by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().padding(horizontal = if (LocalContext.current.resources.configuration.smallestScreenWidthDp >= 600) 32.dp else 12.dp, vertical = 12.dp)) {
         Label("Live TV", 28)
-        Row1(if (asList) "Show as icons" else "Show as list", { asList = !asList }, Modifier.width(180.dp))
+        var sortAz by remember { mutableStateOf(false) }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row1(if (asList) "Icons" else "List", { asList = !asList }, Modifier.width(100.dp))
+            Row1(if (sortAz) "A-Z" else "Default", { sortAz = !sortAz }, Modifier.width(100.dp))
+        }
         val favItems = repo.favs
         if (favItems.isNotEmpty()) {
             Spacer(Modifier.height(6.dp))
