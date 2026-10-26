@@ -150,6 +150,7 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit) {
         selCat?.let { c -> repo.channels.filter { it.cat == c.id } } ?: emptyList()
     }
 
+    var menuTarget by remember { mutableStateOf<Any?>(null) }
     Column(Modifier.fillMaxSize().padding(horizontal = if (LocalContext.current.resources.configuration.smallestScreenWidthDp >= 600) 32.dp else 12.dp, vertical = 12.dp)) {
         Label("Live TV", 28)
         if (repo.customCats.isNotEmpty()) {
@@ -169,7 +170,7 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit) {
         LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             items(groups.keys.toList()) { g ->
                 Box(
-                    Modifier.tv({ group = g; selCat = groups[g]?.firstOrNull(); repo.lastLiveCat = g })
+                    Modifier.tv({ group = g; selCat = groups[g]?.firstOrNull(); repo.lastLiveCat = g }, onMenu = { menuTarget = g })
                         .background(if (g == currentGroup) Color(0xFF3A6BFF) else Color(0xFF1E1E26), RoundedCornerShape(20.dp))
                         .padding(horizontal = 18.dp, vertical = 10.dp)
                 ) { Label(g, 16) }
@@ -184,7 +185,7 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit) {
                     Modifier.tv({
                         val e = repo.gate(c.locked)
                         if (e == null) { selCat = c; repo.lastLiveCatId = c.id; msg = "" } else msg = e
-                    }, onMenu = { repo.toggleHide("itv", c.id) })
+                    }, onMenu = { menuTarget = c })
                         .background(if (selected) Color(0xFF2A4A9F) else Color(0xFF1A1A22), RoundedCornerShape(12.dp))
                         .padding(horizontal = 16.dp, vertical = 8.dp)
                 ) { Label((if (c.locked) "🔒 " else "") + c.title, 15) }
@@ -206,7 +207,35 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit) {
                     ChannelCard(ch, repo.isFav(ch), {
                         repo.lastLiveIndex = i
                         play(channels, i)
-                    }, { repo.toggleFav(ch) })
+                    }, { menuTarget = ch })
+                }
+            }
+        }
+        // Popup menu for group / category / channel
+        if (menuTarget != null) {
+            Box(Modifier.fillMaxSize().background(Color(0xAA000000)), contentAlignment = Alignment.Center) {
+                Column(
+                    Modifier.background(Color(0xFF1A1A22), RoundedCornerShape(12.dp)).padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    when (val t = menuTarget) {
+                        is String -> {
+                            Label("Group: $t", 18)
+                            Row1("Close", { menuTarget = null })
+                        }
+                        is Cat -> {
+                            Label(t.title, 18)
+                            Row1("Hide category", { repo.toggleHide("itv", t.id); menuTarget = null })
+                            Row1("Close", { menuTarget = null })
+                        }
+                        is Item -> {
+                            Label(t.name, 18)
+                            Row1(if (repo.isFav(t)) "Remove favorite" else "Add favorite", { repo.toggleFav(t); menuTarget = null })
+                            Row1("Move to My Channels", { repo.moveToCustom(t, "My Channels"); menuTarget = null })
+                            Row1("Close", { menuTarget = null })
+                        }
+                        else -> Row1("Close", { menuTarget = null })
+                    }
                 }
             }
         }
