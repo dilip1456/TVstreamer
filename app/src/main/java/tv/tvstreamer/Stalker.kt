@@ -174,35 +174,67 @@ class Stalker(private val store: Store) {
     }
 
     fun link(i: Item): String {
-        // If cmd is already a full URL, use it directly
         val rawCmd = i.cmd.trim().removePrefix("ffmpeg ").removePrefix("ffrt ").trim()
         if (rawCmd.startsWith("http")) return rawCmd
+
+        // For VOD, try to get a fresh cmd from the portal first
+        var cmd = i.cmd
+        if (i.kind == "vod" && i.id.isNotEmpty()) {
+            try {
+                val info = call("type=vod&action=get_ordered_list&movie_id=${i.id}")
+                val js = info.opt("js")
+                val data = when (js) {
+                    is JSONObject -> js.optJSONArray("data")
+                    is JSONArray -> js
+                    else -> null
+                }
+                val first = data?.optJSONObject(0)
+                val better = first?.optString("cmd")?.ifEmpty { null }
+                if (!better.isNullOrEmpty()) cmd = better
+            } catch (_: Exception) {}
+        }
+
         val candidates = mutableListOf<String>()
-        if (i.cmd.isNotEmpty()) candidates += i.cmd
+        if (cmd.isNotEmpty()) candidates += cmd
+        if (i.cmd.isNotEmpty() && i.cmd != cmd) candidates += i.cmd
         if (i.kind == "vod") {
             candidates += "/media/${i.id}.mpg"
             candidates += "ffmpeg /media/${i.id}.mpg"
-            candidates += i.id
         }
-        var lastResp = ""
-        for (cmd in candidates.distinct()) {
-            try {
-                val q = "type=${i.kind}&action=create_link&cmd=${enc(cmd)}&series=0&forced_storage=&disable_ad=0&download=0&force_ch_link_check=0"
-                val resp = call(q)
-                lastResp = resp.toString().take(180)
-                val js = resp.opt("js")
-                var raw = when (js) {
-                    is JSONObject -> js.optString("cmd").ifEmpty { js.optString("url") }.ifEmpty { js.optString("link") }
-                    is String -> js
-                    else -> ""
+
+        var lastErr = ""
+        for (c in candidates.distinct()) {
+            // Try a few series/parameter variants
+            val variants = listOf(
+                "type=${i.kind}&action=create_link&cmd=${enc(c)}&series=&forced_storage=&disable_ad=0&download=0",
+                "type=${i.kind}&action=create_link&cmd=${enc(c)}&series=0&forced_storage=&disable_ad=0&download=0",
+                "type=${i.kind}&action=create_link&cmd=${enc(c)}"
+            )
+            for (q in variants) {
+                try {
+                    val resp = call(q)
+                    lastErr = resp.toString().take(200)
+                    val js = resp.opt("js")
+                    var raw = when (js) {
+                        is JSONObject -> js.optString("cmd").ifEmpty { js.optString("url") }.ifEmpty { js.optString("link") }
+                        is String -> js
+                        else -> ""
+                    }
+                    raw = raw.trim()
+                        .removePrefix("ffmpeg ").removePrefix("ffrt ").removePrefix("ffrt2 ")
+                        .removePrefix("ffrt3 ").removePrefix("ffrt4 ").trim()
+                    if (raw.contains(" ")) raw = raw.substringAfterLast(" ").trim()
+                    if (raw.startsWith("http")) return raw
+                    // Portal error message
+                    if (js is JSONObject) {
+                        val err = js.optString("error").ifEmpty { js.optString("msg") }
+                        if (err.isNotEmpty()) lastErr = err
+                    }
+                } catch (e: Exception) {
+                    lastErr = e.message ?: "request failed"
                 }
-                raw = raw.trim()
-                    .removePrefix("ffmpeg ").removePrefix("ffrt ").removePrefix("ffrt2 ")
-                    .removePrefix("ffrt3 ").removePrefix("ffrt4 ").trim()
-                if (raw.contains(" ")) raw = raw.substringAfterLast(" ").trim()
-                if (raw.startsWith("http")) return raw
-            } catch (_: Exception) {}
+            }
         }
-        throw IllegalStateException("No stream link. Portal said: $lastResp")
+        throw IllegalStateException("No stream link. Portal: $lastErr")
     }
 }
