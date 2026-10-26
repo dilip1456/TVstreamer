@@ -15,7 +15,11 @@ class Stalker(private val store: Store) {
         .readTimeout(40, TimeUnit.SECONDS)
         .build()
     private var api = ""
-    private var token = ""
+    var token = ""
+    fun cookie(): String {
+        val mac = normalizeMac(store.mac)
+        return "mac=$mac; stb_lang=en; timezone=Europe/London"
+    }
     var parentPassword: String? = null
 
     fun reset() { token = ""; api = ""; parentPassword = null }

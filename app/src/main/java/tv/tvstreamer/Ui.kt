@@ -360,17 +360,24 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int) {
     val cur by rememberUpdatedState(item)
     val fr = remember { FocusRequester() }
     val exo = remember {
+        val cookie = repo.api.cookie()
+        val auth = repo.api.token
+        val headers = mutableMapOf("Cookie" to cookie, "X-User-Agent" to "Model: MAG250; Link: WiFi")
+        if (auth.isNotEmpty()) headers["Authorization"] = "Bearer $auth"
         ExoPlayer.Builder(ctx)
             .setMediaSourceFactory(
                 DefaultMediaSourceFactory(
-                    DefaultHttpDataSource.Factory().setUserAgent(UA).setAllowCrossProtocolRedirects(true)
+                    DefaultHttpDataSource.Factory()
+                        .setUserAgent(UA)
+                        .setDefaultRequestProperties(headers)
+                        .setAllowCrossProtocolRedirects(true)
                 )
             ).build()
     }
 
     DisposableEffect(Unit) {
         val l = object : Player.Listener {
-            override fun onPlayerError(error: PlaybackException) { err = "Playback error: ${error.errorCodeName}" }
+            override fun onPlayerError(error: PlaybackException) { err = "Playback error: ${error.errorCodeName} ${error.cause?.message ?: ""}" }
         }
         exo.addListener(l)
         onDispose { saveNow(repo, cur, exo); exo.release() }
