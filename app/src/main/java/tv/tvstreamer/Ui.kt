@@ -581,9 +581,23 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int) {
     LaunchedEffect(hud) { showHud = true; delay(3500); showHud = false }
     LaunchedEffect(Unit) { runCatching { fr.requestFocus() } }
 
+    var drag by remember { mutableStateOf(0f) }
     Box(
         Modifier.fillMaxSize().background(Color.Black)
             .focusRequester(fr).focusable()
+            .pointerInput(list.size) {
+                detectVerticalDragGestures(
+                    onDragEnd = {
+                        if (item.kind == "itv" && list.size > 1) {
+                            if (drag < -100) idx = (idx + 1) % list.size
+                            else if (drag > 100) idx = (idx - 1 + list.size) % list.size
+                        }
+                        drag = 0f
+                        hud++
+                    },
+                    onVerticalDrag = { _, d -> drag += d }
+                )
+            }
             .onPreviewKeyEvent { e ->
                 if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 val live = item.kind == "itv"
