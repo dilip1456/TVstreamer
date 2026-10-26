@@ -94,8 +94,11 @@ fun Home(repo: Repo, go: (Screen) -> Unit, play: (List<Item>, Int) -> Unit, tick
     Column(Modifier.fillMaxSize().padding(horizontal = 64.dp, vertical = 40.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         val ctx = LocalContext.current
         val ver = try { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName } catch (e: Exception) { "?" }
+        Label("TVStreamer v$ver", 26)
+        if (repo.status.isNotEmpty()) Label(repo.status, 16, WARN, maxLines = 5)
         val scope = rememberCoroutineScope()
         var updateMsg by remember { mutableStateOf("") }
+        Row1("Check for updates", {
             updateMsg = "Checking..."
             scope.launch {
                 val code = try { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionCode } catch (e: Exception) { 1 }
