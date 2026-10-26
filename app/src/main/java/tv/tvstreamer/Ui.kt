@@ -339,7 +339,13 @@ fun Movies(repo: Repo, play: (List<Item>, Int) -> Unit) {
     var more by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var msg by remember { mutableStateOf("") }
+    var asList by remember { mutableStateOf(false) }
+    var menuTarget by remember { mutableStateOf<Any?>(null) }
     val cats = repo.visibleVod()
+    val groups = remember(cats) { groupCategories(cats) }
+    var group by remember { mutableStateOf(groups.keys.firstOrNull() ?: "All") }
+    val groupCats = groups[group] ?: emptyList()
+    val vodFavs = repo.favs.filter { it.kind == "vod" }
 
     fun fetch(c: Cat, p: Int) {
         scope.launch {
@@ -350,58 +356,165 @@ fun Movies(repo: Repo, play: (List<Item>, Int) -> Unit) {
                 page = p
                 more = r.second
                 msg = ""
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                msg = e.message ?: "Load failed"
-            }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { msg = e.message ?: "Load failed" }
             busy = false
         }
     }
 
-    Row(Modifier.fillMaxSize().padding(24.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-        LazyColumn(Modifier.width(300.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            items(cats) { c ->
-                Row1((if (c.locked) "[lock] " else "") + c.title,
-                    onClick = {
-                        val e = repo.gate(c.locked)
-                        if (e == null) { sel = c; movies = emptyList(); fetch(c, 1) } else msg = e
-                    },
-                    onMenu = { repo.toggleHide("vod", c.id) })
+    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp)) {
+        Label("Movies", 28)
+        Spacer(Modifier.height(8.dp))
+
+        // Favorites section
+        if (vodFavs.isNotEmpty()) {
+            Label("Favorites", 16, Color(0xFFFFD54F))
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                itemsIndexed(vodFavs) { i, m ->
+                    MovieCard(m, true, {
+                        if (m.num == -1) {
+                            scope.launch {
+                                busy = true
+                                try {
+                                    val eps = withContext(Dispatchers.IO) { repo.api.seasons(m.id) }
+                                    if (eps.isNotEmpty()) { movies = eps; sel = Cat(m.id, m.name, false); msg = "Episodes of ${m.name}" }
+                                    else msg = "No episodes"
+                                } catch (e: Exception) { msg = e.message ?: "Failed" }
+                                busy = false
+                            }
+                        } else play(listOf(m), 0)
+                    }, { menuTarget = m })
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+        }
+
+        // Main group folders
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(groups.keys.toList()) { g ->
+                Box(
+                    Modifier.tv({ group = g })
+                        .background(if (g == group) Color(0xFF3A6BFF) else Color(0xFF1E1E26), RoundedCornerShape(16.dp))
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                ) { Label(g, 15) }
             }
         }
-        Column(Modifier.weight(1f)) {
-            Label("Menu button: favorite a movie, or hide a category", 14, DIM)
-            if (msg.isNotEmpty()) Label(msg, 16, WARN)
-            if (busy) Label("Loading...", 16, DIM)
-            Spacer(Modifier.height(8.dp))
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Spacer(Modifier.height(10.dp))
+
+        // Sub-folders (categories) in this group
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(groupCats) { c ->
+                val selected = sel?.id == c.id
+                Box(
+                    Modifier.tv({
+                        val e = repo.gate(c.locked)
+                        if (e == null) { sel = c; movies = emptyList(); fetch(c, 1) } else msg = e
+                    }, onMenu = { menuTarget = c })
+                        .background(if (selected) Color(0xFF2A4A9F) else Color(0xFF1A1A22), RoundedCornerShape(12.dp))
+                        .padding(horizontal = 14.dp, vertical = 8.dp)
+                ) { Label((if (c.locked) "🔒 " else "") + c.title, 14) }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row1(if (asList) "Icons" else "List", { asList = !asList }, Modifier.width(90.dp))
+            if (sel != null) Label(sel!!.title, 16, DIM)
+        }
+        if (msg.isNotEmpty()) Label(msg, 14, WARN)
+        if (busy) Label("Loading...", 14, DIM)
+        Spacer(Modifier.height(6.dp))
+
+        if (sel == null) {
+            Label("Select a folder", 16, DIM)
+        } else if (asList) {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 itemsIndexed(movies) { i, m ->
-                    Row1((if (repo.isFav(m)) "* " else "") + (if (m.num == -1) "[Series] " else "") + m.name,
-                        onClick = {
-                            if (m.num == -1) {
-                                // Series: load episodes
-                                scope.launch {
-                                    busy = true
-                                    try {
-                                        val eps = withContext(Dispatchers.IO) { repo.api.seasons(m.id) }
-                                        if (eps.isEmpty()) { msg = "No episodes found"; busy = false; return@launch }
-                                        movies = eps
-                                        sel = Cat(m.id, m.name, false)
-                                        msg = "Episodes of ${m.name}"
-                                    } catch (e: Exception) { msg = e.message ?: "Failed to load episodes" }
-                                    busy = false
-                                }
-                            } else {
-                                play(listOf(m), 0)
+                    Row1((if (repo.isFav(m)) "★ " else "") + (if (m.num == -1) "[Series] " else "") + m.name, {
+                        if (m.num == -1) {
+                            scope.launch {
+                                busy = true
+                                try {
+                                    val eps = withContext(Dispatchers.IO) { repo.api.seasons(m.id) }
+                                    if (eps.isNotEmpty()) { movies = eps; sel = Cat(m.id, m.name, false); msg = "Episodes" }
+                                    else msg = "No episodes"
+                                } catch (e: Exception) { msg = e.message ?: "Failed" }
+                                busy = false
                             }
-                        }, onMenu = { repo.toggleFav(m) })
+                        } else play(listOf(m), 0)
+                    }, onMenu = { menuTarget = m })
+                    if (i == movies.size - 1 && more && !busy) {
+                        LaunchedEffect(movies.size) { sel?.let { fetch(it, page + 1) } }
+                    }
+                }
+            }
+        } else {
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(minSize = 150.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                itemsIndexed(movies) { i, m ->
+                    MovieCard(m, repo.isFav(m), {
+                        if (m.num == -1) {
+                            scope.launch {
+                                busy = true
+                                try {
+                                    val eps = withContext(Dispatchers.IO) { repo.api.seasons(m.id) }
+                                    if (eps.isNotEmpty()) { movies = eps; sel = Cat(m.id, m.name, false); msg = "Episodes of ${m.name}" }
+                                    else msg = "No episodes"
+                                } catch (e: Exception) { msg = e.message ?: "Failed" }
+                                busy = false
+                            }
+                        } else play(listOf(m), 0)
+                    }, { menuTarget = m })
                     if (i == movies.size - 1 && more && !busy) {
                         LaunchedEffect(movies.size) { sel?.let { fetch(it, page + 1) } }
                     }
                 }
             }
         }
+
+        // Popup menu
+        if (menuTarget != null) {
+            Box(Modifier.fillMaxSize().background(Color(0xAA000000)), contentAlignment = Alignment.Center) {
+                Column(
+                    Modifier.background(Color(0xFF1A1A22), RoundedCornerShape(12.dp)).padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    when (val t = menuTarget) {
+                        is Cat -> {
+                            Label(t.title, 18)
+                            Row1(if ("vod:${t.id}" in repo.hidden) "Show folder" else "Hide folder", { repo.toggleHide("vod", t.id); menuTarget = null })
+                            Row1("Close", { menuTarget = null })
+                        }
+                        is Item -> {
+                            Label(t.name, 18)
+                            Row1(if (repo.isFav(t)) "Remove favorite" else "Add favorite", { repo.toggleFav(t); menuTarget = null })
+                            Row1("Close", { menuTarget = null })
+                        }
+                        else -> Row1("Close", { menuTarget = null })
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MovieCard(m: Item, fav: Boolean, onClick: () -> Unit, onMenu: () -> Unit) {
+    val hue = (m.name.hashCode() and 0x7FFFFFFF) % 360
+    Column(
+        Modifier.width(150.dp).tv(onClick, onMenu)
+            .background(Color.hsl(hue.toFloat(), 0.4f, 0.18f), RoundedCornerShape(12.dp))
+            .padding(10.dp)
+    ) {
+        Box(Modifier.fillMaxWidth().height(90.dp).background(Color.hsl(hue.toFloat(), 0.5f, 0.28f), RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
+            Label(if (m.num == -1) "Series" else "Movie", 12, Color.White)
+        }
+        Spacer(Modifier.height(6.dp))
+        Label((if (fav) "★ " else "") + m.name, 13, maxLines = 2)
     }
 }
 
