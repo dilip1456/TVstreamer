@@ -549,6 +549,8 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int) {
                         .setUserAgent(UA)
                         .setDefaultRequestProperties(headers)
                         .setAllowCrossProtocolRedirects(true)
+                        .setConnectTimeoutMs(15000)
+                        .setReadTimeoutMs(20000)
                 )
             ).build()
     }

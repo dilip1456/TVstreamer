@@ -174,9 +174,7 @@ class Stalker(private val store: Store) {
     }
 
     fun link(i: Item): String {
-        val rawCmd = i.cmd.trim().removePrefix("ffmpeg ").removePrefix("ffrt ").trim()
-        if (rawCmd.startsWith("http")) return rawCmd
-
+        // Always go through create_link so the portal returns an authorized stream URL
         // For VOD, try to get a fresh cmd from the portal first
         var cmd = i.cmd
         if (i.kind == "vod" && i.id.isNotEmpty()) {
