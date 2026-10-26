@@ -247,6 +247,7 @@ fun SettingsScreen(repo: Repo) {
     val scope = rememberCoroutineScope()
     val keyboard = LocalSoftwareKeyboardController.current
     var portal by remember { mutableStateOf(s.portal) }
+    LaunchedEffect(Unit) { portal = s.portal; mac = s.mac; serial = s.serial; pw = s.password }
     var mac by remember { mutableStateOf(s.mac) }
     var serial by remember { mutableStateOf(s.serial) }
     var pw by remember { mutableStateOf(s.password) }

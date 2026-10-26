@@ -11,51 +11,57 @@ class Store(ctx: Context) {
     private val p: SharedPreferences = ctx.getSharedPreferences("data", Context.MODE_PRIVATE)
     private val dir: File = ctx.filesDir
 
-    // Plain prefs + external file so settings survive reinstall
+    // Prefs + internal file (always writable) + external file (survives reinstall)
     private val sec: SharedPreferences = ctx.getSharedPreferences("secure", Context.MODE_PRIVATE)
-    private val cfgFile: File = File(Environment.getExternalStorageDirectory(), "TVStreamer/config.json")
+    private val internalCfg: File = File(dir, "config.json")
+    private val externalCfg: File = File(Environment.getExternalStorageDirectory(), "TVStreamer/config.json")
 
-    init { loadFromFile() }
+    init { loadConfig() }
 
-    private fun loadFromFile() {
-        runCatching {
-            if (cfgFile.exists()) {
-                val o = JSONObject(cfgFile.readText())
-                if (portal.isEmpty()) portal = o.optString("portal")
-                if (mac.isEmpty()) mac = o.optString("mac")
-                if (serial.isEmpty()) serial = o.optString("serial")
-                if (password.isEmpty()) password = o.optString("pw")
+    private fun loadConfig() {
+        val sources = listOf(internalCfg, externalCfg)
+        for (f in sources) {
+            runCatching {
+                if (f.exists()) {
+                    val o = JSONObject(f.readText())
+                    if (portal.isEmpty() && o.optString("portal").isNotEmpty()) portal = o.optString("portal")
+                    if (mac.isEmpty() && o.optString("mac").isNotEmpty()) mac = o.optString("mac")
+                    if (serial.isEmpty() && o.optString("serial").isNotEmpty()) serial = o.optString("serial")
+                    if (password.isEmpty() && o.optString("pw").isNotEmpty()) password = o.optString("pw")
+                }
             }
         }
     }
 
-    private fun saveToFile() {
+    private fun saveConfig() {
+        val json = JSONObject()
+            .put("portal", portal)
+            .put("mac", mac)
+            .put("serial", serial)
+            .put("pw", password)
+            .toString()
+        runCatching { internalCfg.writeText(json) }
         runCatching {
-            cfgFile.parentFile?.mkdirs()
-            cfgFile.writeText(JSONObject()
-                .put("portal", portal)
-                .put("mac", mac)
-                .put("serial", serial)
-                .put("pw", password)
-                .toString())
+            externalCfg.parentFile?.mkdirs()
+            externalCfg.writeText(json)
         }
     }
 
     var portal: String
         get() = sec.getString("portal", "") ?: ""
-        set(v) { sec.edit().putString("portal", v.trim()).apply(); saveToFile() }
+        set(v) { sec.edit().putString("portal", v.trim()).commit(); saveConfig() }
 
     var mac: String
         get() = sec.getString("mac", "") ?: ""
-        set(v) { sec.edit().putString("mac", v.trim()).apply(); saveToFile() }
+        set(v) { sec.edit().putString("mac", v.trim()).commit(); saveConfig() }
 
     var serial: String
         get() = sec.getString("serial", "") ?: ""
-        set(v) { sec.edit().putString("serial", v.trim()).apply(); saveToFile() }
+        set(v) { sec.edit().putString("serial", v.trim()).commit(); saveConfig() }
 
     var password: String
         get() = sec.getString("pw", "") ?: ""
-        set(v) { sec.edit().putString("pw", v).apply(); saveToFile() }
+        set(v) { sec.edit().putString("pw", v).commit(); saveConfig() }
 
     var hidden: Set<String>
         get() = p.getStringSet("hidden", emptySet())?.toSet() ?: emptySet()
