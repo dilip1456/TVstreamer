@@ -91,9 +91,20 @@ fun Home(repo: Repo, go: (Screen) -> Unit, play: (List<Item>, Int) -> Unit, tick
     val cont = remember(tick) { repo.store.continueList().map { it.first } }
     val recent = remember(tick) { repo.store.list("recent") }
     val favs = repo.favs.filter { !it.locked }
-    Column(Modifier.fillMaxSize().padding(32.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
+    Column(Modifier.fillMaxSize().padding(horizontal = 64.dp, vertical = 40.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Label("TVStreamer v1.7", 28)
-        if (repo.status.isNotEmpty()) Label(repo.status, 16, WARN, maxLines = 4)
+        if (repo.status.isNotEmpty()) Label(repo.status, 16, WARN, maxLines = 5)
+        val ctx = LocalContext.current
+        val scope = rememberCoroutineScope()
+        var updateMsg by remember { mutableStateOf("") }
+        Row1("Check for updates", {
+            updateMsg = "Checking..."
+            scope.launch {
+                val code = try { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionCode } catch (e: Exception) { 1 }
+                updateMsg = Updater.checkAndUpdate(ctx, code)
+            }
+        })
+        if (updateMsg.isNotEmpty()) Label(updateMsg, 16, WARN, maxLines = 4)
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             val tabs = listOf<Pair<String, Screen>>(
                 "Live TV" to Screen.Live, "Movies" to Screen.Movies,
@@ -225,8 +236,12 @@ fun Search(repo: Repo, play: (List<Item>, Int) -> Unit) {
         )
         if (busy) Label("Searching...", 16, DIM)
         LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            itemsIndexed(live) { i, c -> Row1("LIVE   ${c.name}", { play(live, i) }, { repo.toggleFav(c) }) }
-            itemsIndexed(vod) { _, m -> Row1("MOVIE   ${m.name}", { play(listOf(m), 0) }, { repo.toggle@Composable
+            itemsIndexed(live) { i, c -> Row1("LIVE   ${c.name}", { play(live, i) }, onMenu = { repo.toggleFav(c) }) }
+            itemsIndexed(vod) { _, m -> Row1("MOVIE   ${m.name}", { play(listOf(m), 0) }, onMenu = { repo.toggleFav(m) }) }
+    }
+}
+
+@Composable
 fun SettingsScreen(repo: Repo) {
     val s = repo.store
     val scope = rememberCoroutineScope()
@@ -239,7 +254,7 @@ fun SettingsScreen(repo: Repo) {
     val statusText = note.ifEmpty { repo.status }
 
     LazyColumn(
-        Modifier.fillMaxSize().padding(horizontal = 48.dp, vertical = 24.dp),
+        Modifier.fillMaxSize().padding(horizontal = 72.dp, vertical = 36.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item { Label("Settings", 32) }
