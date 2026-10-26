@@ -64,8 +64,8 @@ fun Label(text: String, size: Int = 18, color: Color = Color.White, modifier: Mo
 }
 
 @Composable
-fun Row1(text: String, onClick: () -> Unit, onMenu: (() -> Unit)? = null) {
-    Box(Modifier.fillMaxWidth().tv(onClick, onMenu).padding(horizontal = 14.dp, vertical = 10.dp)) {
+fun Row1(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, onMenu: (() -> Unit)? = null) {
+    Box(modifier.fillMaxWidth().tv(onClick, onMenu).padding(horizontal = 14.dp, vertical = 12.dp)) {
         Label(text)
     }
 }
@@ -92,7 +92,7 @@ fun Home(repo: Repo, go: (Screen) -> Unit, play: (List<Item>, Int) -> Unit, tick
     val recent = remember(tick) { repo.store.list("recent") }
     val favs = repo.favs.filter { !it.locked }
     Column(Modifier.fillMaxSize().padding(32.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-        Label("TVStreamer v1.4", 28)
+        Label("TVStreamer v1.5", 28)
         if (repo.status.isNotEmpty()) Label(repo.status, 16, WARN, maxLines = 4)
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             val tabs = listOf<Pair<String, Screen>>(
@@ -226,12 +226,7 @@ fun Search(repo: Repo, play: (List<Item>, Int) -> Unit) {
         if (busy) Label("Searching...", 16, DIM)
         LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             itemsIndexed(live) { i, c -> Row1("LIVE   ${c.name}", { play(live, i) }, { repo.toggleFav(c) }) }
-            itemsIndexed(vod) { _, m -> Row1("MOVIE   ${m.name}", { play(listOf(m), 0) }, { repo.toggleFav(m) }) }
-        }
-    }
-}
-
-@Composable
+            itemsIndexed(vod) { _, m -> Row1("MOVIE   ${m.name}", { play(listOf(m), 0) }, { repo.toggle@Composable
 fun SettingsScreen(repo: Repo) {
     val s = repo.store
     val scope = rememberCoroutineScope()
@@ -241,53 +236,85 @@ fun SettingsScreen(repo: Repo) {
     var serial by remember { mutableStateOf(s.serial) }
     var pw by remember { mutableStateOf(s.password) }
     var note by remember { mutableStateOf("") }
-    LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        item { Label("Settings", 24) }
-        item {
-            TextField(portal, { portal = it }, label = { Text("Portal URL") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        }
-        item {
-            TextField(mac, { mac = it }, label = { Text("MAC address") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        }
-        item {
-            TextField(serial, { serial = it }, label = { Text("Serial number") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        }
-        item {
-            TextField(pw, { pw = it }, label = { Text("Locked section password") }, singleLine = true,
-                visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
-        }
-        item {
-            Row1("Hide keyboard", { keyboard?.hide() })
-        }
-        item {
-            Row1("Save and reload", {
-                keyboard?.hide()
-                s.portal = portal
-                s.mac = mac.trim().uppercase()
-                s.serial = serial.trim()
-                s.password = pw
-                note = "Saved. Reloading..."
-                scope.launch {
-                    repo.api.reset()
-                    repo.load()
-                    note = repo.status.ifEmpty { "Loaded" }
+    val statusText = note.ifEmpty { repo.status }
+
+    LazyColumn(
+        Modifier.fillMaxSize().padding(horizontal = 48.dp, vertical = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        item { Label("Settings", 32) }
+        if (statusText.isNotEmpty()) {
+            item {
+                Box(
+                    Modifier.fillMaxWidth()
+                        .background(Color(0xFF2A1F1A), RoundedCornerShape(8.dp))
+                        .padding(16.dp)
+                ) {
+                    Label(statusText, 18, WARN, maxLines = 8)
                 }
-            })
+            }
         }
-        item { Row1("Clear saved password", { s.password = ""; pw = ""; note = "Password cleared" }) }
-        item { Row1("Clear history (recent and resume)", { s.clearHistory(); note = "History cleared" }) }
+        item { SettingField("Portal URL", portal) { portal = it } }
+        item { SettingField("MAC address", mac) { mac = it } }
+        item { SettingField("Serial number", serial) { serial = it } }
+        item { SettingField("Locked section password", pw, password = true) { pw = it } }
         item {
-            if (note.isNotEmpty()) Label(note, 16, WARN, maxLines = 6)
-            if (repo.status.isNotEmpty()) Label(repo.status, 16, WARN, maxLines = 6)
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row1("Hide keyboard", { keyboard?.hide() }, Modifier.weight(1f))
+                Row1("Save and reload", {
+                    keyboard?.hide()
+                    s.portal = portal
+                    s.mac = mac.trim().uppercase()
+                    s.serial = serial.trim()
+                    s.password = pw
+                    note = "Saved. Reloading..."
+                    scope.launch {
+                        repo.api.reset()
+                        repo.load()
+                        note = repo.status.ifEmpty { "Loaded" }
+                    }
+                }, Modifier.weight(1f))
+            }
         }
-        item { Label("Categories: click to hide or show", 18) }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row1("Clear password", { s.password = ""; pw = ""; note = "Password cleared" }, Modifier.weight(1f))
+                Row1("Clear history", { s.clearHistory(); note = "History cleared" }, Modifier.weight(1f))
+            }
+        }
+        item { Label("Categories (select to hide or show)", 20, DIM) }
         items(repo.liveCats) { c ->
-            Row1((if ("itv:${c.id}" in repo.hidden) "[hidden]  " else "[shown]   ") + "TV   " + c.title,
+            Row1((if ("itv:${c.id}" in repo.hidden) "Hidden  " else "Shown   ") + "TV  " + c.title,
                 { repo.toggleHide("itv", c.id) })
         }
         items(repo.vodCats) { c ->
-            Row1((if ("vod:${c.id}" in repo.hidden) "[hidden]  " else "[shown]   ") + "MOVIES   " + c.title,
+            Row1((if ("vod:${c.id}" in repo.hidden) "Hidden  " else "Shown   ") + "Movies  " + c.title,
                 { repo.toggleHide("vod", c.id) })
+        }
+    }
+}
+
+@Composable
+private fun SettingField(label: String, value: String, password: Boolean = false, onChange: (String) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Label(label, 16, DIM)
+        TextField(
+            value = value,
+            onValueChange = onChange,
+            singleLine = true,
+            visualTransformation = if (password) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
+            modifier = Modifier.fillMaxWidth(),
+            colors = androidx.compose.material3.TextFieldDefaults.colors(
+                focusedContainerColor = Color(0xFF1E1E26),
+                unfocusedContainerColor = Color(0xFF1A1A22),
+                focusedTextColor = Color.White,
+                unfocusedTextColor = Color.White
+            )
+        )
+    }
+}
+
+", c.id) })
         }
     }
 }

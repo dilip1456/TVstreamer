@@ -1,6 +1,8 @@
 package tv.tvstreamer
 
 import android.content.Context
+import android.os.Environment
+import org.json.JSONObject
 import android.content.SharedPreferences
 import org.json.JSONArray
 import java.io.File
@@ -9,24 +11,51 @@ class Store(ctx: Context) {
     private val p: SharedPreferences = ctx.getSharedPreferences("data", Context.MODE_PRIVATE)
     private val dir: File = ctx.filesDir
 
-    // Plain prefs for reliable persistence on Fire Stick / Android TV
+    // Plain prefs + external file so settings survive reinstall
     private val sec: SharedPreferences = ctx.getSharedPreferences("secure", Context.MODE_PRIVATE)
+    private val cfgFile: File = File(Environment.getExternalStorageDirectory(), "TVStreamer/config.json")
+
+    init { loadFromFile() }
+
+    private fun loadFromFile() {
+        runCatching {
+            if (cfgFile.exists()) {
+                val o = JSONObject(cfgFile.readText())
+                if (portal.isEmpty()) portal = o.optString("portal")
+                if (mac.isEmpty()) mac = o.optString("mac")
+                if (serial.isEmpty()) serial = o.optString("serial")
+                if (password.isEmpty()) password = o.optString("pw")
+            }
+        }
+    }
+
+    private fun saveToFile() {
+        runCatching {
+            cfgFile.parentFile?.mkdirs()
+            cfgFile.writeText(JSONObject()
+                .put("portal", portal)
+                .put("mac", mac)
+                .put("serial", serial)
+                .put("pw", password)
+                .toString())
+        }
+    }
 
     var portal: String
         get() = sec.getString("portal", "") ?: ""
-        set(v) { sec.edit().putString("portal", v.trim()).apply() }
+        set(v) { sec.edit().putString("portal", v.trim()).apply(); saveToFile() }
 
     var mac: String
         get() = sec.getString("mac", "") ?: ""
-        set(v) { sec.edit().putString("mac", v.trim()).apply() }
+        set(v) { sec.edit().putString("mac", v.trim()).apply(); saveToFile() }
 
     var serial: String
         get() = sec.getString("serial", "") ?: ""
-        set(v) { sec.edit().putString("serial", v.trim()).apply() }
+        set(v) { sec.edit().putString("serial", v.trim()).apply(); saveToFile() }
 
     var password: String
         get() = sec.getString("pw", "") ?: ""
-        set(v) { sec.edit().putString("pw", v).apply() }
+        set(v) { sec.edit().putString("pw", v).apply(); saveToFile() }
 
     var hidden: Set<String>
         get() = p.getStringSet("hidden", emptySet())?.toSet() ?: emptySet()
