@@ -208,6 +208,19 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit) {
         if (msg.isNotEmpty()) { Spacer(Modifier.height(6.dp)); Label(msg, 14, WARN) }
         Spacer(Modifier.height(12.dp))
         // Netflix-style grid of channel thumbnails
+        var showHidden by remember { mutableStateOf(false) }
+        if (selCat != null) {
+            Row1(if (showHidden) "Hide hidden" else "Show hidden in this folder", { showHidden = !showHidden }, Modifier.width(220.dp))
+            if (showHidden) {
+                val hiddenHere = repo.channels.filter { it.cat == selCat?.id && "itv:${it.cat}" in repo.hidden }
+                if (hiddenHere.isEmpty()) Label("No hidden channels here", 14, DIM)
+                else LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.height(120.dp)) {
+                    items(hiddenHere) { ch ->
+                        Row1("Hidden: ${ch.name}", { repo.toggleHide("itv", ch.cat) })
+                    }
+                }
+            }
+        }
         if (channels.isEmpty()) {
             Label("Select a category", 16, DIM)
         } else {
@@ -480,14 +493,25 @@ fun SettingsScreen(repo: Repo) {
                 Row1("Clear history", { s.clearHistory(); note = "History cleared" }, Modifier.weight(1f))
             }
         }
-        item { Label("Categories (select to hide or show)", 20, DIM) }
-        items(repo.liveCats) { c ->
-            Row1((if ("itv:${c.id}" in repo.hidden) "Hidden  " else "Shown   ") + "TV  " + c.title,
-                { repo.toggleHide("itv", c.id) })
-        }
-        items(repo.vodCats) { c ->
-            Row1((if ("vod:${c.id}" in repo.hidden) "Hidden  " else "Shown   ") + "Movies  " + c.title,
-                { repo.toggleHide("vod", c.id) })
+        item {
+            var showHide by remember { mutableStateOf(false) }
+            Row1("Show / hide categories", { showHide = true })
+            if (showHide) {
+                Box(Modifier.fillMaxSize().background(Color(0xCC000000)), contentAlignment = Alignment.Center) {
+                    Column(
+                        Modifier.background(Color(0xFF1A1A22), RoundedCornerShape(16.dp)).padding(20.dp).widthIn(max = 400.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Label("Show or hide", 20)
+                        Label("Tap a group or category", 13, DIM)
+                        repo.liveCats.take(20).forEach { c ->
+                            Row1((if ("itv:${c.id}" in repo.hidden) "Hidden  " else "Shown   ") + c.title,
+                                { repo.toggleHide("itv", c.id) })
+                        }
+                        Row1("Close", { showHide = false })
+                    }
+                }
+            }
         }
     }
 }
@@ -663,16 +687,24 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int) {
         // Thin bottom bar for live
         if (item.kind == "itv") {
             Row(
-                Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(52.dp)
-                    .background(Color(0xCC000000)).padding(horizontal = 8.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly,
+                Modifier.align(Alignment.BottomCenter)
+                    .padding(bottom = 24.dp, start = 16.dp, end = 16.dp)
+                    .background(Color(0xE6121218), RoundedCornerShape(28.dp))
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 val fav = repo.isFav(item)
-                Row1(if (fav) "★ Fav" else "☆ Fav", { repo.toggleFav(item) }, Modifier.weight(1f))
-                Row1(if (exo.isPlaying) "Pause" else "Resume", { exo.playWhenReady = !exo.playWhenReady }, Modifier.weight(1f))
-                Row1("Fit", { fit = if (fit == "fit") "fill" else "fit" }, Modifier.weight(1f))
-                Row1("Hide", { repo.toggleHide("itv", item.cat); menu = false }, Modifier.weight(1f))
+                listOf(
+                    (if (fav) "★" else "☆") to { repo.toggleFav(item) },
+                    (if (exo.isPlaying) "⏸" else "▶") to { exo.playWhenReady = !exo.playWhenReady },
+                    "Fit" to { fit = if (fit == "fit") "fill" else "fit" },
+                    "Hide" to { repo.toggleHide("itv", item.cat) }
+                ).forEach { (label, action) ->
+                    Box(
+                        Modifier.tv(action).padding(horizontal = 14.dp, vertical = 8.dp)
+                    ) { Label(label, 15) }
+                }
             }
         } else if (showHud || menu) {
             Column(

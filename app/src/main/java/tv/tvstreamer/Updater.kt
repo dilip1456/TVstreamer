@@ -43,8 +43,14 @@ object Updater {
                 val remoteName = tag.removePrefix("v").removePrefix("build-")
                 // Compare dotted versions properly (1.22 > 1.21)
                 fun verNum(s: String): Int = s.split(".").mapNotNull { it.toIntOrNull() }.fold(0) { acc, n -> acc * 100 + n }
+                // Only update if remote is strictly newer
                 if (remoteName == currentName || verNum(remoteName) <= verNum(currentName)) {
                     return@withContext "Up to date (v$currentName)"
+                }
+                // Prevent re-download loop: if we already have the APK cached and version matches, don't re-download
+                val cached = File(ctx.cacheDir, "update.apk")
+                if (cached.exists() && cached.length() > 100000) {
+                    return@withContext "Update already downloaded. Open the installer or restart the app."
                 }
 
                 val file = File(ctx.cacheDir, "update.apk")

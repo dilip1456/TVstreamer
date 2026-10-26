@@ -61,7 +61,8 @@ class Repo(ctx: Context) {
             store.cacheWrite("vod.json", catsJson(vc).toString())
             status = ""
         } catch (e: Exception) {
-            status = if (channels.isEmpty()) "Portal error: ${e.message}" else "Offline, showing saved list"
+            status = if (channels.isEmpty()) "Portal error: ${e.message}" else ""
+            // Portal refresh failed but we have cached data; stay quiet instead of saying Offline
         }
     }
 
