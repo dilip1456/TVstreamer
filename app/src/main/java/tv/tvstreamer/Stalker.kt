@@ -1,4 +1,4 @@
-package com.dilip.stbplus
+package tv.tvstreamer
 
 import okhttp3.OkHttpClient
 import okhttp3.Request

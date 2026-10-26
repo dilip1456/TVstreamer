@@ -1,12 +1,12 @@
-# StbPlus
+# TVStreamer
 
 Android TV client for Stalker/MAG portals, built for Fire Stick.
 No portal, MAC or password is stored in this repo. Enter them in the app under Settings.
 
 ## Install on Fire Stick
-1. Push to main. GitHub Actions builds and publishes stbplus.apk to Releases.
+1. Push to main. GitHub Actions builds and publishes tvstreamer.apk to Releases.
 2. On the Fire Stick install the Downloader app, enable "Install unknown apps" for it.
-3. In Downloader open: https://github.com/<user>/<repo>/releases/latest/download/stbplus.apk
+3. In Downloader open: https://github.com/<user>/<repo>/releases/latest/download/tvstreamer.apk
 4. To update later, run the same URL again.
 
 ## Remote

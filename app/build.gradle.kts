@@ -4,10 +4,10 @@ plugins {
 }
 
 android {
-    namespace = "com.dilip.stbplus"
+    namespace = "tv.tvstreamer"
     compileSdk = 34
     defaultConfig {
-        applicationId = "com.dilip.stbplus"
+        applicationId = "tv.tvstreamer"
         minSdk = 23
         targetSdk = 34
         versionCode = 1

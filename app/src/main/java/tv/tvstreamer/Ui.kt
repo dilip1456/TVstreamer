@@ -1,6 +1,6 @@
 @file:OptIn(ExperimentalFoundationApi::class)
 
-package com.dilip.stbplus
+package tv.tvstreamer
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -91,7 +91,7 @@ fun Home(repo: Repo, go: (Screen) -> Unit, play: (List<Item>, Int) -> Unit, tick
     val recent = remember(tick) { repo.store.list("recent") }
     val favs = repo.favs.filter { !it.locked }
     Column(Modifier.fillMaxSize().padding(32.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-        Label("StbPlus", 32)
+        Label("TVStreamer", 32)
         if (repo.status.isNotEmpty()) Label(repo.status, 16, WARN)
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             val tabs = listOf<Pair<String, Screen>>(

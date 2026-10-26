@@ -1,4 +1,4 @@
-package com.dilip.stbplus
+package tv.tvstreamer
 
 import org.json.JSONArray
 import org.json.JSONObject

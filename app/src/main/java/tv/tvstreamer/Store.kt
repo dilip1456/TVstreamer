@@ -1,4 +1,4 @@
-package com.dilip.stbplus
+package tv.tvstreamer
 
 import android.content.Context
 import android.content.SharedPreferences
