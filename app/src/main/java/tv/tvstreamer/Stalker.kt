@@ -22,15 +22,27 @@ class Stalker(private val store: Store) {
 
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
 
+    private fun normalizeMac(m: String): String {
+        val clean = m.replace(":", "").replace("-", "").uppercase()
+        if (clean.length != 12) return m.uppercase()
+        return clean.chunked(2).joinToString(":")
+    }
+
     private fun fetch(url: String, auth: Boolean = true): JSONObject {
+        val mac = normalizeMac(store.mac)
         val b = Request.Builder().url(url)
             .header("User-Agent", UA)
             .header("X-User-Agent", "Model: MAG250; Link: WiFi")
-            .header("Cookie", "mac=${store.mac}; stb_lang=en; timezone=GMT")
+            .header("Accept", "*/*")
+            .header("Connection", "keep-alive")
+            .header("Cookie", "mac=$mac; stb_lang=en; timezone=Europe/London")
+        val sn = store.serial.trim()
+        if (sn.isNotEmpty()) b.header("SN", sn)
         if (auth && token.isNotEmpty()) b.header("Authorization", "Bearer $token")
         http.newCall(b.build()).execute().use { r ->
             val t = r.body?.string().orEmpty()
-            return JSONObject(t)
+            if (!r.isSuccessful) throw IllegalStateException("HTTP ${r.code}: $t")
+            return JSONObject(t.ifEmpty { "{}" })
         }
     }
 
@@ -51,7 +63,9 @@ class Stalker(private val store: Store) {
                 val h = fetch("$c?type=stb&action=handshake&token=&JsHttpRequest=1-xml", false)
                 token = h.getJSONObject("js").getString("token")
                 runCatching {
-                    val prof = fetch("$c?type=stb&action=get_profile&hd=1&stb_type=MAG250&client_type=STB&auth_second_step=1&JsHttpRequest=1-xml")
+                    val sn = store.serial.trim()
+                    val snParam = if (sn.isNotEmpty()) "&sn=$sn" else ""
+                    val prof = fetch("$c?type=stb&action=get_profile&hd=1&stb_type=MAG250&client_type=STB&auth_second_step=1$snParam&JsHttpRequest=1-xml")
                     parentPassword = prof.optJSONObject("js")?.optString("parent_password")?.ifEmpty { null }
                 }
                 return

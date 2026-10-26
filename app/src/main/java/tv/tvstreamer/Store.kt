@@ -30,6 +30,10 @@ class Store(ctx: Context) {
         get() = sec.getString("mac", "") ?: ""
         set(v) { sec.edit().putString("mac", v.trim()).apply() }
 
+    var serial: String
+        get() = sec.getString("serial", "") ?: ""
+        set(v) { sec.edit().putString("serial", v.trim()).apply() }
+
     var password: String
         get() = sec.getString("pw", "") ?: ""
         set(v) { sec.edit().putString("pw", v).apply() }

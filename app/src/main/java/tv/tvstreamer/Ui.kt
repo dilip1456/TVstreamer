@@ -236,6 +236,7 @@ fun SettingsScreen(repo: Repo) {
     val scope = rememberCoroutineScope()
     var portal by remember { mutableStateOf(s.portal) }
     var mac by remember { mutableStateOf(s.mac) }
+    var serial by remember { mutableStateOf(s.serial) }
     var pw by remember { mutableStateOf(s.password) }
     var note by remember { mutableStateOf("") }
     LazyColumn(Modifier.fillMaxSize().padding(32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -247,6 +248,9 @@ fun SettingsScreen(repo: Repo) {
             TextField(mac, { mac = it }, label = { Text("MAC address") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         }
         item {
+            TextField(serial, { serial = it }, label = { Text("Serial number") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        }
+        item {
             TextField(pw, { pw = it }, label = { Text("Locked section password") }, singleLine = true,
                 visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
         }
@@ -254,6 +258,7 @@ fun SettingsScreen(repo: Repo) {
             Row1("Save and reload", {
                 s.portal = portal
                 s.mac = mac.trim().uppercase()
+                s.serial = serial.trim()
                 s.password = pw
                 note = "Saved. Reloading..."
                 scope.launch { repo.api.reset(); repo.load(); note = repo.status.ifEmpty { "Loaded" } }
