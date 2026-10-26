@@ -94,7 +94,8 @@ fun Home(repo: Repo, go: (Screen) -> Unit, play: (List<Item>, Int) -> Unit, tick
     val cont = remember(tick) { repo.store.continueList().map { it.first } }
     val recent = remember(tick) { repo.store.list("recent") }
     val favs = repo.favs.filter { !it.locked }
-    Column(Modifier.fillMaxSize().padding(horizontal = 64.dp, vertical = 40.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    val isTv = LocalContext.current.resources.configuration.smallestScreenWidthDp >= 600
+    Column(Modifier.fillMaxSize().padding(horizontal = if (isTv) 64.dp else 16.dp, vertical = if (isTv) 40.dp else 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         val ctx = LocalContext.current
         val ver = try { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName } catch (e: Exception) { "?" }
         Label("TVStreamer v$ver", 26)
@@ -109,13 +110,26 @@ fun Home(repo: Repo, go: (Screen) -> Unit, play: (List<Item>, Int) -> Unit, tick
             }
         })
         if (updateMsg.isNotEmpty()) Label(updateMsg, 16, WARN, maxLines = 4)
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            val tabs = listOf<Pair<String, Screen>>(
-                "Live TV" to Screen.Live, "Movies" to Screen.Movies,
-                "Search" to Screen.Search, "Settings" to Screen.Settings
-            )
-            tabs.forEach { (t, s) ->
-                Box(Modifier.width(170.dp).tv({ go(s) }).padding(16.dp)) { Label(t, 20) }
+        val tabs = listOf<Pair<String, Screen>>(
+            "Live TV" to Screen.Live, "Movies" to Screen.Movies,
+            "Search" to Screen.Search, "Settings" to Screen.Settings
+        )
+        if (isTv) {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                tabs.forEach { (t, s) ->
+                    Box(Modifier.width(170.dp).tv({ go(s) }).padding(16.dp)) { Label(t, 20) }
+                }
+            }
+        } else {
+            // Phone: 2x2 grid so all buttons are visible
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                tabs.chunked(2).forEach { row ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        row.forEach { (t, s) ->
+                            Box(Modifier.weight(1f).tv({ go(s) }).padding(14.dp)) { Label(t, 16) }
+                        }
+                    }
+                }
             }
         }
         HomeRow("Continue watching", cont, play)
@@ -137,7 +151,7 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit) {
         selCat?.let { c -> repo.channels.filter { it.cat == c.id } } ?: emptyList()
     }
 
-    Column(Modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 16.dp)) {
+    Column(Modifier.fillMaxSize().padding(horizontal = if (LocalContext.current.resources.configuration.smallestScreenWidthDp >= 600) 32.dp else 12.dp, vertical = 12.dp)) {
         Label("Live TV", 28)
         Spacer(Modifier.height(8.dp))
         // Language / region groups
