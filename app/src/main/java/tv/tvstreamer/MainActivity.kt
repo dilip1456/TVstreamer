@@ -11,6 +11,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 
 sealed interface Screen {
@@ -34,9 +35,15 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun App(repo: Repo) {
+    val ctx = LocalContext.current
     var screen by remember { mutableStateOf<Screen>(Screen.Home) }
     var tick by remember { mutableIntStateOf(0) }
-    LaunchedEffect(Unit) { repo.load() }
+    LaunchedEffect(Unit) {
+        repo.load()
+        val code = try { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionCode } catch (e: Exception) { 1 }
+        val msg = Updater.checkAndUpdate(ctx, code)
+        if (msg.isNotEmpty() && !msg.startsWith("Up to date")) repo.status = msg
+    }
 
     BackHandler(screen != Screen.Home) {
         val s = screen
