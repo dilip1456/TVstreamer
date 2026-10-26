@@ -148,7 +148,7 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit) {
         mutableStateOf(groupCats.find { it.id == repo.lastLiveCatId } ?: groupCats.firstOrNull())
     }
     val channels = remember(selCat, repo.channels) {
-        selCat?.let { c -> repo.channels.filter { it.cat == c.id } } ?: emptyList()
+        selCat?.let { c -> repo.channels.filter { it.cat == c.id && !repo.isChannelHidden(it) } } ?: emptyList()
     }
 
     var menuTarget by remember { mutableStateOf<Any?>(null) }
@@ -212,11 +212,11 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit) {
         if (selCat != null) {
             Row1(if (showHidden) "Hide hidden" else "Show hidden in this folder", { showHidden = !showHidden }, Modifier.width(220.dp))
             if (showHidden) {
-                val hiddenHere = repo.channels.filter { it.cat == selCat?.id && "itv:${it.cat}" in repo.hidden }
+                val hiddenHere = repo.channels.filter { it.cat == selCat?.id && repo.isChannelHidden(it) }
                 if (hiddenHere.isEmpty()) Label("No hidden channels here", 14, DIM)
                 else LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.height(120.dp)) {
                     items(hiddenHere) { ch ->
-                        Row1("Hidden: ${ch.name}", { repo.toggleHide("itv", ch.cat) })
+                        Row1("Hidden: ${ch.name}", { repo.toggleHideChannel(ch) })
                     }
                 }
             }
@@ -263,13 +263,14 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit) {
                         }
                         is Cat -> {
                             Label(t.title, 18)
-                            Row1("Hide category", { repo.toggleHide("itv", t.id); menuTarget = null })
+                            Row1(if ("itv:${t.id}" in repo.hidden) "Show folder" else "Hide folder", { repo.toggleHide("itv", t.id); menuTarget = null })
                             Row1("Close", { menuTarget = null })
                         }
                         is Item -> {
                             Label(t.name, 18)
                             Row1(if (repo.isFav(t)) "Remove favorite" else "Add favorite", { repo.toggleFav(t); menuTarget = null })
                             Row1("Move to My Channels", { repo.moveToCustom(t, "My Channels"); menuTarget = null })
+                            Row1(if (repo.isChannelHidden(t)) "Unhide channel" else "Hide channel", { repo.toggleHideChannel(t); menuTarget = null })
                             Row1("Close", { menuTarget = null })
                         }
                         else -> Row1("Close", { menuTarget = null })
@@ -699,7 +700,7 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int) {
                     (if (fav) "★" else "☆") to { repo.toggleFav(item) },
                     (if (exo.isPlaying) "⏸" else "▶") to { exo.playWhenReady = !exo.playWhenReady },
                     "Fit" to { fit = if (fit == "fit") "fill" else "fit" },
-                    "Hide" to { repo.toggleHide("itv", item.cat) }
+                    "Hide" to { repo.toggleHideChannel(item) }
                 ).forEach { (label, action) ->
                     Box(
                         Modifier.tv(action).padding(horizontal = 14.dp, vertical = 8.dp)

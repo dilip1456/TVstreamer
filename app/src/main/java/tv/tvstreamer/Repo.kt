@@ -69,6 +69,12 @@ class Repo(ctx: Context) {
     fun visibleLive() = liveCats.filter { "itv:${it.id}" !in hidden }
     fun visibleVod() = vodCats.filter { "vod:${it.id}" !in hidden }
 
+    fun toggleHideChannel(i: Item) {
+        val k = "ch:${i.key}"
+        hidden = if (k in hidden) hidden - k else hidden + k
+        store.hidden = hidden
+    }
+    fun isChannelHidden(i: Item) = "ch:${i.key}" in hidden
     fun toggleHide(kind: String, id: String) {
         val k = "$kind:$id"
         hidden = if (k in hidden) hidden - k else hidden + k
