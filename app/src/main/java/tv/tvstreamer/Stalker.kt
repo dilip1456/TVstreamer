@@ -42,7 +42,13 @@ class Stalker(private val store: Store) {
         http.newCall(b.build()).execute().use { r ->
             val t = r.body?.string().orEmpty()
             if (!r.isSuccessful) throw IllegalStateException("HTTP ${r.code}: $t")
-            return JSONObject(t.ifEmpty { "{}" })
+            val body = t.ifEmpty { "{}" }.trim()
+            return if (body.startsWith("[")) {
+                // Some portals return a bare array; wrap it
+                JSONObject().put("js", JSONArray(body))
+            } else {
+                JSONObject(body)
+            }
         }
     }
 
@@ -97,17 +103,31 @@ class Stalker(private val store: Store) {
     }
 
     private fun parseCats(a: JSONArray): List<Cat> =
-        (0 until a.length()).map { a.getJSONObject(it) }
+        (0 until a.length()).mapNotNull { a.optJSONObject(it) }
             .filter { it.optString("id").let { id -> id.isNotEmpty() && id != "*" } }
             .map { Cat(it.optString("id"), it.optString("title"), it.optInt("censored") == 1) }
 
-    fun liveCats(): List<Cat> = parseCats(call("type=itv&action=get_genres").getJSONArray("js"))
-    fun vodCats(): List<Cat> = parseCats(call("type=vod&action=get_categories").getJSONArray("js"))
+    private fun jsArray(resp: JSONObject): JSONArray {
+        val js = resp.opt("js")
+        return when (js) {
+            is JSONArray -> js
+            is JSONObject -> js.optJSONArray("data") ?: JSONArray()
+            else -> JSONArray()
+        }
+    }
+    fun liveCats(): List<Cat> = parseCats(jsArray(call("type=itv&action=get_genres")))
+    fun vodCats(): List<Cat> = parseCats(jsArray(call("type=vod&action=get_categories")))
 
     fun channels(): List<Item> {
-        val a = call("type=itv&action=get_all_channels").getJSONObject("js").getJSONArray("data")
-        return (0 until a.length()).map {
-            val o = a.getJSONObject(it)
+        val resp = call("type=itv&action=get_all_channels")
+        val js = resp.opt("js")
+        val a = when (js) {
+            is JSONObject -> js.optJSONArray("data") ?: JSONArray()
+            is JSONArray -> js
+            else -> JSONArray()
+        }
+        return (0 until a.length()).mapNotNull { i ->
+            val o = a.optJSONObject(i) ?: return@mapNotNull null
             Item("itv", o.optString("id"), o.optString("name"), o.optString("cmd"),
                 o.optString("tv_genre_id"), o.optInt("number"), o.optInt("censored") == 1)
         }
