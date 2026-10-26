@@ -681,35 +681,64 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int) {
                     player = exo
                 }
             },
-            modifier = Modifier.fillMaxSize().padding(bottom = if (item.kind == "itv") 56.dp else 0.dp)
+            modifier = Modifier.fillMaxSize()
         )
         var menu by remember { mutableStateOf(false) }
         var fit by remember { mutableStateOf("fit") }
+        var barPos by remember { mutableStateOf("bottom") } // bottom, left, right
+        var fullScreen by remember { mutableStateOf(false) }
         // Error overlay
         if (err.isNotEmpty()) {
             Label(err, 16, Color(0xFFFF8A80), Modifier.align(Alignment.Center).padding(16.dp), maxLines = 4)
         }
-        // Thin bottom bar for live
-        if (item.kind == "itv") {
-            Row(
-                Modifier.align(Alignment.BottomCenter)
-                    .padding(bottom = 24.dp, start = 16.dp, end = 16.dp)
-                    .background(Color(0xE6121218), RoundedCornerShape(28.dp))
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                val fav = repo.isFav(item)
-                listOf(
-                    (if (fav) "★" else "☆") to { repo.toggleFav(item) },
-                    (if (exo.isPlaying) "⏸" else "▶") to { exo.playWhenReady = !exo.playWhenReady },
-                    "Fit" to { fit = if (fit == "fit") "fill" else "fit" },
-                    "Hide" to { repo.toggleHideChannel(item) }
-                ).forEach { (label, action) ->
-                    Box(
-                        Modifier.tv(action).padding(horizontal = 14.dp, vertical = 8.dp)
-                    ) { Label(label, 15) }
+        // Floating controls for live
+        if (item.kind == "itv" && !fullScreen) {
+            val fav = repo.isFav(item)
+            val buttons = listOf(
+                (if (fav) "★" else "☆") to { repo.toggleFav(item) },
+                (if (exo.isPlaying) "⏸" else "▶") to { exo.playWhenReady = !exo.playWhenReady },
+                "Fit" to { fit = if (fit == "fit") "fill" else "fit" },
+                "Hide" to { repo.toggleHideChannel(item) },
+                "Move" to { barPos = when (barPos) { "bottom" -> "left"; "left" -> "right"; else -> "bottom" } },
+                "Full" to { fullScreen = true }
+            )
+            val align = when (barPos) {
+                "left" -> Alignment.CenterStart
+                "right" -> Alignment.CenterEnd
+                else -> Alignment.BottomCenter
+            }
+            val pad = when (barPos) {
+                "left" -> Modifier.padding(start = 12.dp)
+                "right" -> Modifier.padding(end = 12.dp)
+                else -> Modifier.padding(bottom = 20.dp)
+            }
+            if (barPos == "bottom") {
+                Row(
+                    Modifier.align(align).then(pad)
+                        .background(Color(0xE6121218), RoundedCornerShape(28.dp))
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    buttons.forEach { (label, action) ->
+                        Box(Modifier.tv(action).padding(horizontal = 10.dp, vertical = 6.dp)) { Label(label, 14) }
+                    }
                 }
+            } else {
+                Column(
+                    Modifier.align(align).then(pad)
+                        .background(Color(0xE6121218), RoundedCornerShape(28.dp))
+                        .padding(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    buttons.forEach { (label, action) ->
+                        Box(Modifier.tv(action).padding(horizontal = 10.dp, vertical = 6.dp)) { Label(label, 14) }
+                    }
+                }
+            }
+        }
+        if (fullScreen && item.kind == "itv") {
+            Box(Modifier.align(Alignment.TopEnd).padding(12.dp).tv({ fullScreen = false })) {
+                Label("Exit full", 14, Color.White)
             }
         } else if (showHud || menu) {
             Column(
