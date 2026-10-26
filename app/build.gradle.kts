@@ -4,20 +4,32 @@ plugins {
 }
 
 android {
+    signingConfigs {
+        create("debug") {
+            storeFile = file("../debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
     namespace = "tv.tvstreamer"
     compileSdk = 34
     defaultConfig {
         applicationId = "tv.tvstreamer"
         minSdk = 23
         targetSdk = 34
-        versionCode = 18
-        versionName = "1.18"
+        versionCode = 19
+        versionName = "1.19"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
+    buildTypes {
+        getByName("debug") { signingConfig = signingConfigs.getByName("debug") }
+        getByName("release") { signingConfig = signingConfigs.getByName("debug") }
+    }
     buildFeatures { compose = true }
     composeOptions { kotlinCompilerExtensionVersion = "1.5.14" }
 }

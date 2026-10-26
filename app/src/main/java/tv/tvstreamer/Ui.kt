@@ -114,6 +114,7 @@ fun Home(repo: Repo, go: (Screen) -> Unit, play: (List<Item>, Int) -> Unit, tick
             "Live TV" to Screen.Live, "Movies" to Screen.Movies,
             "Search" to Screen.Search, "Settings" to Screen.Settings
         )
+        // Always show all buttons. On phone they stack; on TV they sit in a row.
         if (isTv) {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 tabs.forEach { (t, s) ->
@@ -121,14 +122,9 @@ fun Home(repo: Repo, go: (Screen) -> Unit, play: (List<Item>, Int) -> Unit, tick
                 }
             }
         } else {
-            // Phone: 2x2 grid so all buttons are visible
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                tabs.chunked(2).forEach { row ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        row.forEach { (t, s) ->
-                            Box(Modifier.weight(1f).tv({ go(s) }).padding(14.dp)) { Label(t, 16) }
-                        }
-                    }
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                tabs.forEach { (t, s) ->
+                    Box(Modifier.fillMaxWidth().tv({ go(s) }).padding(14.dp)) { Label(t, 18) }
                 }
             }
         }
