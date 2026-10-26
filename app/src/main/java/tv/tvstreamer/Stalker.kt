@@ -146,14 +146,31 @@ class Stalker(private val store: Store) {
         val total = js.optInt("total_items")
         val per = js.optInt("max_page_items", 14).coerceAtLeast(1)
         val items = (0 until a.length()).map { a.getJSONObject(it) }
-            .filter { it.optInt("is_series") != 1 }
             .map {
                 val id = it.optString("id")
                 Item("vod", id, it.optString("name"),
                     it.optString("cmd").ifEmpty { "/media/$id.mpg" },
-                    it.optString("category_id"), 0, it.optInt("censored") == 1)
+                    it.optString("category_id"), if (it.optInt("is_series") == 1) -1 else 0, it.optInt("censored") == 1)
             }
         return items to (page * per < total)
+    }
+
+    /** For a series (num == -1), return its episodes as playable items. */
+    fun seasons(seriesId: String): List<Item> {
+        val resp = call("type=vod&action=get_ordered_list&movie_id=$seriesId&season_id=0&episode_id=0")
+        val js = resp.opt("js")
+        val a = when (js) {
+            is JSONObject -> js.optJSONArray("data") ?: JSONArray()
+            is JSONArray -> js
+            else -> JSONArray()
+        }
+        return (0 until a.length()).mapNotNull { i ->
+            val o = a.optJSONObject(i) ?: return@mapNotNull null
+            val id = o.optString("id").ifEmpty { seriesId }
+            val name = o.optString("name").ifEmpty { "Episode ${i + 1}" }
+            Item("vod", id, name, o.optString("cmd").ifEmpty { "/media/$id.mpg" },
+                o.optString("category_id"), i + 1, false)
+        }
     }
 
     fun link(i: Item): String {

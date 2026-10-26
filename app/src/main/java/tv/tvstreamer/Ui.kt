@@ -280,8 +280,25 @@ fun Movies(repo: Repo, play: (List<Item>, Int) -> Unit) {
             Spacer(Modifier.height(8.dp))
             LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 itemsIndexed(movies) { i, m ->
-                    Row1((if (repo.isFav(m)) "* " else "") + m.name,
-                        onClick = { play(listOf(m), 0) }, onMenu = { repo.toggleFav(m) })
+                    Row1((if (repo.isFav(m)) "* " else "") + (if (m.num == -1) "[Series] " else "") + m.name,
+                        onClick = {
+                            if (m.num == -1) {
+                                // Series: load episodes
+                                scope.launch {
+                                    busy = true
+                                    try {
+                                        val eps = withContext(Dispatchers.IO) { repo.api.seasons(m.id) }
+                                        if (eps.isEmpty()) { msg = "No episodes found"; busy = false; return@launch }
+                                        movies = eps
+                                        sel = Cat(m.id, m.name, false)
+                                        msg = "Episodes of ${m.name}"
+                                    } catch (e: Exception) { msg = e.message ?: "Failed to load episodes" }
+                                    busy = false
+                                }
+                            } else {
+                                play(listOf(m), 0)
+                            }
+                        }, onMenu = { repo.toggleFav(m) })
                     if (i == movies.size - 1 && more && !busy) {
                         LaunchedEffect(movies.size) { sel?.let { fetch(it, page + 1) } }
                     }
