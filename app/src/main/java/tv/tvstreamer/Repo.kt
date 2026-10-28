@@ -23,6 +23,10 @@ fun squash(s: String) = s.lowercase().filter { it.isLetterOrDigit() }
 class Repo(ctx: Context) {
     val store = Store(ctx)
     val api = Stalker(store)
+    /** Movies / series of the selected languages, loaded in the background (see Library). */
+    val lib = Library(this)
+
+    init { Tmdb.init(ctx, store.tmdbKey, store.omdbKey) }
 
     var liveCats by mutableStateOf(emptyList<Cat>())
     var vodCats by mutableStateOf(emptyList<Cat>())
@@ -74,7 +78,7 @@ class Repo(ctx: Context) {
             val ch = api.channels()
             val vc = api.vodCats()
             setLive(lc, ch)
-            if (vc != vodCats) clearRows()
+            if (vc != vodCats) { clearRows(); lib.version++ }
             vodCats = vc
             store.cacheWrite("live.json", JSONObject().put("cats", catsJson(lc)).put("items", itemsJson(ch)).toString())
             store.cacheWrite("vod.json", catsJson(vc).toString())

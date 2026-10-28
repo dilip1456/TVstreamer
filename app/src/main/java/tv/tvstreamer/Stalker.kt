@@ -187,7 +187,8 @@ class Stalker(private val store: Store) {
             rating = firstOf(it, "rating_imdb", "rating_kinopoisk", "rating"),
             genre = firstOf(it, "genres_str", "genre"),
             length = time.toIntOrNull()?.let { m -> if (m > 0) "${m / 60}h ${m % 60}m".removePrefix("0h ") else "" } ?: time,
-            eps = eps.joinToString(","))
+            eps = eps.joinToString(","),
+            added = firstOf(it, "added", "add_date", "date_add", "last_modified", "added_date"))
     }
 
     /** Returns items and whether more pages exist. category "*" means all. */

@@ -191,6 +191,7 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int, onBack: () -> Unit) {
     var seekTotal by remember { mutableLongStateOf(0L) }
     var seekTick by remember { mutableIntStateOf(0) }
     var fastHold by remember { mutableStateOf(false) }    // press-and-hold 2x speed
+    var prevIdx by remember { mutableIntStateOf(-1) }      // for "Back to previous channel"
 
     val item = list[idx]
     val cur by rememberUpdatedState(item)
@@ -225,7 +226,9 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int, onBack: () -> Unit) {
     fun go(n: Int) {
         if (list.size <= 1) return
         saveNow()
-        idx = (n + list.size) % list.size
+        val to = (n + list.size) % list.size
+        if (to != idx) prevIdx = idx
+        idx = to
         autoRetries = 0
         linkFrom = 0
         zapTick++
@@ -248,6 +251,36 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int, onBack: () -> Unit) {
         touch()
     }
     fun setAspect(a: String) { aspect = a; repo.store.aspect = a }
+
+    // Remote button actions (Settings > Remote buttons), sent here by the central key handler
+    DisposableEffect(Unit) {
+        Keys.player = { a ->
+            when (a) {
+                Act.PLAY_PAUSE -> { togglePlay(); if (!exo.playWhenReady) showControls(); true }
+                Act.SEEK_BACK -> { seekBy(-SEEK_MS); if (!live) showControls(true); true }
+                Act.SEEK_FWD -> { seekBy(SEEK_MS); if (!live) showControls(true); true }
+                Act.NEXT, Act.CH_UP -> { go(idx + 1); true }
+                Act.PREV, Act.CH_DOWN -> { go(idx - 1); true }
+                Act.LAST_CH -> { if (prevIdx in list.indices && prevIdx != idx) go(prevIdx) else { flash = "No previous channel"; flashTick++ }; true }
+                Act.CONTROLS -> { showControls(); true }
+                Act.ASPECT -> {
+                    val next = when (aspect) { "fit" -> "fill"; "fill" -> "zoom"; else -> "fit" }
+                    setAspect(next); flash = "Picture: " + next.replaceFirstChar { it.uppercase() }; flashTick++; true
+                }
+                Act.SUBS -> { dialog = "subs"; true }
+                Act.AUDIO -> { dialog = "audio"; true }
+                Act.MENU -> { dialog = "menu"; true }
+                Act.FAV -> {
+                    val i = cur
+                    repo.toggleFav(i); favTick++; touch()
+                    toast(ctx, (if (repo.isFav(i)) "Added to favorites: " else "Removed from favorites: ") + Names.title(i.name))
+                    true
+                }
+                else -> false
+            }
+        }
+        onDispose { Keys.player = null }
+    }
 
     // Phones: landscape + immersive while playing. TV: nothing to change.
     DisposableEffect(Unit) {

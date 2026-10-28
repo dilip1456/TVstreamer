@@ -7,6 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyGridState
@@ -30,6 +31,11 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -55,13 +61,19 @@ private data class Shelf(
     val cat: Cat? = null,      // portal category (can be moved / hidden, has See all)
     val progress: Map<String, Float> = emptyMap(),
     val loading: Boolean = false,
-    val error: String = ""
+    val error: String = "",
+    val versions: Map<String, Int> = emptyMap(),   // item key -> number of versions (CAM / 4K / Dub ...)
+    val pool: Screen.Pool? = null                  // language / genre row: its See all
 )
 
 /** A single episode (plays directly rather than opening details). */
 fun Item.isEpisode(): Boolean = kind == "vod" && num != -1 && (series > 0 || season.isNotEmpty() || pid.isNotEmpty())
 
+/** Episode-like entry in Continue watching (real episode or a loose "Show S01E02" title). */
+fun Item.isEpisodeLike(): Boolean = isEpisode() || (kind == "vod" && !isSeries && Tags.hasEpisodeMarker(name))
+
 private const val ROW_LIMIT = 40
+private const val GENRE_ROWS = 6
 
 /** Poster width: fixed on TV, from the screen width on phones (about 3.3 posters visible). */
 @Composable
@@ -78,31 +90,72 @@ private fun RestoreFocus(repo: Repo, screen: String, key: String, fr: FocusReque
     }
 }
 
-/** Home / Movies / Series: hero banner, Continue watching, My List, then one row per category. */
+/** The series an episode in Continue watching belongs to (for "See all episodes"). */
+fun parentSeries(repo: Repo, ep: Item): Item? {
+    repo.store.parentOf(ep)?.let { return it }
+    if (ep.pid.isNotEmpty()) return Item("vod", ep.pid, ep.parsed.title, ep.pcmd, ep.cat, -1, ep.locked, img = ep.img, desc = ep.desc)
+    if (Tags.hasEpisodeMarker(ep.name)) return repo.lib.syntheticSeries(listOf(ep))
+    return null
+}
+
+/** Language rows for one tab, computed off the main thread. */
+private suspend fun languageShelves(repo: Repo, tab: String, langs: Set<String>, sort: String): List<Shelf> = withContext(Dispatchers.Default) {
+    val lib = repo.lib
+    val pool = lib.pool(tab, langs)
+    val byLang = pool.groupBy { lib.itemLang(it) }
+    val order = byLang.keys.sortedWith(compareBy<String> { it == Tags.OTHER }.thenByDescending { byLang[it]?.size ?: 0 })
+    val out = mutableListOf<Shelf>()
+    for (lang in order) {
+        val groups = lib.cards(byLang[lang] ?: continue)
+        if (groups.isEmpty()) continue
+        val vcount = groups.associate { it.best.key to it.items.size }
+        fun shelf(id: String, title: String, gs: List<Group>, genre: String, s: String) {
+            if (gs.isEmpty()) return
+            out += Shelf("lang:$tab:$lang:$id", title, gs.take(ROW_LIMIT).map { it.best }, "vod", versions = vcount,
+                pool = Screen.Pool(tab, lang, genre, title, s, Screen.Home))
+        }
+        val p = if (order.size > 1 || langs.size > 1) "$lang · " else ""
+        shelf("added", "${p}Latest added", lib.sort(groups, Sorts.ADDED), "", Sorts.ADDED)
+        shelf("rated", "${p}Top rated", lib.sort(groups, Sorts.RATING).filter { lib.ratingOf(it.best) > 0 }, "", Sorts.RATING)
+        shelf("new", "${p}Newest releases", lib.sort(groups, Sorts.YEAR).filter { lib.releaseOf(it.best) > 0 }, "", Sorts.YEAR)
+        val genres = groups.flatMap { lib.genresOf(it.best) }.groupingBy { it }.eachCount()
+            .entries.sortedByDescending { it.value }.filter { it.value >= 3 }.take(GENRE_ROWS).map { it.key }
+        for (g in genres) shelf("g:$g", "$p$g", lib.sort(groups.filter { g in lib.genresOf(it.best) }, sort), g, sort)
+    }
+    out
+}
+
+/** Home / Movies / Series: hero banner, Continue watching, My List, then language rows (Movies / Series) or category rows. */
 @Composable
 fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit, play: (List<Item>, Int) -> Unit, tick: Int) {
     val ctx = LocalContext.current
     val isTv = rememberIsTv()
     val scope = rememberCoroutineScope()
     val unlocked = repo.gate(true) == null
+    val lib = repo.lib
     var contVer by remember { mutableIntStateOf(0) }
     val cont = remember(tick, contVer) { repo.store.continueList() }
     val recent = remember(tick) { repo.store.list("recent").filter { !it.locked } }
     var menu by remember { mutableStateOf<Pair<Shelf, Item?>?>(null) }
+    var sortMenu by remember { mutableStateOf(false) }
     var updateMsg by remember { mutableStateOf("") }
-    val seriesSplit = repo.hasSeriesCats()
+    val tabbed = mode == "movies" || mode == "series"
+    var langVer by remember { mutableIntStateOf(0) }
+    val langs = remember(mode, tick, langVer) { if (tabbed) lib.selected(mode) else null }
+    // Home: hide categories of languages that were not picked on either tab
+    val homeLangs = remember(tick) {
+        val a = lib.selected("movies"); val b = lib.selected("series")
+        if (a == null && b == null) null else (a ?: emptySet()) + (b ?: emptySet())
+    }
+    var sort by remember(mode) { mutableStateOf(repo.store.sort("tab:$mode", Sorts.ADDED)) }
 
-    // What belongs on this screen
-    fun wantItem(i: Item): Boolean = when (mode) {
-        "movies" -> !i.isSeries && !i.isEpisode()
-        "series" -> i.isSeries || i.isEpisode()
-        else -> true
+    // Movies / Series with languages picked: load those categories in the background
+    LaunchedEffect(mode, langs, repo.vodCats.size) { if (tabbed && !langs.isNullOrEmpty()) lib.ensure(mode, langs) }
+    val langShelves by produceState(emptyList<Shelf>(), mode, langs, sort, lib.version, Tmdb.version, repo.vodCats.size) {
+        value = if (tabbed && !langs.isNullOrEmpty()) languageShelves(repo, mode, langs, sort) else emptyList()
     }
-    fun wantCat(c: Cat): Boolean = when {
-        mode == "home" || !seriesSplit -> true
-        mode == "series" -> repo.isSeriesCat(c)
-        else -> !repo.isSeriesCat(c)
-    }
+
+    fun wantItem(i: Item): Boolean = lib.wantItem(i, mode)
 
     val shelves = buildList {
         val c = cont.filter { wantItem(it.first) }
@@ -119,18 +172,23 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
             repo.favs.filter { !it.locked && it.kind == "itv" }.takeIf { it.isNotEmpty() }?.let { add(Shelf("favc", "Favorite channels", it, "itv")) }
             if (recent.isNotEmpty()) add(Shelf("recent", "Recent channels", recent, "itv"))
         }
-        repo.visibleVod().filter { (!it.locked || unlocked) && wantCat(it) }.forEach { cat ->
-            val raw = repo.rows[cat.id]
-            // Without series-named categories the Series / Movies tabs filter each row by item type
-            val items = raw?.let { l -> if (mode != "home" && !seriesSplit) l.filter { wantItem(it) } else l }
-            if (items == null || items.isNotEmpty() || repo.rowErrors[cat.id] != null) {
-                add(Shelf("vod:${cat.id}", Names.cat(cat.title), items ?: emptyList(), "vod", cat,
-                    loading = raw == null && repo.rowErrors[cat.id] == null, error = repo.rowErrors[cat.id] ?: ""))
+        if (tabbed && !langs.isNullOrEmpty()) {
+            addAll(langShelves)
+        } else {
+            val catLangs = if (tabbed) null else homeLangs
+            repo.visibleVod().filter { (!it.locked || unlocked) && lib.catForTab(it, mode) && (catLangs == null || lib.catLang(it) in catLangs) }.forEach { cat ->
+                val raw = repo.rows[cat.id]
+                // Each item is classified on its own, so categories that mix movies and series work
+                val items = raw?.filter { wantItem(it) }
+                if (items == null || items.isNotEmpty() || repo.rowErrors[cat.id] != null) {
+                    add(Shelf("vod:${cat.id}", Names.cat(cat.title), items ?: emptyList(), "vod", cat,
+                        loading = raw == null && repo.rowErrors[cat.id] == null, error = repo.rowErrors[cat.id] ?: ""))
+                }
             }
         }
     }
     val hero = remember(shelves.map { it.key to it.items.size }) {
-        shelves.asSequence().filter { it.cat != null }.flatMap { it.items.asSequence() }.firstOrNull { it.img.isNotEmpty() && !it.locked }
+        shelves.asSequence().filter { it.cat != null || it.pool != null }.flatMap { it.items.asSequence() }.firstOrNull { it.img.isNotEmpty() && !it.locked }
             ?: shelves.asSequence().flatMap { it.items.asSequence() }.firstOrNull { it.kind == "vod" && it.img.isNotEmpty() }
     }
 
@@ -145,6 +203,8 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
             else runCatching { navFr.requestFocus() }
         }
     }
+
+    fun playOrGate(i: Item) { val e = repo.gate(i.locked); if (e == null) play(listOf(i), 0) else repo.status = e }
 
     val hPad = if (isTv) 48.dp else 14.dp
     val state = remember(mode) { repo.listStates.getOrPut(screenKey) { LazyListState() } }
@@ -181,19 +241,52 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                                 selected = k == mode, size = 15)
                         }
                     }
+                    if (tabbed) {
+                        Spacer(Modifier.height(8.dp))
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(vertical = 4.dp), modifier = Modifier.focusRestorer()) {
+                            item(key = "langs") {
+                                val label = when {
+                                    langs.isNullOrEmpty() -> "🌐  Pick languages"
+                                    langs.size <= 3 -> "🌐  " + langs.sorted().joinToString(", ")
+                                    else -> "🌐  ${langs.size} languages"
+                                }
+                                PillButton(label, { go(Screen.Languages(mode, Screen.Home)) }, size = 14, primary = langs.isNullOrEmpty())
+                            }
+                            if (!langs.isNullOrEmpty()) {
+                                item(key = "sort") { PillButton("⇅  " + Sorts.label(sort), { sortMenu = true }, size = 14) }
+                                item(key = "refresh") { PillButton("↻  Refresh", { lib.refresh(mode, langs) }, size = 14) }
+                            }
+                        }
+                        if (!langs.isNullOrEmpty() && lib.loading) {
+                            Spacer(Modifier.height(4.dp))
+                            Text("Loading ${if (mode == "series") "series" else "movies"}… ${lib.done} of ${lib.total} categories",
+                                color = Pal.Dim, fontSize = 13.sp)
+                        } else if (lib.note.isNotEmpty() && !langs.isNullOrEmpty()) {
+                            Spacer(Modifier.height(4.dp)); Text(lib.note, color = Pal.Warn, fontSize = 13.sp)
+                        }
+                        if (langs.isNullOrEmpty()) {
+                            Spacer(Modifier.height(4.dp))
+                            Text("Pick the languages you watch: their CAM / HD / 4K / Dub categories are merged into one set of rows.",
+                                color = Pal.Dim, fontSize = 13.sp)
+                        }
+                    }
                     if (repo.status.isNotEmpty()) { Spacer(Modifier.height(8.dp)); Text(repo.status, color = Pal.Warn, fontSize = 15.sp, maxLines = 5) }
                     if (updateMsg.isNotEmpty()) { Spacer(Modifier.height(6.dp)); Text(updateMsg, color = Pal.Warn, fontSize = 14.sp, maxLines = 4) }
                 }
             }
             if (hero != null) item(key = "hero") {
                 Hero(repo, hero, isTv, hPad,
-                    onPlay = { if (hero.isSeries) open(hero) else { val e = repo.gate(hero.locked); if (e == null) play(listOf(hero), 0) else repo.status = e } },
+                    onPlay = { if (hero.isSeries) open(hero) else playOrGate(hero) },
                     onInfo = { open(hero) },
                     playModifier = Modifier.focusRequester(heroFr).onFocusChanged { if (it.isFocused) repo.lastFocus[screenKey] = "hero" })
             }
             if (shelves.isEmpty() && repo.status.isEmpty()) item(key = "empty") {
-                Text(if (repo.vodCats.isEmpty()) "Loading your portal…" else "Nothing here yet. Open Categories to show hidden ones.",
-                    color = Pal.Dim, fontSize = 16.sp, modifier = Modifier.padding(hPad))
+                Text(when {
+                    repo.vodCats.isEmpty() -> "Loading your portal…"
+                    tabbed && !langs.isNullOrEmpty() && lib.loading -> "Loading…"
+                    tabbed && !langs.isNullOrEmpty() -> "Nothing found for these languages yet. Try Refresh or pick more languages."
+                    else -> "Nothing here yet. Open Categories to show hidden ones."
+                }, color = Pal.Dim, fontSize = 16.sp, modifier = Modifier.padding(hPad))
             }
             items(shelves.distinctBy { it.key }, key = { it.key }) { shelf ->
                 // Lazy: a category's items are requested only when its row is composed (scrolled into view)
@@ -202,14 +295,12 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                     onOpen = { it ->
                         when {
                             it.kind == "itv" -> play(shelf.items, shelf.items.indexOfFirst { x -> x.key == it.key }.coerceAtLeast(0))
-                            shelf.key == "cont" || it.isEpisode() -> {
-                                val e = repo.gate(it.locked); if (e == null) play(listOf(it), 0) else repo.status = e
-                            }
+                            shelf.key == "cont" || it.isEpisode() -> playOrGate(it)
                             else -> open(it)
                         }
                     },
                     onMenu = { menu = shelf to it },
-                    onSeeAll = shelf.cat?.let { c -> { go(Screen.Grid(c, Screen.Home)) } }
+                    onSeeAll = shelf.cat?.let { c -> { go(Screen.Grid(c, Screen.Home)) } } ?: shelf.pool?.let { p -> { go(p) } }
                 )
             }
         }
@@ -217,11 +308,20 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
         menu?.let { (shelf, item) ->
             val opts = buildList<Pair<String, () -> Unit>> {
                 if (item != null) {
-                    if (item.kind == "vod" && !item.isEpisode()) add("Details" to { menu = null; open(item) })
-                    add((if (repo.isFav(item)) "★  Remove from My List" else "☆  Add to My List") to { repo.toggleFav(item); menu = null })
-                    if (shelf.key == "cont") add("Remove from Continue watching" to { repo.store.removeResume(item.key); menu = null; contVer++ })
+                    if (shelf.key == "cont") {
+                        val (p, _) = repo.store.resumeInfo(item)
+                        add("▶  Resume from ${fmt(p)}" to { menu = null; playOrGate(item) })
+                        add("↺  Start over" to { menu = null; repo.store.removeResume(item.key); contVer++; playOrGate(item) })
+                        if (item.isEpisodeLike()) parentSeries(repo, item)?.let { ps ->
+                            add("☰  See all episodes" to { menu = null; go(Screen.Detail(ps, Screen.Home, item.key)) })
+                        }
+                    }
+                    if (item.kind == "vod" && !item.isEpisode() && shelf.key != "cont") add("Details" to { menu = null; open(item) })
+                    if (!item.isEpisode()) add((if (repo.isFav(item)) "★  Remove from My List" else "☆  Add to My List") to { repo.toggleFav(item); menu = null })
+                    if (shelf.key == "cont") add("✕  Remove from Continue watching" to { repo.store.removeResume(item.key); menu = null; contVer++ })
                     if (item.kind == "itv") add("Hide channel" to { repo.toggleHideChannel(item); menu = null })
                 }
+                shelf.pool?.let { p -> add("See all: ${shelf.title}" to { menu = null; go(p) }) }
                 shelf.cat?.let { c ->
                     add("See all in ${shelf.title}" to { menu = null; go(Screen.Grid(c, Screen.Home)) })
                     add("▲  Move row up" to { repo.moveCat("vod", c.id, -1) })
@@ -230,23 +330,31 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                     add("Hide this category" to { repo.toggleHide("vod", c.id); menu = null })
                     if (shelf.error.isNotEmpty()) add("Retry loading" to { repo.retryRow(c); menu = null })
                 }
+                if (tabbed) add("🌐  Languages…" to { menu = null; go(Screen.Languages(mode, Screen.Home)) })
                 add("Browse / arrange all categories…" to { menu = null; go(Screen.Categories) })
             }
-            val title = item?.let { Names.title(it.name) } ?: shelf.cat?.let { c ->
+            val title = item?.let { (if (it.season.isNotEmpty()) "${it.season} · " else "") + Names.title(it.name) } ?: shelf.cat?.let { c ->
                 val pos = repo.visibleVod().indexOfFirst { it.id == c.id }
                 "${shelf.title}  (row ${pos + 1})"
             } ?: shelf.title
             ChoiceDialog(title, opts, focusKey = shelf.key + (item?.key ?: "")) { menu = null }
         }
+        if (sortMenu) {
+            ChoiceDialog("Sort genre rows", Sorts.all.map { s ->
+                ((if (s == sort) "✓  " else "") + Sorts.label(s)) to { sort = s; repo.store.saveSort("tab:$mode", s); sortMenu = false }
+            }, focusKey = "sort") { sortMenu = false }
+        }
     }
 }
 
 @Composable
-private fun Hero(repo: Repo, item: Item, isTv: Boolean, hPad: Dp, onPlay: () -> Unit, onInfo: () -> Unit, playModifier: Modifier) {
+private fun Hero(repo: Repo, raw: Item, isTv: Boolean, hPad: Dp, onPlay: () -> Unit, onInfo: () -> Unit, playModifier: Modifier) {
+    val meta = rememberMeta(raw)
+    val item = raw.withMeta(meta)
     var fav by remember(item.key) { mutableStateOf(repo.isFav(item)) }
-    val name = Names.title(item.name)
+    val name = meta?.title?.ifEmpty { null } ?: Names.title(item.name)
     Box(Modifier.fillMaxWidth().height(if (isTv) 320.dp else 260.dp)) {
-        Poster(item.img, name, Modifier.fillMaxSize(), ContentScale.Crop, initialsSize = 1)
+        Poster(meta?.backdrop?.ifEmpty { null } ?: item.img, name, Modifier.fillMaxSize(), ContentScale.Crop, initialsSize = 1)
         Box(Modifier.fillMaxSize().background(Color(0x66000000)))
         Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Pal.Bg, Pal.Bg.copy(alpha = 0.55f), Color.Transparent))))
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.5f to Color.Transparent, 1f to Pal.Bg)))
@@ -257,8 +365,8 @@ private fun Hero(repo: Repo, item: Item, isTv: Boolean, hPad: Dp, onPlay: () -> 
                 if (item.desc.isNotEmpty()) Text(item.desc, color = Color(0xFFDDDDDD), fontSize = if (isTv) 15.sp else 13.sp, maxLines = 3,
                     overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth(if (isTv) 0.8f else 1f))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    PillButton(if (item.isSeries) "▶  Episodes" else "▶  Play", onPlay, playModifier, primary = true)
-                    PillButton(if (fav) "✓  My List" else "+  My List", { repo.toggleFav(item); fav = repo.isFav(item) })
+                    PillButton(if (item.isSeries) "▶  Episodes" else "▶  Play", onPlay, playModifier.onFocusChanged { if (it.isFocused) Keys.focused = raw }, primary = true)
+                    PillButton(if (fav) "✓  My List" else "+  My List", { repo.toggleFav(raw); fav = repo.isFav(raw) })
                     PillButton("ⓘ  Info", onInfo)
                 }
             }
@@ -271,10 +379,12 @@ private fun Hero(repo: Repo, item: Item, isTv: Boolean, hPad: Dp, onPlay: () -> 
 }
 
 @Composable
-fun MetaLine(item: Item) {
+fun MetaLine(item: Item, meta: Meta? = null) {
     val parts = listOfNotNull(
         item.year.ifEmpty { null },
-        item.rating.ifEmpty { null }?.takeIf { it != "0" && it != "0.0" }?.let { "★ $it" },
+        meta?.imdbRating?.ifEmpty { null }?.let { "IMDb $it" }
+            ?: item.rating.ifEmpty { null }?.takeIf { it != "0" && it != "0.0" }?.let { "★ $it" },
+        meta?.rating?.ifEmpty { null }?.takeIf { meta.imdbRating.isEmpty() && it != item.rating }?.let { "TMDB $it" },
         item.length.ifEmpty { null },
         if (item.isSeries) "Series" else null,
         item.genre.ifEmpty { null }
@@ -292,7 +402,7 @@ private fun ShelfRow(repo: Repo, screen: String, shelf: Shelf, isTv: Boolean, hP
             Text(shelf.title, color = Color.White, fontSize = if (isTv) 20.sp else 17.sp, fontWeight = FontWeight.Bold,
                 maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
             if (shelf.cat?.locked == true) Text("  🔒", fontSize = 14.sp)
-            if (!isTv && shelf.cat != null) {
+            if (!isTv && (shelf.cat != null || shelf.pool != null)) {
                 // Phones: "⋮" next to the title opens the row menu (move / hide)
                 Spacer(Modifier.width(6.dp))
                 Box(Modifier.focusCard({ onMenu(null) }, shape = RoundedCornerShape(12.dp)).padding(horizontal = 10.dp, vertical = 2.dp)) {
@@ -330,10 +440,10 @@ private fun ShelfRow(repo: Repo, screen: String, shelf: Shelf, isTv: Boolean, hP
                 val fr = remember { FocusRequester() }
                 RestoreFocus(repo, screen, k, fr)
                 if (shelf.kind == "itv") {
-                    ChannelTile(it, tileW, repo.isFav(it), Modifier.focusRequester(fr), { onOpen(it) }, { onMenu(it) }) { repo.lastFocus[screen] = k }
+                    ChannelTile(it, tileW, repo.isFav(it), Modifier.focusRequester(fr), { onOpen(it) }, { onMenu(it) }) { repo.lastFocus[screen] = k; Keys.focused = it }
                 } else {
                     PosterCard(it, posterW, shelf.progress[it.key], Modifier.focusRequester(fr), { onOpen(it) }, { onMenu(it) },
-                        fav = repo.isFav(it)) { repo.lastFocus[screen] = k }
+                        fav = repo.isFav(it), versions = shelf.versions[it.key] ?: 0) { repo.lastFocus[screen] = k; Keys.focused = it }
                 }
             }
             if (onSeeAll != null && shelf.items.isNotEmpty()) {
@@ -349,15 +459,25 @@ private fun ShelfRow(repo: Repo, screen: String, shelf: Shelf, isTv: Boolean, hP
 }
 
 @Composable
-fun PosterCard(item: Item, width: Dp, progress: Float?, modifier: Modifier, onClick: () -> Unit, onMenu: () -> Unit,
-               fav: Boolean = false, onFocused: () -> Unit = {}) {
-    val name = Names.title(item.name)
+fun PosterCard(raw: Item, width: Dp, progress: Float?, modifier: Modifier, onClick: () -> Unit, onMenu: () -> Unit,
+               fav: Boolean = false, versions: Int = 0, onFocused: () -> Unit = {}) {
+    // TMDB / OMDb details are looked up only for cards that are on screen
+    val meta = rememberMeta(raw)
+    val item = raw.withMeta(meta)
+    val name = meta?.title?.ifEmpty { null } ?: Names.title(item.name)
+    val q = raw.parsed.quality
     Column(Modifier.width(width)) {
         Box(modifier.fillMaxWidth().aspectRatio(2f / 3f).focusCard(onClick, onMenu, onFocused)) {
             Poster(item.img, name, Modifier.fillMaxSize())
-            if (item.isSeries) {
-                Text("SERIES", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold,
-                    modifier = Modifier.align(Alignment.TopStart).padding(6.dp).background(Pal.Accent, RoundedCornerShape(3.dp)).padding(horizontal = 4.dp, vertical = 1.dp))
+            val tag = when {
+                item.isSeries -> "SERIES"
+                versions > 1 -> "$versions VERSIONS"
+                q == "CAM" || q == "TS" -> q
+                else -> ""
+            }
+            if (tag.isNotEmpty()) {
+                Text(tag, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold,
+                    modifier = Modifier.align(Alignment.TopStart).padding(6.dp).background(if (tag == "CAM" || tag == "TS") Color(0xFF8D6E00) else Pal.Accent, RoundedCornerShape(3.dp)).padding(horizontal = 4.dp, vertical = 1.dp))
             }
             if (fav) Text("★", color = Color(0xFFFFD54F), fontSize = 16.sp,
                 modifier = Modifier.align(Alignment.TopEnd).padding(4.dp).background(Color(0x99000000), RoundedCornerShape(10.dp)).padding(horizontal = 5.dp))
@@ -370,6 +490,11 @@ fun PosterCard(item: Item, width: Dp, progress: Float?, modifier: Modifier, onCl
         Spacer(Modifier.height(6.dp))
         Text(if (item.season.isNotEmpty()) "${item.season} · $name" else name, color = Color(0xFFE0E0E0), fontSize = 13.sp,
             maxLines = 2, overflow = TextOverflow.Ellipsis)
+        // Year and rating (IMDb when known)
+        val r = meta?.imdbRating?.ifEmpty { null } ?: item.rating.takeIf { item.ratingNum > 0 }
+        val y = item.year.ifEmpty { raw.parsed.year }
+        val sub = listOfNotNull(y.ifEmpty { null }, r?.let { "★ $it" }).joinToString("  ·  ")
+        if (sub.isNotEmpty()) Text(sub, color = Pal.Dim, fontSize = 11.sp, maxLines = 1)
     }
 }
 
@@ -387,83 +512,156 @@ fun ChannelTile(item: Item, width: Dp, fav: Boolean, modifier: Modifier, onClick
     }
 }
 
-/** Movie / series page: backdrop, poster, info, Play / Resume, My List, seasons and episodes. */
+/** Season number of an episode: from its label ("Season 2") or its name ("S02E05"). 0 = unknown. */
+private fun seasonNo(e: Item): Int =
+    Regex("\\d+").find(e.season)?.value?.toIntOrNull() ?: Tags.episodeOf(e.name).first
+
+/** Episode number: portal series=N, else from the name ("Episode 5", "S02E05"). 0 = unknown. */
+private fun episodeNo(e: Item): Int =
+    e.series.takeIf { it > 0 } ?: Tags.episodeOf(e.name).second.takeIf { it > 0 } ?: Regex("\\d+").find(e.name)?.value?.toIntOrNull() ?: 0
+
+/** "4K · Hindi" / "CAM · Hindi · Dub" for the Versions selector. */
+private fun versionLabel(repo: Repo, v: Item): String {
+    val p = v.parsed
+    val cat = repo.vodCats.firstOrNull { it.id == v.cat }
+    val q = p.quality.ifEmpty { cat?.let { Tags.quality(it.title).first } ?: "" }.ifEmpty { "Standard" }
+    val dub = p.dub || (cat != null && Tags.isDub(cat.title))
+    val season = Tags.episodeOf(v.name).first.takeIf { it > 0 && v.isSeries }?.let { "Season $it" }
+    return listOfNotNull(q, repo.lib.itemLang(v).takeIf { it != Tags.OTHER }, if (dub) "Dub" else null, season).joinToString(" · ")
+}
+
+/** Movie / series page: backdrop, poster, info (TMDB / IMDb when keys are set), Versions, Play / Resume, seasons and episodes. */
 @Composable
-fun DetailScreen(repo: Repo, item: Item, play: (List<Item>, Int) -> Unit, onBack: () -> Unit, tick: Int) {
+fun DetailScreen(repo: Repo, item: Item, play: (List<Item>, Int) -> Unit, onBack: () -> Unit, tick: Int,
+                 focusEp: String? = null, go: (Screen) -> Unit = {}) {
     val isTv = rememberIsTv()
-    val name = Names.title(item.name)
-    var eps by remember(item.key) { mutableStateOf<List<Item>>(emptyList()) }
-    var loading by remember(item.key) { mutableStateOf(item.isSeries) }
-    var msg by remember(item.key) { mutableStateOf("") }
-    var fav by remember(item.key) { mutableStateOf(repo.isFav(item)) }
+    val scope = rememberCoroutineScope()
+    val versions = remember(item.key, repo.lib.version) { if (item.id.startsWith("grp:")) listOf(item) else repo.lib.versionsOf(item) }
+    var cur by remember(item.key) { mutableStateOf(item) }
+    val meta = rememberMeta(cur)
+    val shownItem = cur.withMeta(meta)
+    val name = meta?.title?.ifEmpty { null } ?: Names.title(cur.name)
+    var eps by remember(cur.key) { mutableStateOf<List<Item>>(emptyList()) }
+    var loading by remember(cur.key) { mutableStateOf(cur.isSeries) }
+    var msg by remember(cur.key) { mutableStateOf("") }
+    var fav by remember(cur.key) { mutableStateOf(repo.isFav(cur)) }
     var reload by remember { mutableIntStateOf(0) }
-    LaunchedEffect(item.key, reload) {
-        if (item.isSeries) {
+    var more by remember { mutableStateOf(false) }
+    var fix by remember { mutableStateOf(false) }
+    LaunchedEffect(cur.key) { Keys.focused = cur }
+    LaunchedEffect(cur.key, reload) {
+        if (cur.isSeries) {
             loading = true
             msg = ""
-            val r = withContext(Dispatchers.IO) { runCatching { repo.api.episodes(item) } }
+            val r = withContext(Dispatchers.IO) {
+                runCatching { if (cur.id.startsWith("grp:")) repo.lib.syntheticEpisodes(cur) else repo.api.episodes(cur) }
+            }
             eps = r.getOrDefault(emptyList())
             msg = r.exceptionOrNull()?.message ?: if (eps.isEmpty()) "No episodes found for this series" else ""
             loading = false
         }
     }
+    // TMDB names / stills / overviews mapped onto the portal's episodes by season + episode number
+    val epMeta by produceState(emptyMap<String, EpMeta>(), eps, meta?.tmdbId) {
+        val m = meta
+        if (m == null || m.type != "tv" || m.tmdbId == 0 || eps.isEmpty()) { value = emptyMap(); return@produceState }
+        val bySeason = eps.groupBy { seasonNo(it).coerceAtLeast(1) }
+        val out = mutableMapOf<String, EpMeta>()
+        for ((sn, list) in bySeason) {
+            val sm = Tmdb.season(m.tmdbId, sn)
+            list.forEach { e -> sm[episodeNo(e)]?.let { out[e.key] = it } }
+            value = out.toMap()
+        }
+    }
     val seasons = remember(eps) { eps.map { it.season }.distinct() }
-    var season by remember(item.key) { mutableStateOf<String?>(null) }
+    var season by remember(cur.key) { mutableStateOf<String?>(null) }
     val cont = remember(tick) { repo.store.continueList().associate { it.first.key to it.second } }
-    val resumeEp = eps.indexOfFirst { it.key in cont }
+    val target = focusEp?.let { k -> eps.indexOfFirst { it.key == k } } ?: -1
+    val resumeEp = if (target >= 0) target else eps.indexOfFirst { it.key in cont }
     val curSeason = season ?: (if (resumeEp >= 0) eps[resumeEp].season else null) ?: seasons.firstOrNull() ?: ""
     val shown = if (seasons.size > 1) eps.filter { it.season == curSeason } else eps
-    val (rp, rd) = remember(tick, item.key) { repo.store.resumeInfo(item) }
-    val canResume = !item.isSeries && rp > 30_000 && (rd <= 0 || rp < rd * 0.95)
+    val (rp, rd) = remember(tick, cur.key) { repo.store.resumeInfo(cur) }
+    val canResume = !cur.isSeries && rp > 30_000 && (rd <= 0 || rp < rd * 0.95)
 
     fun start(list: List<Item>, i: Int) {
-        val e = repo.gate(item.locked)
-        if (e != null) msg = e else play(list, i)
+        val e = repo.gate(cur.locked)
+        if (e != null) { msg = e; return }
+        if (cur.isSeries) repo.store.saveParent(cur, eps)
+        play(list, i)
     }
 
     val playFr = remember { FocusRequester() }
-    LaunchedEffect(item.key, loading) { if (isTv && !loading) { delay(100); runCatching { playFr.requestFocus() } } }
+    val epFr = remember { FocusRequester() }
+    val listState = rememberLazyListState()
+    LaunchedEffect(cur.key, loading) {
+        if (loading) return@LaunchedEffect
+        delay(100)
+        val i = shown.indexOfFirst { it.key == focusEp }
+        if (focusEp != null && i >= 0) {
+            // header + seasons row + count line come before the episodes
+            listState.scrollToItem(1 + (if (seasons.size > 1) 1 else 0) + 1 + i)
+            delay(80)
+            runCatching { epFr.requestFocus() }
+        } else if (isTv) runCatching { playFr.requestFocus() }
+    }
     val hPad = if (isTv) 48.dp else 16.dp
     val epW = if (isTv) 180.dp else 124.dp
 
-    Box(Modifier.fillMaxSize().background(Pal.Bg)) {
-        Poster(item.img, name, Modifier.fillMaxWidth().fillMaxHeight(0.7f), ContentScale.Crop, initialsSize = 1)
+    Box(Modifier.fillMaxSize().background(Pal.Bg).onKeyEvent { e ->
+        // Menu on the details page (nothing else used it): more options incl. Fix match
+        if (e.type == KeyEventType.KeyUp && e.key == Key.Menu) { more = true; true } else false
+    }) {
+        Poster(meta?.backdrop?.ifEmpty { null } ?: shownItem.img, name, Modifier.fillMaxWidth().fillMaxHeight(0.7f), ContentScale.Crop, initialsSize = 1)
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color(0x990B0B0F), 0.55f to Pal.Bg)))
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = hPad, vertical = if (isTv) 32.dp else 14.dp),
+        LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(horizontal = hPad, vertical = if (isTv) 32.dp else 14.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(if (isTv) 28.dp else 14.dp)) {
-                    Poster(item.img, name, Modifier.width(if (isTv) 200.dp else 116.dp).aspectRatio(2f / 3f).clip(RoundedCornerShape(10.dp)))
+                    Poster(shownItem.img, name, Modifier.width(if (isTv) 200.dp else 116.dp).aspectRatio(2f / 3f).clip(RoundedCornerShape(10.dp)))
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(name, color = Color.White, fontSize = if (isTv) 34.sp else 22.sp, fontWeight = FontWeight.Bold, maxLines = 3, overflow = TextOverflow.Ellipsis)
-                        MetaLine(item)
-                        if (item.desc.isNotEmpty()) Text(item.desc, color = Color(0xFFDDDDDD), fontSize = if (isTv) 16.sp else 14.sp,
+                        MetaLine(shownItem, meta)
+                        meta?.released?.takeIf { it.length >= 10 }?.let { Text("Released $it", color = Pal.Dim, fontSize = 13.sp) }
+                        if (shownItem.desc.isNotEmpty()) Text(shownItem.desc, color = Color(0xFFDDDDDD), fontSize = if (isTv) 16.sp else 14.sp,
                             maxLines = if (isTv) 6 else 8, overflow = TextOverflow.Ellipsis)
+                        meta?.cast?.takeIf { it.isNotEmpty() }?.let { Text("Cast: $it", color = Pal.Dim, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis) }
                         if (msg.isNotEmpty()) Text(msg, color = Pal.Warn, fontSize = 14.sp, maxLines = 4)
                         Spacer(Modifier.height(4.dp))
                         FlowRowCompat {
+                            val pm = Modifier.focusRequester(playFr)
                             when {
-                                item.isSeries && eps.isNotEmpty() -> {
+                                cur.isSeries && eps.isNotEmpty() -> {
                                     val i = if (resumeEp >= 0) resumeEp else 0
                                     val e = eps[i]
                                     val label = listOf(e.season, Names.title(e.name)).filter { it.isNotEmpty() }.joinToString(" · ")
-                                    PillButton((if (resumeEp >= 0) "▶  Resume " else "▶  Play ") + label, { start(eps, i) }, Modifier.focusRequester(playFr), primary = true)
+                                    PillButton((if (eps[i].key in cont) "▶  Resume " else "▶  Play ") + label, { start(eps, i) }, pm, primary = true, onMenu = { more = true })
                                 }
-                                item.isSeries && loading -> PillButton("Loading episodes…", {}, Modifier.focusRequester(playFr))
-                                item.isSeries -> PillButton("↻  Retry", { reload++ }, Modifier.focusRequester(playFr))
+                                cur.isSeries && loading -> PillButton("Loading episodes…", {}, pm)
+                                cur.isSeries -> PillButton("↻  Retry", { reload++ }, pm)
                                 canResume -> {
-                                    PillButton("▶  Resume from ${fmt(rp)}", { start(listOf(item), 0) }, Modifier.focusRequester(playFr), primary = true)
-                                    PillButton("↺  Start over", { repo.store.removeResume(item.key); start(listOf(item), 0) })
+                                    PillButton("▶  Resume from ${fmt(rp)}", { start(listOf(cur), 0) }, pm, primary = true, onMenu = { more = true })
+                                    PillButton("↺  Start over", { repo.store.removeResume(cur.key); start(listOf(cur), 0) })
                                 }
-                                else -> PillButton("▶  Play", { start(listOf(item), 0) }, Modifier.focusRequester(playFr), primary = true)
+                                else -> PillButton("▶  Play", { start(listOf(cur), 0) }, pm, primary = true, onMenu = { more = true })
                             }
-                            PillButton(if (fav) "★  In My List" else "☆  Add to My List", { repo.toggleFav(item); fav = repo.isFav(item) })
+                            PillButton(if (fav) "★  In My List" else "☆  Add to My List", { repo.toggleFav(cur); fav = repo.isFav(cur) }, onMenu = { more = true })
+                            if (Tmdb.key.isNotBlank()) PillButton("✎  Fix match", { fix = true })
                             PillButton("Back", onBack)
                         }
                     }
                 }
             }
-            if (item.isSeries && loading) item { CircularProgressIndicator(color = Pal.Accent, modifier = Modifier.padding(16.dp)) }
+            if (versions.size > 1) item {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Versions", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 4.dp), modifier = Modifier.focusRestorer()) {
+                        items(versions, key = { it.key }) { v ->
+                            PillButton(versionLabel(repo, v), { cur = v }, selected = v.key == cur.key, size = 14)
+                        }
+                    }
+                }
+            }
+            if (cur.isSeries && loading) item { CircularProgressIndicator(color = Pal.Accent, modifier = Modifier.padding(16.dp)) }
             if (seasons.size > 1) item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 6.dp), modifier = Modifier.focusRestorer()) {
                     items(seasons) { s -> PillButton(s.ifEmpty { "Episodes" }, { season = s }, selected = s == curSeason, size = 15) }
@@ -477,12 +675,15 @@ fun DetailScreen(repo: Repo, item: Item, play: (List<Item>, Int) -> Unit, onBack
                 val all = eps.indexOf(e)
                 val p = cont[e.key]
                 val d = if (p != null) repo.store.resumeInfo(e).second else 0L
+                val em = epMeta[e.key]
+                val title = em?.name?.takeIf { it.isNotEmpty() }?.let { n -> episodeNo(e).takeIf { it > 0 }?.let { "$it. $n" } ?: n } ?: Names.title(e.name)
                 Row(
-                    Modifier.fillMaxWidth().focusCard({ start(eps, all) }, scale = 1.02f).background(Color(0x22FFFFFF)).padding(8.dp),
+                    Modifier.fillMaxWidth().then(if (e.key == focusEp) Modifier.focusRequester(epFr) else Modifier)
+                        .focusCard({ start(eps, all) }, scale = 1.02f).background(Color(0x22FFFFFF)).padding(8.dp),
                     horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically
                 ) {
                     Box(Modifier.width(epW).aspectRatio(16f / 9f).clip(RoundedCornerShape(6.dp))) {
-                        Poster(e.img.ifEmpty { item.img }, Names.title(e.name), Modifier.fillMaxSize(), initialsSize = 18)
+                        Poster(em?.still?.ifEmpty { null } ?: e.img.ifEmpty { shownItem.img }, title, Modifier.fillMaxSize(), initialsSize = 18)
                         Box(Modifier.fillMaxSize().background(Color(0x33000000)))
                         Text("▶", color = Color.White, fontSize = 22.sp, modifier = Modifier.align(Alignment.Center))
                         if (p != null && d > 0) {
@@ -491,11 +692,67 @@ fun DetailScreen(repo: Repo, item: Item, play: (List<Item>, Int) -> Unit, onBack
                         }
                     }
                     Column(Modifier.weight(1f)) {
-                        Text(Names.title(e.name), color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        if (e.length.isNotEmpty()) Text(e.length, color = Pal.Dim, fontSize = 12.sp)
-                        if (e.desc.isNotEmpty() && e.desc != item.desc) Text(e.desc, color = Pal.Dim, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(title, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        val sub = listOfNotNull(e.length.ifEmpty { null }, em?.airDate?.ifEmpty { null }).joinToString("  ·  ")
+                        if (sub.isNotEmpty()) Text(sub, color = Pal.Dim, fontSize = 12.sp)
+                        val ov = em?.overview?.ifEmpty { null } ?: e.desc.takeIf { it.isNotEmpty() && it != cur.desc }
+                        if (ov != null) Text(ov, color = Pal.Dim, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     }
                 }
+            }
+        }
+        if (more) {
+            ChoiceDialog(name, focusKey = "more", opts = buildList {
+                if (Tmdb.key.isNotBlank()) add("✎  Fix match (choose the right TMDB title)" to { more = false; fix = true })
+                if (Tmdb.enabled) add("↻  Look up details again" to { more = false; scope.launch { Tmdb.clearFor(cur) } })
+                add((if (repo.isFav(cur)) "★  Remove from My List" else "☆  Add to My List") to { repo.toggleFav(cur); fav = repo.isFav(cur); more = false })
+                if (canResume) add("Remove from Continue watching" to { repo.store.removeResume(cur.key); more = false })
+            }) { more = false }
+        }
+        if (fix) FixMatchDialog(cur) { fix = false }
+    }
+}
+
+/** Search TMDB and pick the right title; the choice is saved and used from then on. */
+@Composable
+private fun FixMatchDialog(item: Item, onClose: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    val p = item.parsed
+    var q by remember { mutableStateOf(p.title + (if (p.year.isNotEmpty()) " (${p.year})" else "")) }
+    var type by remember { mutableStateOf(Tmdb.typeOf(item)) }
+    var results by remember { mutableStateOf<List<Cand>?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    val fr = remember { FocusRequester() }
+    fun run() { busy = true; scope.launch { results = Tmdb.search(q, type); busy = false } }
+    LaunchedEffect(Unit) { run(); delay(150); runCatching { fr.requestFocus() } }
+    Box(Modifier.fillMaxSize().background(Color(0xCC000000)), contentAlignment = Alignment.Center) {
+        Column(Modifier.widthIn(max = 640.dp).fillMaxWidth(0.9f).heightIn(max = 560.dp).background(Color(0xF21A1A22), RoundedCornerShape(14.dp)).padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Fix match: ${Names.title(item.name)}", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            TextField(value = q, onValueChange = { q = it }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+                colors = TextFieldDefaults.colors(focusedContainerColor = Pal.Surface, unfocusedContainerColor = Pal.Surface,
+                    focusedTextColor = Color.White, unfocusedTextColor = Color.White))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                PillButton("Search", { run() }, Modifier.focusRequester(fr), primary = true, size = 14)
+                PillButton("Movie", { type = "movie"; run() }, selected = type == "movie", size = 14)
+                PillButton("Series", { type = "tv"; run() }, selected = type == "tv", size = 14)
+                PillButton("Close", onClose, size = 14)
+            }
+            if (busy) CircularProgressIndicator(color = Pal.Accent)
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                val r = results
+                if (r != null && r.isEmpty() && !busy) item { Text("No TMDB results. Edit the title and search again.", color = Pal.Dim, fontSize = 14.sp) }
+                items(r ?: emptyList(), key = { "${it.type}${it.id}" }) { c ->
+                    Row(Modifier.fillMaxWidth().focusCard({ scope.launch { Tmdb.setOverride(item, c); onClose() } }, scale = 1.02f)
+                        .background(Color(0x22FFFFFF)).padding(6.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Poster(c.poster, c.title, Modifier.width(46.dp).aspectRatio(2f / 3f).clip(RoundedCornerShape(4.dp)), initialsSize = 12)
+                        Column(Modifier.weight(1f)) {
+                            Text(c.title + (if (c.year.isNotEmpty()) " (${c.year})" else ""), color = Color.White, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            if (c.overview.isNotEmpty()) Text(c.overview, color = Pal.Dim, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                }
+                item { PillButton("No match: use the portal's info", { scope.launch { Tmdb.setOverride(item, null); onClose() } }, Modifier.fillMaxWidth(), size = 14) }
             }
         }
     }
@@ -531,7 +788,13 @@ fun GridScreen(repo: Repo, cat: Cat, open: (Item) -> Unit, play: (List<Item>, In
     var busy by remember { mutableStateOf(false) }
     var msg by remember { mutableStateOf("") }
     var menu by remember { mutableStateOf<Item?>(null) }
+    var sort by remember { mutableStateOf(repo.store.sort("grid", Sorts.ADDED)) }
+    var sortMenu by remember { mutableStateOf(false) }
     val screenKey = "grid:${cat.id}"
+    // Same title in several qualities shows once (best version first); sorted on what is loaded so far
+    val cards = remember(items, sort, Tmdb.version) { repo.lib.sort(repo.lib.cards(items), sort) }
+    val vcount = remember(cards) { cards.associate { it.best.key to it.items.size } }
+    val shownItems = remember(cards) { cards.map { it.best } }
 
     fun next() {
         if (busy || !more) return
@@ -570,6 +833,8 @@ fun GridScreen(repo: Repo, cat: Cat, open: (Item) -> Unit, play: (List<Item>, In
                 Column {
                     Text(Names.cat(cat.title), color = Color.White, fontSize = if (isTv) 28.sp else 22.sp, fontWeight = FontWeight.Bold)
                     Text(if (more) "${items.size}+ titles" else "${items.size} titles", color = Pal.Dim, fontSize = 13.sp)
+                    Spacer(Modifier.height(6.dp))
+                    PillButton("⇅  Sort: " + Sorts.label(sort), { sortMenu = true }, size = 14)
                     if (msg.isNotEmpty()) Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(msg, color = Pal.Warn, fontSize = 13.sp, maxLines = 2, modifier = Modifier.weight(1f, fill = false))
                         Spacer(Modifier.width(8.dp))
@@ -577,14 +842,14 @@ fun GridScreen(repo: Repo, cat: Cat, open: (Item) -> Unit, play: (List<Item>, In
                     }
                 }
             }
-            gridItemsIndexed(items, key = { i, it -> "$i|${it.key}" }) { i, it ->
+            gridItemsIndexed(shownItems, key = { i, it -> "$i|${it.key}" }) { i, it ->
                 val k = it.key
                 val fr = remember { FocusRequester() }
                 RestoreFocus(repo, screenKey, k, fr)
                 PosterCard(it, posterW, null, Modifier.then(if (i == 0) Modifier.focusRequester(firstFr) else Modifier).focusRequester(fr),
-                    { if (it.isEpisode()) play(listOf(it), 0) else open(it) }, { menu = it }, fav = repo.isFav(it)) { repo.lastFocus[screenKey] = k }
+                    { if (it.isEpisode()) play(listOf(it), 0) else open(it) }, { menu = it }, fav = repo.isFav(it), versions = vcount[it.key] ?: 0) { repo.lastFocus[screenKey] = k; Keys.focused = it }
                 // Paging: ask for the next page when the last few posters come into view
-                if (i >= items.size - 6 && more && !busy) LaunchedEffect(items.size) { next() }
+                if (i >= shownItems.size - 6 && more && !busy) LaunchedEffect(items.size) { next() }
             }
             if (busy || (page == 0 && more)) items(if (items.isEmpty()) 12 else 6) { _ ->
                 Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(8.dp)).shimmer())
@@ -596,6 +861,109 @@ fun GridScreen(repo: Repo, cat: Cat, open: (Item) -> Unit, play: (List<Item>, In
                 (if (repo.isFav(m)) "★  Remove from My List" else "☆  Add to My List") to { repo.toggleFav(m); menu = null }
             ), onClose = { menu = null })
         }
+        if (sortMenu) SortDialog(sort, { sort = it; repo.store.saveSort("grid", it); sortMenu = false }) { sortMenu = false }
+    }
+}
+
+@Composable
+fun SortDialog(cur: String, pick: (String) -> Unit, onClose: () -> Unit) {
+    ChoiceDialog("Sort by", Sorts.all.map { s -> ((if (s == cur) "✓  " else "") + Sorts.label(s)) to { pick(s) } } +
+        listOf("(Titles without that information are listed last)" to onClose), focusKey = "sort", onClose = onClose)
+}
+
+/** See all for a language / genre row: every loaded title, versions merged, with a sort choice. */
+@Composable
+fun PoolScreen(repo: Repo, tab: String, lang: String, genre: String, title: String, sort0: String, open: (Item) -> Unit) {
+    val isTv = rememberIsTv()
+    val lib = repo.lib
+    var sort by remember { mutableStateOf(repo.store.sort("pool:$title", sort0)) }
+    var sortMenu by remember { mutableStateOf(false) }
+    var menu by remember { mutableStateOf<Item?>(null) }
+    val cards by produceState(emptyList<Group>(), lang, genre, sort, lib.version, Tmdb.version) {
+        value = withContext(Dispatchers.Default) {
+            val g = lib.cards(lib.pool(tab, setOf(lang)))
+            lib.sort(if (genre.isEmpty()) g else g.filter { genre in lib.genresOf(it.best) }, sort)
+        }
+    }
+    val screenKey = "pool:$tab:$title"
+    val posterW = posterWidth(isTv)
+    val hPad = if (isTv) 48.dp else 14.dp
+    val state = remember(screenKey) { repo.gridStates.getOrPut(screenKey) { LazyGridState() } }
+    val firstFr = remember { FocusRequester() }
+    LaunchedEffect(cards.isNotEmpty()) { if (isTv && cards.isNotEmpty() && repo.lastFocus[screenKey] == null) { delay(100); runCatching { firstFr.requestFocus() } } }
+    Box(Modifier.fillMaxSize().background(Pal.Bg)) {
+        LazyVerticalGrid(columns = GridCells.Adaptive(posterW), state = state,
+            contentPadding = PaddingValues(horizontal = hPad, vertical = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(if (isTv) 16.dp else 10.dp),
+            verticalArrangement = Arrangement.spacedBy(if (isTv) 18.dp else 12.dp), modifier = Modifier.fillMaxSize()) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(title, color = Color.White, fontSize = if (isTv) 28.sp else 22.sp, fontWeight = FontWeight.Bold)
+                    Text("${cards.size} titles" + (if (lib.loading) " (still loading…)" else ""), color = Pal.Dim, fontSize = 13.sp)
+                    PillButton("⇅  Sort: " + Sorts.label(sort), { sortMenu = true }, Modifier.focusRequester(firstFr), size = 14)
+                }
+            }
+            gridItemsIndexed(cards, key = { i, g -> "$i|${g.key}" }) { _, g ->
+                val it = g.best
+                val k = g.key
+                val fr = remember { FocusRequester() }
+                RestoreFocus(repo, screenKey, k, fr)
+                PosterCard(it, posterW, null, Modifier.focusRequester(fr), { open(it) }, { menu = it }, fav = repo.isFav(it),
+                    versions = g.items.size) { repo.lastFocus[screenKey] = k; Keys.focused = it }
+            }
+        }
+        menu?.let { m ->
+            ChoiceDialog(Names.title(m.name), listOf(
+                "Details" to { menu = null; open(m) },
+                (if (repo.isFav(m)) "★  Remove from My List" else "☆  Add to My List") to { repo.toggleFav(m); menu = null }
+            ), onClose = { menu = null })
+        }
+        if (sortMenu) SortDialog(sort, { sort = it; repo.store.saveSort("pool:$title", it); sortMenu = false }) { sortMenu = false }
+    }
+}
+
+/** Languages checklist for a tab, with category counts. Nothing ticked = no language filter (old category rows). */
+@Composable
+fun LanguagesScreen(repo: Repo, tab: String, onBack: () -> Unit) {
+    val isTv = rememberIsTv()
+    val lib = repo.lib
+    val langs = remember(repo.vodCats.size) { lib.languages(tab) }
+    var sel by remember { mutableStateOf(lib.selected(tab) ?: emptySet()) }
+    val firstFr = remember { FocusRequester() }
+    LaunchedEffect(Unit) { delay(120); runCatching { firstFr.requestFocus() } }
+    fun save(v: Set<String>) {
+        sel = v
+        repo.store.saveLangs(tab, v.ifEmpty { null })
+        if (v.isNotEmpty()) lib.ensure(tab, v)
+    }
+    val hPad = if (isTv) 48.dp else 16.dp
+    Box(Modifier.fillMaxSize().background(Pal.Bg)) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = hPad, vertical = 20.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Languages · ${if (tab == "series") "Series" else "Movies"}", color = Color.White, fontSize = if (isTv) 28.sp else 22.sp, fontWeight = FontWeight.Bold)
+                    Text("Tick the languages to show. The language comes from the category and title names (e.g. \"HINDI 4K\", \"|EN|\", \"[Tamil]\"); " +
+                        "Dub / CAM / 4K are treated as versions, not languages. Untick everything to go back to plain category rows. " +
+                        "Other languages stay reachable through Search and Categories.", color = Pal.Dim, fontSize = 13.sp)
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        PillButton("Done", onBack, Modifier.focusRequester(firstFr), primary = true, size = 14)
+                        PillButton("Select all", { save(langs.map { it.first }.toSet()) }, size = 14)
+                        PillButton("Select none", { save(emptySet()) }, size = 14)
+                    }
+                }
+            }
+            items(langs, key = { it.first }) { (l, n) ->
+                val on = l in sel
+                Row(Modifier.fillMaxWidth().focusCard({ save(if (on) sel - l else sel + l) }, scale = 1.02f)
+                    .background(if (on) Color(0x33E50914) else Color(0x22FFFFFF)).padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Text(if (on) "☑" else "☐", color = Color.White, fontSize = 20.sp)
+                    Spacer(Modifier.width(12.dp))
+                    Text(l, color = Color.White, fontSize = 17.sp, fontWeight = if (on) FontWeight.Bold else FontWeight.Normal, modifier = Modifier.weight(1f))
+                    Text("$n ${if (n == 1) "category" else "categories"}", color = Pal.Dim, fontSize = 13.sp)
+                }
+            }
+        }
     }
 }
 
@@ -605,12 +973,16 @@ fun CategoriesScreen(repo: Repo, go: (Screen) -> Unit) {
     val isTv = rememberIsTv()
     var kind by remember { mutableStateOf("vod") }
     var showHidden by remember { mutableStateOf(false) }
+    var showAll by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf<Cat?>(null) }
     val unlocked = repo.gate(true) == null
     val all = repo.ordered(kind)
     val q = repo.catFilter.trim()
+    // Languages picked on the Movies / Series tabs; "Show all" lists every language
+    val picked = remember { (repo.lib.selected("movies") ?: emptySet()) + (repo.lib.selected("series") ?: emptySet()) }
     val cats = all.filter { c ->
         (showHidden || !repo.isHidden(kind, c.id)) &&
+            (kind != "vod" || showAll || picked.isEmpty() || repo.lib.catLang(c) in picked) &&
             (q.isEmpty() || Names.cat(c.title).contains(q, true) || c.title.contains(q, true))
     }
     val screenKey = "cats:$kind"
@@ -646,6 +1018,7 @@ fun CategoriesScreen(repo: Repo, go: (Screen) -> Unit) {
                         PillButton("Movies & Series", { kind = "vod" }, Modifier.focusRequester(firstFr), selected = kind == "vod", size = 14)
                         PillButton("Live TV", { kind = "itv" }, selected = kind == "itv", size = 14)
                         PillButton(if (showHidden) "Showing hidden" else "Show hidden", { showHidden = !showHidden }, selected = showHidden, size = 14)
+                        if (kind == "vod" && picked.isNotEmpty()) PillButton(if (showAll) "All languages" else "Show all languages", { showAll = !showAll }, selected = showAll, size = 14)
                         PillButton("Reset order", { repo.resetOrder(kind) }, size = 14)
                     }
                     TextField(
@@ -678,7 +1051,7 @@ fun CategoriesScreen(repo: Repo, go: (Screen) -> Unit) {
                         Text((if (c.locked) "🔒 " else "") + label, color = if (hidden) Color(0xFF999999) else Color.White, fontSize = 15.sp,
                             fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         val n = if (kind == "itv") repo.channels.count { it.cat == c.id } else -1
-                        Text(listOfNotNull("#${all.indexOf(c) + 1}", if (n >= 0) "$n channels" else null, if (hidden) "hidden" else null).joinToString("  ·  "),
+                        Text(listOfNotNull("#${all.indexOf(c) + 1}", if (kind == "vod") repo.lib.catLang(c) else null, if (n >= 0) "$n channels" else null, if (hidden) "hidden" else null).joinToString("  ·  "),
                             color = Pal.Dim, fontSize = 11.sp)
                     }
                 }

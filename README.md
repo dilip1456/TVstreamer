@@ -38,6 +38,33 @@ The next episode plays automatically.
 - Categories: browse every category with a sample poster, filter by name, move up/down, hide/unhide.
 - Names are tidied for display only ("EN| Action" shows as "Action · EN").
 
+## Languages, versions and sorting (1.39)
+- Movies and Series are separate tabs. Each has a Languages picker (with category counts, Select all / none).
+  The language is read from category and title names ("HINDI 4K", "|EN|", "[Tamil]", "Telugu Dubbed").
+  Dub, CAM, 4K, HD and so on are versions, not languages; names with no language go under "Other".
+- For each chosen language: Latest added, Top rated, Newest releases, then rows by genre.
+  Languages you did not pick are hidden from the rows but are still found by Search and in Categories ("Show all languages").
+- The same title and year in several qualities (CAM / 4K / Dub) shows once. The detail screen has a Versions choice
+  (best first, CAM last).
+- Sort on grids: Recently added (default), Release year, Rating (IMDb first), A-Z. Titles without that info go last.
+- The library loads in the background, is kept on the device for 12 hours and has a Refresh button.
+- Continue watching: Menu / long-press on an episode gives Resume, Start over, See all episodes and Remove.
+
+## Movie info from TMDB / OMDb (optional)
+Settings > Movie & series info: paste a TMDB API key (v3 key or v4 read token, free at themoviedb.org)
+and optionally an OMDb key (omdbapi.com) for IMDb ratings. Keys are kept encrypted on the device, never in this repo.
+Without keys the portal's own posters and info are used.
+If a title is matched to the wrong film, open it and press Menu (or long-press a button) > Fix match.
+
+## Remote buttons (1.39)
+Settings > Remote buttons: press a button to learn it, then choose what a short press and a long press do
+(My List, play/pause, seek, next/previous, last channel, subtitles, audio, aspect, go to Live / Movies / Series / Search...).
+Reset restores the defaults. Default: holding Menu adds or removes the focused or playing title from My List.
+The arrows, OK, Back, Home, volume and voice keys are not remappable.
+Fire TV app buttons (Netflix, Prime Video, Hulu...) are handled by Fire TV itself and never reach the app.
+On supported remotes you can point a shortcut button at TVStreamer in Fire TV Settings > Controllers & Bluetooth Devices >
+Amazon Fire TV Remotes > Remote button shortcuts.
+
 ## Updating from inside the app
 Home > Update downloads the newest release and opens the Android installer. The first time,
 Android asks you to allow "Install unknown apps" for TVStreamer: turn it on, go back and press Update again.

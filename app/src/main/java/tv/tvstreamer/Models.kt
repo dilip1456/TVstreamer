@@ -24,7 +24,8 @@ data class Item(
     val eps: String = "",     // comma separated episode numbers (classic Stalker "series" array)
     val pcmd: String = "",    // episodes: cmd of the parent series / season (fallback for create_link)
     val pid: String = "",     // episodes: id of the parent series (movie_id)
-    val sid: String = ""      // episodes: season id
+    val sid: String = "",     // episodes: season id
+    val added: String = ""    // portal "added" date text (e.g. "2024-05-01 12:30:00"); may be missing
 ) {
     val key: String get() = "$kind:$id"
     val isSeries: Boolean get() = kind == "vod" && num == -1
@@ -33,7 +34,7 @@ data class Item(
         .put("g", cat).put("u", num).put("l", locked)
         .put("m", img).put("d", desc).put("y", year).put("r", rating)
         .put("ge", genre).put("s", series).put("se", season).put("t", length).put("ep", eps)
-        .put("pc", pcmd).put("pi", pid).put("si", sid)
+        .put("pc", pcmd).put("pi", pid).put("si", sid).put("ad", added)
 
     companion object {
         fun from(o: JSONObject) = Item(
@@ -41,7 +42,7 @@ data class Item(
             o.optString("g"), o.optInt("u"), o.optBoolean("l"),
             o.optString("m"), o.optString("d"), o.optString("y"), o.optString("r"),
             o.optString("ge"), o.optInt("s"), o.optString("se"), o.optString("t"), o.optString("ep"),
-            o.optString("pc"), o.optString("pi"), o.optString("si")
+            o.optString("pc"), o.optString("pi"), o.optString("si"), o.optString("ad")
         )
     }
 }

@@ -1,6 +1,8 @@
 package tv.tvstreamer
 
 import android.os.Bundle
+import android.view.KeyEvent
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -22,22 +24,92 @@ sealed interface Screen {
     object Search : Screen
     object Settings : Screen
     object Categories : Screen
-    class Detail(val item: Item, val back: Screen) : Screen
+    object Remote : Screen
+    /** Language checklist for a tab ("movies" / "series"). */
+    class Languages(val tab: String, val back: Screen) : Screen
+    /** focusEp: episode key to open on (its season, focused) — from Continue watching. */
+    class Detail(val item: Item, val back: Screen, val focusEp: String? = null) : Screen
     class Grid(val cat: Cat, val back: Screen) : Screen
+    /** See all for a language / genre row. */
+    class Pool(val tab: String, val lang: String, val genre: String, val title: String, val sort: String, val back: Screen) : Screen
     class Play(val list: List<Item>, val index: Int, val back: Screen) : Screen
 }
 
 class MainActivity : ComponentActivity() {
+    private lateinit var repo: Repo
+    private var replaying = false
+    private var downCode = -1
+    private var downAt = 0L
+    private var longFired = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val repo = Repo(applicationContext)
+        repo = Repo(applicationContext)
+        Keys.init(repo.store)
         setContent {
             MaterialTheme(
                 colorScheme = darkColorScheme(primary = Pal.Accent, background = Pal.Bg, surface = Pal.Surface, onPrimary = Color.White)
             ) { App(repo) }
         }
     }
+
+    /** Re-send a key to the normal (Compose) handling, as a fresh down + up. */
+    private fun replay(up: KeyEvent) {
+        replaying = true
+        try {
+            super.dispatchKeyEvent(KeyEvent.changeAction(up, KeyEvent.ACTION_DOWN))
+            super.dispatchKeyEvent(up)
+        } finally { replaying = false }
+    }
+
+    /**
+     * Central key handler: learning mode, then custom short / long press bindings (Keys), else normal handling.
+     * Keys with a long-press action wait for release (or [Keys.LONG_MS]) to tell short from long.
+     */
+    override fun dispatchKeyEvent(e: KeyEvent): Boolean {
+        if (replaying) return super.dispatchKeyEvent(e)
+        val code = e.keyCode
+        Keys.learn?.let { learn ->
+            if (e.action == KeyEvent.ACTION_DOWN && e.repeatCount == 0) learn(if (code == KeyEvent.KEYCODE_BACK) -1 else code)
+            return true
+        }
+        if (code in Keys.reserved) return super.dispatchKeyEvent(e)
+        val s = Keys.shortOf(code)
+        val l = Keys.longOf(code)
+        if (s == Act.DEFAULT && l == Act.DEFAULT) return super.dispatchKeyEvent(e)
+        if (l != Act.DEFAULT) {
+            when (e.action) {
+                KeyEvent.ACTION_DOWN -> {
+                    if (e.repeatCount == 0) { downCode = code; downAt = e.eventTime; longFired = false }
+                    else if (code == downCode && !longFired && (e.isLongPress || e.eventTime - downAt >= Keys.LONG_MS)) {
+                        longFired = true
+                        Keys.run(l)
+                    }
+                    return true
+                }
+                KeyEvent.ACTION_UP -> {
+                    val same = code == downCode
+                    val wasLong = longFired && same
+                    downCode = -1; longFired = false
+                    if (wasLong) return true
+                    // Remotes that send no key repeats: decide by how long the button was held
+                    if (same && e.eventTime - downAt >= Keys.LONG_MS) { Keys.run(l); return true }
+                    if (s == Act.DEFAULT || !Keys.run(s)) replay(e)
+                    return true
+                }
+            }
+            return true
+        }
+        // Only a short-press action: act on the first down
+        if (e.action == KeyEvent.ACTION_DOWN) {
+            if (e.repeatCount == 0 && !Keys.run(s)) return super.dispatchKeyEvent(e)
+            return true
+        }
+        return true
+    }
 }
+
+fun toast(ctx: android.content.Context, msg: String) = Toast.makeText(ctx, msg, Toast.LENGTH_SHORT).show()
 
 @Composable
 fun App(repo: Repo) {
@@ -57,21 +129,57 @@ fun App(repo: Repo) {
             is Screen.Play -> s.back
             is Screen.Detail -> s.back
             is Screen.Grid -> s.back
+            is Screen.Pool -> s.back
+            is Screen.Languages -> s.back
+            Screen.Remote -> Screen.Settings
             else -> Screen.Home
         }
         tick++
     }
     BackHandler(screen != Screen.Home) { back() }
+    LaunchedEffect(screen) { Keys.focused = null }
 
     val play: (List<Item>, Int) -> Unit = { l, i -> if (l.isNotEmpty()) screen = Screen.Play(l, i, screen) }
     val open: (Item) -> Unit = { item ->
         if (item.kind == "vod" && !item.isEpisode()) screen = Screen.Detail(item, screen)
         else play(listOf(item), 0)
     }
-    // Grid screens remember where they were opened from
+    // Grid / list screens remember where they were opened from
     val go: (Screen) -> Unit = { to ->
         val cur = screen
-        screen = if (to is Screen.Grid && cur !is Screen.Grid) Screen.Grid(to.cat, cur) else to
+        screen = when {
+            to is Screen.Grid && cur !is Screen.Grid -> Screen.Grid(to.cat, cur)
+            to is Screen.Pool -> Screen.Pool(to.tab, to.lang, to.genre, to.title, to.sort, cur)
+            to is Screen.Languages -> Screen.Languages(to.tab, cur)
+            to is Screen.Detail -> Screen.Detail(to.item, cur, to.focusEp)
+            else -> to
+        }
+    }
+
+    // Remote button actions outside the player
+    DisposableEffect(Unit) {
+        Keys.app = { a ->
+            when (a) {
+                Act.HOME -> { screen = Screen.Home; true }
+                Act.MOVIES -> { screen = Screen.MoviesTab; true }
+                Act.SERIES -> { screen = Screen.SeriesTab; true }
+                Act.LIVE -> { screen = Screen.Live; true }
+                Act.SEARCH -> { screen = Screen.Search; true }
+                Act.SETTINGS -> { screen = Screen.Settings; true }
+                Act.BACK -> { if (screen != Screen.Home) back(); true }
+                Act.FAV -> {
+                    val f = Keys.focused
+                    if (f != null && !f.isEpisode()) {
+                        repo.toggleFav(f)
+                        toast(ctx, (if (repo.isFav(f)) "Added to My List: " else "Removed from My List: ") + Names.title(f.name))
+                        tick++
+                    } else toast(ctx, "Focus a title or channel first")
+                    true
+                }
+                else -> false
+            }
+        }
+        onDispose { Keys.app = null }
     }
 
     Surface(Modifier.fillMaxSize().background(Pal.Bg), color = Pal.Bg) {
@@ -83,8 +191,11 @@ fun App(repo: Repo) {
             Screen.Search -> Search(repo, play, open)
             Screen.Settings -> SettingsScreen(repo, go)
             Screen.Categories -> CategoriesScreen(repo, go)
-            is Screen.Detail -> DetailScreen(repo, s.item, play, { back() }, tick)
+            Screen.Remote -> RemoteScreen { back() }
+            is Screen.Languages -> LanguagesScreen(repo, s.tab) { back() }
+            is Screen.Detail -> DetailScreen(repo, s.item, play, { back() }, tick, s.focusEp, go)
             is Screen.Grid -> GridScreen(repo, s.cat, open, play)
+            is Screen.Pool -> PoolScreen(repo, s.tab, s.lang, s.genre, s.title, s.sort, open)
             is Screen.Play -> PlayerScreen(repo, s.list, s.index) { back() }
         }
     }

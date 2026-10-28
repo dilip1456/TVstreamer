@@ -54,10 +54,10 @@ private val WARN = Color(0xFFFFB74D)
 private val DIM = Color(0xFF9AA0B5)
 
 /** Focusable, D-pad friendly. Menu key or long press fires onMenu. */
-fun Modifier.tv(onClick: () -> Unit, onMenu: (() -> Unit)? = null): Modifier = composed {
+fun Modifier.tv(onClick: () -> Unit, onMenu: (() -> Unit)? = null, onFocus: (() -> Unit)? = null): Modifier = composed {
     var f by remember { mutableStateOf(false) }
     this
-        .onFocusChanged { f = it.isFocused }
+        .onFocusChanged { f = it.isFocused; if (it.isFocused) onFocus?.invoke() }
         .background(if (f) Color(0xFF3A6BFF) else Color(0xFF1E1E26), RoundedCornerShape(8.dp))
         .onKeyEvent { e ->
             if (onMenu != null && e.type == KeyEventType.KeyUp && e.key == Key.Menu) { onMenu(); true } else false
@@ -71,8 +71,8 @@ fun Label(text: String, size: Int = 18, color: Color = Color.White, modifier: Mo
 }
 
 @Composable
-fun Row1(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, onMenu: (() -> Unit)? = null) {
-    Box(modifier.fillMaxWidth().tv(onClick, onMenu).padding(horizontal = 12.dp, vertical = 8.dp)) {
+fun Row1(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, onMenu: (() -> Unit)? = null, onFocus: (() -> Unit)? = null) {
+    Box(modifier.fillMaxWidth().tv(onClick, onMenu, onFocus).padding(horizontal = 12.dp, vertical = 8.dp)) {
         Label(text)
     }
 }
@@ -175,7 +175,7 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit) {
                         Row1((if (repo.isFav(ch)) "★ " else "") + ch.name, {
                             repo.lastLiveIndex = i
                             play(channels, i)
-                        }, onMenu = { menuTarget = ch })
+                        }, onMenu = { menuTarget = ch }, onFocus = { Keys.focused = ch })
                     }
                 }
             } else {
@@ -258,7 +258,7 @@ private fun ChannelCard(ch: Item, fav: Boolean, onClick: () -> Unit, onMenu: () 
     val hue = (ch.name.hashCode() and 0xFFFFFF) % 360
     val bg = Color.hsl(hue.toFloat(), 0.45f, 0.28f)
     Column(
-        Modifier.width(170.dp).tv(onClick, onMenu).padding(10.dp),
+        Modifier.width(170.dp).tv(onClick, onMenu, { Keys.focused = ch }).padding(10.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(
@@ -314,6 +314,8 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
     var mac by remember { mutableStateOf(s.mac) }
     var serial by remember { mutableStateOf(s.serial) }
     var pw by remember { mutableStateOf(s.password) }
+    var tmdb by remember { mutableStateOf(s.tmdbKey) }
+    var omdb by remember { mutableStateOf(s.omdbKey) }
     var note by remember { mutableStateOf("") }
     LaunchedEffect(Unit) {
         portal = s.portal
@@ -377,6 +379,31 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
             }
         }
         item { Row1("Browse, arrange and hide categories", { go(Screen.Categories) }) }
+        item { Row1("Languages for Movies", { go(Screen.Languages("movies", Screen.Settings)) }) }
+        item { Row1("Languages for Series", { go(Screen.Languages("series", Screen.Settings)) }) }
+        item { Row1("Refresh movie / series library (re-load the language categories)", {
+            repo.lib.clear(); for (t in listOf("movies", "series")) repo.lib.selected(t)?.let { repo.lib.ensure(t, it, true) }; note = "Library cleared; it reloads in the background"
+        }) }
+        item { Row1("Remote buttons (assign actions to remote keys)", { go(Screen.Remote) }) }
+        item { Label("Movie & series info (optional)", 18) }
+        item {
+            Label("Posters, plots, cast and release dates come from TMDB when a TMDB API key is set (free at themoviedb.org > Settings > API). " +
+                "An OMDb key (omdbapi.com) adds the IMDb rating. Without keys the portal's own info is used. Keys stay on this device.", 13, DIM, maxLines = 4)
+        }
+        item { SettingField("TMDB API key (v3 key or v4 read token)", tmdb, password = true) { tmdb = it } }
+        item { SettingField("OMDb API key (optional, for IMDb ratings)", omdb, password = true) { omdb = it } }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row1("Save keys and test", {
+                    keyboard?.hide()
+                    s.tmdbKey = tmdb; s.omdbKey = omdb
+                    Tmdb.setKeys(tmdb, omdb)
+                    note = "Testing keys..."
+                    scope.launch { note = withContext(Dispatchers.IO) { Tmdb.test(tmdb, omdb) } }
+                }, Modifier.weight(1f))
+                Row1("Clear movie info cache", { Tmdb.clearCache(); note = "Movie info cache cleared" }, Modifier.weight(1f))
+            }
+        }
         item {
             val n = repo.hiddenChannelCount()
             Row1(if (n > 0) "Unhide all hidden channels ($n)" else "No hidden channels", { if (n > 0) { repo.unhideAllChannels(); note = "All channels shown again" } })

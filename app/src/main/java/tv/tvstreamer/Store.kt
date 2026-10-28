@@ -170,6 +170,59 @@ class Store(ctx: Context) {
         get() = p.getString("bar_pos", "bottom") ?: "bottom"
         set(v) { p.edit().putString("bar_pos", v).apply() }
 
+    /** TMDB v3 API key (or v4 read token) and optional OMDb key. Stored only in the private "secure" prefs, never in the repo. */
+    var tmdbKey: String
+        get() = sec.getString("tmdb_key", "") ?: ""
+        set(v) { sec.edit().putString("tmdb_key", v.trim()).apply() }
+
+    var omdbKey: String
+        get() = sec.getString("omdb_key", "") ?: ""
+        set(v) { sec.edit().putString("omdb_key", v.trim()).apply() }
+
+    /** Remote button mapping (JSON, see Keys). */
+    var keymap: String
+        get() = p.getString("keymap", "") ?: ""
+        set(v) { p.edit().putString("keymap", v).apply() }
+
+    /** Languages picked for a tab ("movies" / "series"). null = never chosen (show everything). */
+    fun langs(tab: String): Set<String>? =
+        if (!p.contains("langs_$tab")) null else p.getStringSet("langs_$tab", emptySet())?.toSet()
+
+    fun saveLangs(tab: String, v: Set<String>?) {
+        if (v == null) p.edit().remove("langs_$tab").apply() else p.edit().putStringSet("langs_$tab", v.toSet()).apply()
+    }
+
+    /** Chosen sort order per place (tab / grid). */
+    fun sort(scope: String, def: String): String = p.getString("sort_$scope", def) ?: def
+    fun saveSort(scope: String, v: String) { p.edit().putString("sort_$scope", v).apply() }
+
+    /** Episode key -> its series (JSON), so "See all episodes" works from Continue watching. */
+    fun saveParent(seriesItem: Item, eps: List<Item>) {
+        runCatching {
+            val f = File(dir, "parents.json")
+            val o = if (f.exists()) JSONObject(f.readText()) else JSONObject()
+            val series = o.optJSONObject("s") ?: JSONObject()
+            val map = o.optJSONObject("e") ?: JSONObject()
+            series.put(seriesItem.key, seriesItem.toJson())
+            eps.forEach { map.put(it.key, seriesItem.key) }
+            // Keep the file small: at most ~60 series
+            if (series.length() > 60) {
+                val keep = series.keys().asSequence().toList().takeLast(60).toSet()
+                series.keys().asSequence().toList().filter { it !in keep }.forEach { series.remove(it) }
+                map.keys().asSequence().toList().filter { map.optString(it) !in keep }.forEach { map.remove(it) }
+            }
+            f.writeText(JSONObject().put("s", series).put("e", map).toString())
+        }
+    }
+
+    fun parentOf(ep: Item): Item? = runCatching {
+        val f = File(dir, "parents.json")
+        if (!f.exists()) return null
+        val o = JSONObject(f.readText())
+        val sk = o.optJSONObject("e")?.optString(ep.key).orEmpty()
+        o.optJSONObject("s")?.optJSONObject(sk)?.let { Item.from(it) }
+    }.getOrNull()
+
     fun clearHistory() { p.edit().remove("recent").remove("resume").apply() }
 
     fun cacheWrite(name: String, text: String) { runCatching { File(dir, name).writeText(text) } }
