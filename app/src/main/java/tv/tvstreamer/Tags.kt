@@ -84,8 +84,39 @@ object Tags {
         "RUS" to "Russian", "GR" to "Greek", "KO" to "Korean", "KR" to "Korean", "KOR" to "Korean",
         "JP" to "Japanese", "JPN" to "Japanese", "ZH" to "Chinese", "CN" to "Chinese", "CHI" to "Chinese",
         "TH" to "Thai", "VN" to "Vietnamese", "ID" to "Indonesian", "PH" to "Filipino", "SE" to "Swedish",
-        "AL" to "Albanian", "RO" to "Romanian", "HU" to "Hungarian", "IL" to "Hebrew", "NP" to "Nepali"
+        "AL" to "Albanian", "RO" to "Romanian", "HU" to "Hungarian", "IL" to "Hebrew", "NP" to "Nepali",
+        "IN" to "Hindi", "IND" to "Hindi", "SIN" to "Sinhala", "PK" to "Urdu"
     )
+
+    /** Codes that are also ordinary English words / country codes: trusted only as a tag ("IN|", "[IT]", "US: "), never mid-text. */
+    private val AMBIGUOUS = setOf("IN", "IT", "US", "ID", "AL", "SE", "TH", "PH", "IL", "BR", "TE", "TA", "HI", "DE", "ES", "SIN", "PK", "IND", "LAT", "PT")
+
+    /** Film-industry nicknames: a language hint, but a real language word in the same name wins ("HOLLYWOOD HINDI" = Hindi). */
+    private val INDUSTRY = setOf("hollywood", "bollywood", "kollywood", "tollywood", "mollywood", "sandalwood", "nollywood", "pakistani")
+
+    private val ALIAS: Map<String, String> = LANGS.flatMap { (l, al) -> al.filter { !it.contains('-') }.map { it to l } }.toMap()
+    private val TOKEN = Regex("[\\p{L}\\p{N}]+")
+    private val DUBBED_IN = Regex("(?i)(?<![\\p{L}])([\\p{L}]{2,12})[\\s._-]*(?:dubbed|dub)(?![\\p{L}])|(?<![\\p{L}])dub(?:bed)?\\s+(?:in\\s+)?([\\p{L}]{2,12})")
+
+    /** A code at a tag position: start of the name before | : - ] or inside [..] / |..| / (..). */
+    private fun tagCode(text: String, range: IntRange): Boolean {
+        val before = text.substring(0, range.first).trim()
+        val after = text.substring(range.last + 1).trimStart()
+        val open = before.isEmpty() || before.endsWith("[") || before.endsWith("(") || before.endsWith("|")
+        val close = after.isEmpty() || after[0] in "|]):-–»/"
+        return open && close
+    }
+
+    /** One token -> language, or "" (case matters for codes). */
+    private fun tokenLang(tok: String, text: String, range: IntRange): Pair<String, Boolean>? {
+        ALIAS[tok.lowercase()]?.let { return it to (tok.lowercase() in INDUSTRY) }
+        if (tok.length in 2..3 && tok.all { it.isUpperCase() }) {
+            val l = CODES[tok] ?: return null
+            if (tok in AMBIGUOUS && !tagCode(text, range)) return null
+            return l to false
+        }
+        return null
+    }
 
     private data class Q(val label: String, val rank: Int, val re: Regex)
     private fun q(label: String, rank: Int, pattern: String, ignoreCase: Boolean = true) =
@@ -115,15 +146,29 @@ object Tags {
 
     /** Language named in [raw]. strict = only tag positions (prefix, brackets, "- Hindi", "Hindi Dubbed"), for item titles. */
     fun language(raw: String, strict: Boolean = false): String {
-        val text = if (strict) tagZone(raw) else raw
+        val text = (if (strict) tagZone(raw) else raw).replace('_', ' ')
         if (text.isBlank()) return ""
-        val lw = words(text.lowercase())
-        for ((lang, al) in LANGS) if (al.any { a -> if (a.contains('-')) text.lowercase().contains(a) else a in lw }) return lang
-        for (w in words(text)) {
-            if (w.length in 2..3 && w.all { it.isUpperCase() }) CODES[w]?.let { return it }
+        // 1. The dub language is the audio language: "HOLLYWOOD HINDI DUBBED", "Avatar Tamil Dub", "Dubbed in Telugu"
+        for (m in DUBBED_IN.findAll(text)) {
+            val w = m.groupValues[1].ifEmpty { m.groupValues[2] }
+            val l = ALIAS[w.lowercase()] ?: (if (w.length in 2..3) CODES[w.uppercase()] else null)
+            if (l != null && w.lowercase() !in INDUSTRY) return l
         }
+        // 2. The first real language word / tag code; industry nicknames only when nothing else names a language
+        var industry = ""
+        for (m in TOKEN.findAll(text)) {
+            val (l, ind) = tokenLang(m.value, text, m.range) ?: continue
+            if (!ind) return l
+            if (industry.isEmpty()) industry = l
+        }
+        if (industry.isNotEmpty()) return industry
+        val low = text.lowercase()
+        for ((lang, al) in LANGS) if (al.any { it.contains('-') && low.contains(it) }) return lang
         return ""
     }
+
+    /** Language for grouping and filtering: never empty, unknown = [OTHER]. */
+    fun languageOrOther(raw: String, strict: Boolean = false): String = language(raw, strict).ifEmpty { OTHER }
 
     /**
      * The parts of a title that usually carry tags: a leading "XX|" / "XX -" prefix, any [..] / (..) / |..| group,
@@ -135,8 +180,11 @@ object Tags {
         Regex("[\\[(|]([^\\])|]{1,30})[\\])|]").findAll(raw).forEach { parts += it.groupValues[1] }
         Regex("\\s[-–]\\s*([\\p{L} ]{3,30})$").find(raw)?.let { parts += it.groupValues[1] }
         YEAR_ANY.findAll(raw).lastOrNull()?.let { parts += raw.substring(it.range.last + 1) }
-        Regex("(?i)([\\p{L}]+)\\s+(dubbed|dub)").findAll(raw).forEach { parts += it.groupValues[1] }
-        return parts.joinToString(" ")
+        Regex("(?i)([\\p{L}]+)\\s+(dubbed|dub)").findAll(raw).forEach { parts += it.groupValues[0] }
+        // A trailing language word: "Pathaan Hindi", "Leo (2023) Tamil" (full names only, not codes)
+        Regex("\\s([\\p{L}]{4,12})\\s*$").find(raw.replace(Regex("(?i)\\b(4K|UHD|FHD|HD|SD|CAM|HDCAM|HDRip|WEB-?DL|1080p|720p)\\s*$"), "").trimEnd())
+            ?.let { m -> if (ALIAS[m.groupValues[1].lowercase()] != null) parts += m.groupValues[1] }
+        return parts.joinToString(" | ")
     }
 
     fun quality(raw: String): Pair<String, Int> {

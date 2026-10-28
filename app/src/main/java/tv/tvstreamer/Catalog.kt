@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
@@ -98,6 +99,40 @@ fun parentSeries(repo: Repo, ep: Item): Item? {
     return null
 }
 
+/** The hero banner: what it shows ([show], e.g. the series), what Play starts ([play], e.g. the episode) and the button text. */
+class HeroPick(val show: Item, val play: Item, val pos: Long, val dur: Long, val subtitle: String = "") {
+    val label: String get() = when {
+        pos > 0 && play.isEpisode() -> "▶  Resume ${episodeTag(play)}· ${fmt(pos)}".replace("  · ", " · ")
+        pos > 0 -> "▶  Resume · ${fmt(pos)}"
+        play.isSeries -> "▶  Episodes"
+        else -> ""
+    }
+}
+
+private fun episodeTag(ep: Item): String {
+    val m = Regex("""(?i)\bS(\d{1,2})\s*[ .:_-]?\s*E(\d{1,3})\b""").find(ep.name) ?: return ""
+    return "S${m.groupValues[1].toInt()} E${m.groupValues[2].toInt()} "
+}
+
+private inline fun <T> safely(f: () -> T): T? = runCatching(f).getOrNull()
+
+/**
+ * Most recently watched title for the tab (Home: any movie or episode). In progress: Play resumes it. Watched to the end:
+ * movies start again, episodes open their series (which continues with the next episode).
+ */
+fun heroFromHistory(repo: Repo, mode: String): HeroPick? {
+    val unlocked = repo.gate(true) == null
+    val last = repo.store.history().firstOrNull { it.kind == "vod" && (!it.locked || unlocked) && repo.lib.wantItem(it, mode) } ?: return null
+    val (p, d) = repo.store.resumeInfo(last)
+    val inProgress = p > 30000 && (d <= 0 || p < d * 0.95)
+    if (last.isEpisode()) {
+        val parent = parentSeries(repo, last)
+        val show = parent?.takeIf { it.img.isNotEmpty() || last.img.isEmpty() } ?: last
+        return if (inProgress || parent == null) HeroPick(show, last, if (inProgress) p else 0L, d) else HeroPick(show, parent, 0L, 0L)
+    }
+    return HeroPick(last, last, if (inProgress) p else 0L, d)
+}
+
 /** Language rows for one tab, computed off the main thread. */
 private suspend fun languageShelves(repo: Repo, tab: String, langs: Set<String>, sort: String): List<Shelf> = withContext(Dispatchers.Default) {
     val lib = repo.lib
@@ -165,6 +200,7 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
         Ai.refreshSuggested(repo)
     }
 
+    lib.version   // recompose when the local catalog changes
     val shelves = buildList {
         val c = cont.filter { wantItem(it.first) }
         if (c.isNotEmpty()) {
@@ -187,20 +223,24 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
         } else {
             val catLangs = if (tabbed) null else homeLangs
             repo.visibleVod().filter { (!it.locked || unlocked) && lib.catForTab(it, mode) && (catLangs == null || lib.catLang(it) in catLangs) }.forEach { cat ->
-                val raw = repo.rows[cat.id]
+                val raw = if (lib.hasData) lib.inCat(cat.id).takeIf { it.isNotEmpty() || !lib.loading }?.take(ROW_LIMIT * 2) else repo.rows[cat.id]
                 // Each item is classified on its own, so categories that mix movies and series work
                 val items = raw?.filter { wantItem(it) }
-                if (items == null || items.isNotEmpty() || repo.rowErrors[cat.id] != null) {
+                if ((items == null && !(lib.hasData && lib.complete)) || items?.isNotEmpty() == true || repo.rowErrors[cat.id] != null) {
                     add(Shelf("vod:${cat.id}", Names.cat(cat.title), items ?: emptyList(), "vod", cat,
                         loading = raw == null && repo.rowErrors[cat.id] == null, error = repo.rowErrors[cat.id] ?: ""))
                 }
             }
         }
     }
-    val hero = remember(shelves.map { it.key to it.items.size }) {
+    // Hero: the last thing watched on this tab (resume it); a featured pick only when there is no watch history
+    val lastWatched = remember(tick, contVer, mode) { safely { heroFromHistory(repo, mode) } }
+    val featured = remember(shelves.map { it.key to it.items.size }) {
         shelves.asSequence().filter { it.cat != null || it.pool != null }.flatMap { it.items.asSequence() }.firstOrNull { it.img.isNotEmpty() && !it.locked }
             ?: shelves.asSequence().flatMap { it.items.asSequence() }.firstOrNull { it.kind == "vod" && it.img.isNotEmpty() }
     }
+    val heroPick = lastWatched ?: featured?.let { HeroPick(it, it, 0L, 0L) }
+    val hero = heroPick?.show
 
     val screenKey = "cat:$mode"
     val heroFr = remember { FocusRequester() }
@@ -265,13 +305,19 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                             }
                             if (!langs.isNullOrEmpty()) {
                                 item(key = "sort") { PillButton("⇅  " + Sorts.label(sort), { sortMenu = true }, size = 14) }
-                                item(key = "refresh") { PillButton("↻  Refresh", { lib.refresh(mode, langs) }, size = 14) }
+                                item(key = "refresh") { PillButton(if (lib.loading) "↻  Refreshing…" else "↻  Refresh", { if (!lib.loading) repo.refreshAll() }, size = 14) }
                             }
                         }
-                        if (!langs.isNullOrEmpty() && lib.loading) {
+                        if (lib.loading && (!lib.hasData || !lib.complete)) {
+                            // First load only; later daily refreshes run quietly with the saved copy on screen
                             Spacer(Modifier.height(4.dp))
-                            Text("Loading ${if (mode == "series") "series" else "movies"}… ${lib.done} of ${lib.total} categories",
+                            Text("Loading the library… " + (if (lib.total > 0) "${lib.done} of ${lib.total} pages · " else "") + "%,d titles so far".format(lib.size),
                                 color = Pal.Dim, fontSize = 13.sp)
+                            if (lib.total > 0) {
+                                Spacer(Modifier.height(4.dp))
+                                LinearProgressIndicator(progress = { (lib.done.toFloat() / lib.total).coerceIn(0f, 1f) },
+                                    modifier = Modifier.fillMaxWidth(if (isTv) 0.4f else 1f).height(3.dp), color = Pal.Gold, trackColor = Pal.Dim.copy(alpha = 0.3f))
+                            }
                         } else if (lib.note.isNotEmpty() && !langs.isNullOrEmpty()) {
                             Spacer(Modifier.height(4.dp)); Text(lib.note, color = Pal.Warn, fontSize = 13.sp)
                         }
@@ -285,9 +331,10 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                     if (updateMsg.isNotEmpty()) { Spacer(Modifier.height(6.dp)); Text(updateMsg, color = Pal.Warn, fontSize = 14.sp, maxLines = 4) }
                 }
             }
-            if (hero != null) item(key = "hero") {
-                Hero(repo, hero, isTv, hPad,
-                    onPlay = { if (hero.isSeries) open(hero) else playOrGate(hero) },
+            if (heroPick != null && hero != null) item(key = "hero") {
+                val h = heroPick
+                Hero(repo, hero, isTv, hPad, h.label,
+                    onPlay = { if (h.play.isSeries) open(h.play) else playOrGate(h.play) },
                     onInfo = { open(hero) },
                     playModifier = Modifier.focusRequester(heroFr).onFocusChanged { if (it.isFocused) repo.lastFocus[screenKey] = "hero" })
             }
@@ -359,7 +406,7 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
 }
 
 @Composable
-private fun Hero(repo: Repo, raw: Item, isTv: Boolean, hPad: Dp, onPlay: () -> Unit, onInfo: () -> Unit, playModifier: Modifier) {
+private fun Hero(repo: Repo, raw: Item, isTv: Boolean, hPad: Dp, playLabel: String, onPlay: () -> Unit, onInfo: () -> Unit, playModifier: Modifier) {
     val meta = rememberMeta(raw)
     val item = raw.withMeta(meta)
     var fav by remember(item.key) { mutableStateOf(repo.isFav(item)) }
@@ -376,7 +423,7 @@ private fun Hero(repo: Repo, raw: Item, isTv: Boolean, hPad: Dp, onPlay: () -> U
                 if (item.desc.isNotEmpty()) Text(item.desc, color = Pal.Desc, fontSize = if (isTv) 15.sp else 13.sp, maxLines = 3,
                     overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth(if (isTv) 0.8f else 1f))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    PillButton(if (item.isSeries) "▶  Episodes" else "▶  Play", onPlay, playModifier.onFocusChanged { if (it.isFocused) Keys.focused = raw }, primary = true)
+                    PillButton(playLabel.ifEmpty { if (item.isSeries) "▶  Episodes" else "▶  Play" }, onPlay, playModifier.onFocusChanged { if (it.isFocused) Keys.focused = raw }, primary = true)
                     PillButton(if (fav) "✓  My List" else "+  My List", { repo.toggleFav(raw); fav = repo.isFav(raw) })
                     PillButton("ⓘ  Info", onInfo)
                 }
@@ -822,13 +869,16 @@ fun GridScreen(repo: Repo, cat: Cat, open: (Item) -> Unit, play: (List<Item>, In
     var sort by remember { mutableStateOf(repo.store.sort("grid", Sorts.ADDED)) }
     var sortMenu by remember { mutableStateOf(false) }
     val screenKey = "grid:${cat.id}"
+    // The local catalog has every title of the category: no paging through the portal
+    val local = remember(cat.id, repo.lib.version) { repo.lib.inCat(cat.id).takeIf { it.isNotEmpty() || (repo.lib.hasData && repo.lib.complete) } }
+    LaunchedEffect(local) { if (local != null) { items = local; more = false; page = 1; msg = "" } }
     // Same title in several qualities shows once (best version first); sorted on what is loaded so far
     val cards = remember(items, sort, Tmdb.version) { repo.lib.sort(repo.lib.cards(items), sort) }
     val vcount = remember(cards) { cards.associate { it.best.key to it.items.size } }
     val shownItems = remember(cards) { cards.map { it.best } }
 
     fun next() {
-        if (busy || !more) return
+        if (busy || !more || local != null) return
         busy = true
         scope.launch {
             try {
@@ -843,7 +893,7 @@ fun GridScreen(repo: Repo, cat: Cat, open: (Item) -> Unit, play: (List<Item>, In
             busy = false
         }
     }
-    LaunchedEffect(cat.id) { if (page == 0) next() }
+    LaunchedEffect(cat.id) { if (page == 0 && local == null) next() }
 
     val posterW = posterWidth(isTv)
     val hPad = if (isTv) 48.dp else 14.dp
@@ -958,14 +1008,15 @@ fun PoolScreen(repo: Repo, tab: String, lang: String, genre: String, title: Stri
 fun LanguagesScreen(repo: Repo, tab: String, onBack: () -> Unit) {
     val isTv = rememberIsTv()
     val lib = repo.lib
-    val langs = remember(repo.vodCats.size) { lib.languages(tab) }
+    val langs by produceState(lib.languages(tab), repo.vodCats.size, lib.version) { value = withContext(Dispatchers.Default) { lib.languages(tab) } }
+    val unit = lib.countUnit
     var sel by remember { mutableStateOf(lib.selected(tab) ?: emptySet()) }
     val firstFr = remember { FocusRequester() }
     LaunchedEffect(Unit) { delay(120); runCatching { firstFr.requestFocus() } }
     fun save(v: Set<String>) {
         sel = v
         repo.store.saveLangs(tab, v.ifEmpty { null })
-        if (v.isNotEmpty()) lib.ensure(tab, v)
+        if (v.isNotEmpty()) lib.start()
     }
     val hPad = if (isTv) 48.dp else 16.dp
     Box(Modifier.fillMaxSize().background(Pal.Bg)) {
@@ -974,7 +1025,8 @@ fun LanguagesScreen(repo: Repo, tab: String, onBack: () -> Unit) {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Languages · ${if (tab == "series") "Series" else "Movies"}", color = Pal.Text, fontSize = if (isTv) 28.sp else 22.sp, fontWeight = FontWeight.Bold)
                     Text("Tick the languages to show. The language comes from the category and title names (e.g. \"HINDI 4K\", \"|EN|\", \"[Tamil]\"); " +
-                        "Dub / CAM / 4K are treated as versions, not languages. Untick everything to go back to plain category rows. " +
+                        "Dub / CAM / 4K are treated as versions, not languages; a dubbed title counts as the language it is dubbed in. " +
+                        "Titles with no recognisable language are listed under \"Other\". Untick everything to go back to plain category rows. " +
                         "Other languages stay reachable through Search and Categories.", color = Pal.Dim, fontSize = 13.sp)
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         PillButton("Done", onBack, Modifier.focusRequester(firstFr), primary = true, size = 14)
@@ -991,7 +1043,7 @@ fun LanguagesScreen(repo: Repo, tab: String, onBack: () -> Unit) {
                     Text(if (on) "☑" else "☐", color = Pal.Text, fontSize = 20.sp)
                     Spacer(Modifier.width(12.dp))
                     Text(l, color = Pal.Text, fontSize = 17.sp, fontWeight = if (on) FontWeight.Bold else FontWeight.Normal, modifier = Modifier.weight(1f))
-                    Text("$n ${if (n == 1) "category" else "categories"}", color = Pal.Dim, fontSize = 13.sp)
+                    Text("%,d ".format(n) + if (unit == "title") (if (n == 1) "title" else "titles") else (if (n == 1) "category" else "categories"), color = Pal.Dim, fontSize = 13.sp)
                 }
             }
         }
@@ -1071,8 +1123,8 @@ fun CategoriesScreen(repo: Repo, go: (Screen) -> Unit) {
             gridItems(cats, key = { "$kind:${it.id}" }) { c ->
                 val hidden = repo.isHidden(kind, c.id)
                 val locked = c.locked && !unlocked
-                if (kind == "vod" && !locked) LaunchedEffect(c.id) { repo.loadRow(c) }
-                val sample = if (kind == "vod") repo.rows[c.id]?.firstOrNull { it.img.isNotEmpty() }?.img ?: ""
+                if (kind == "vod" && !locked && !repo.lib.hasData) LaunchedEffect(c.id) { repo.loadRow(c) }
+                val sample = if (kind == "vod") (repo.lib.inCat(c.id).takeIf { it.isNotEmpty() } ?: repo.rows[c.id])?.firstOrNull { it.img.isNotEmpty() }?.img ?: ""
                     else repo.channels.firstOrNull { it.cat == c.id && it.img.isNotEmpty() }?.img ?: ""
                 val label = Names.cat(c.title)
                 val fr = remember { FocusRequester() }

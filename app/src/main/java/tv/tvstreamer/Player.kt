@@ -327,6 +327,7 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int, onBack: () -> Unit) {
                     attempt++
                     return
                 }
+                if (cur.kind == "vod") repo.lib.reportFailure()
                 err = friendly(error) + (if (cur.kind == "vod") "\nLink: ${repo.api.mask(exo.currentMediaItem?.localConfiguration?.uri?.toString() ?: "").take(160)}" else "")
                 controls = true
             }
@@ -389,6 +390,7 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int, onBack: () -> Unit) {
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
+            if (item.kind == "vod") repo.lib.reportFailure()
             err = "Could not get a stream link from the portal.\n${e.message ?: ""}".trim()
             controls = true
         } finally {

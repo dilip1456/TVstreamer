@@ -7,6 +7,9 @@ import org.json.JSONObject
 import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
+/** Page size asked for in full-catalog loads (most Stalker portals ignore it and use their own, usually 14). */
+const val BIG_PAGE = 500
+
 const val UA = "Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3 (KHTML, like Gecko) MAG200 stbapp ver: 2 rev: 250 Safari/533.3"
 
 class Stalker(private val store: Store) {
@@ -191,16 +194,28 @@ class Stalker(private val store: Store) {
             added = firstOf(it, "added", "add_date", "date_add", "last_modified", "added_date"))
     }
 
-    /** Returns items and whether more pages exist. category "*" means all. */
-    fun vod(cat: String, page: Int, search: String = ""): Pair<List<Item>, Boolean> {
+    /** One page of get_ordered_list: items, total_items and the page size the portal uses. */
+    class VodPage(val items: List<Item>, val total: Int, val per: Int) {
+        val pages: Int get() = if (total <= 0) 1 else (total + per - 1) / per
+    }
+
+    /** One page; category "*" means all. Asks for big pages (portals that honour it answer with fewer requests). */
+    fun vodPage(cat: String, page: Int, search: String = "", big: Boolean = false): VodPage {
         var q = "type=vod&action=get_ordered_list&category=${enc(cat)}&p=$page&sortby=added"
+        if (big) q += "&per_page=$BIG_PAGE&items_per_page=$BIG_PAGE"
         if (search.isNotEmpty()) q += "&search=${enc(search)}"
-        val js = call(q).optJSONObject("js") ?: return emptyList<Item>() to false
+        val js = call(q).optJSONObject("js") ?: return VodPage(emptyList(), 0, 14)
         val a = js.optJSONArray("data") ?: JSONArray()
         val total = js.optInt("total_items")
-        val per = js.optInt("max_page_items", 14).coerceAtLeast(1)
+        val per = maxOf(js.optInt("max_page_items", 14), a.length()).coerceAtLeast(1)
         val items = (0 until a.length()).mapNotNull { a.optJSONObject(it) }.map { vodItem(it, cat) }
-        return items to (page * per < total)
+        return VodPage(items, total, per)
+    }
+
+    /** Returns items and whether more pages exist. category "*" means all. */
+    fun vod(cat: String, page: Int, search: String = ""): Pair<List<Item>, Boolean> {
+        val p = vodPage(cat, page, search)
+        return p.items to (page * p.per < p.total)
     }
 
     private fun episodesFromArray(base: Item, cmd: String, season: String, nums: List<Int>, img: String, seasonId: String = ""): List<Item> =

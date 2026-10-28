@@ -318,6 +318,6 @@ object Cloud {
             r.reloadSynced()
             Keys.reload(r.store)
         }
-        if (loginChanged) { r.api.reset(); r.load() }
+        if (loginChanged) { r.api.reset(); r.load(force = true) }
     }
 }

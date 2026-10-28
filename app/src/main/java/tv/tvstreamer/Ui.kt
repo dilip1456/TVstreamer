@@ -202,7 +202,7 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
                     note = "Saved. Reloading..."
                     scope.launch {
                         repo.api.reset()
-                        repo.load()
+                        repo.load(force = true)
                         note = repo.status.ifEmpty { "Loaded" }
                     }
                 }, primary = true)
@@ -213,9 +213,18 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
         item { Row1("Browse, arrange and hide categories", { go(Screen.Categories) }) }
         item { Row1("Languages for Movies", { go(Screen.Languages("movies", Screen.Settings)) }) }
         item { Row1("Languages for Series", { go(Screen.Languages("series", Screen.Settings)) }) }
-        item { PillButton("↻  Refresh movie / series library", {
-            repo.lib.clear(); for (t in listOf("movies", "series")) repo.lib.selected(t)?.let { repo.lib.ensure(t, it, true) }; note = "Library cleared; it reloads in the background"
-        }) }
+        item {
+            val lib = repo.lib
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Label("Library", 18)
+                Label(libraryStatus(repo), 13, DIM, maxLines = 4)
+                ButtonFlow {
+                    PillButton(if (lib.loading) "Refreshing…" else "↻  Refresh library", {
+                        if (!lib.loading) { repo.refreshAll(); note = "Refreshing channels, movies and series in the background" }
+                    })
+                }
+            }
+        }
         item { Row1("Remote buttons (assign actions to remote keys)", { go(Screen.Remote) }) }
         item { Label("Movie & series info (optional)", 18) }
         item {
@@ -327,3 +336,25 @@ fun openUrl(ctx: android.content.Context, url: String): Boolean = try {
         .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
     ctx.startActivity(i); true
 } catch (e: Exception) { false }
+
+/** "1,234 titles · refreshed today 09:12 · next automatic refresh in about 24 h", with progress while loading. */
+fun libraryStatus(repo: Repo): String {
+    val lib = repo.lib
+    lib.version
+    val parts = mutableListOf<String>()
+    if (lib.hasData) parts += "%,d movies and series saved on this device".format(lib.size)
+    val t = lib.refreshedAt
+    parts += if (t > 0) "last refreshed " + whenText(t) else if (lib.hasData) "not fully refreshed yet" else "not loaded yet"
+    if (lib.loading) parts += if (lib.total > 0) "refreshing ${lib.done} of ${lib.total} pages" else "refreshing…"
+    else if (t > 0) parts += "refreshes automatically once a day"
+    if (lib.note.isNotEmpty()) parts += lib.note
+    return parts.joinToString(" · ")
+}
+
+fun whenText(t: Long): String {
+    val d = java.util.Calendar.getInstance().apply { timeInMillis = t }
+    val now = java.util.Calendar.getInstance()
+    val hm = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(t))
+    val sameDay = d.get(java.util.Calendar.YEAR) == now.get(java.util.Calendar.YEAR) && d.get(java.util.Calendar.DAY_OF_YEAR) == now.get(java.util.Calendar.DAY_OF_YEAR)
+    return if (sameDay) "today $hm" else java.text.SimpleDateFormat("d MMM HH:mm", java.util.Locale.getDefault()).format(java.util.Date(t))
+}

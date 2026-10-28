@@ -8,6 +8,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
 import org.json.JSONObject
 
 private val MOVIE_W = setOf("movie", "movies", "film", "films")
@@ -58,7 +59,15 @@ class Repo(ctx: Context) {
         channels = ch.map { it.copy(locked = it.locked || it.cat in lockedIds) }
     }
 
-    suspend fun load() = withContext(Dispatchers.IO) {
+    /** When channels and categories were last read from the portal (from live.json). */
+    var listsAt by mutableStateOf(0L)
+        private set
+
+    /**
+     * Shows the saved channel list, categories and movie / series catalog at once; asks the portal again only when
+     * they are a day old, there is nothing saved, or [force] (Settings > Refresh library, repeated link failures).
+     */
+    suspend fun load(force: Boolean = false) = withContext(Dispatchers.IO) {
         if (store.portal.isBlank() || store.mac.isBlank()) {
             status = "Open Settings and enter the portal URL and MAC"
             return@withContext
@@ -68,11 +77,15 @@ class Repo(ctx: Context) {
                 store.cacheRead("live.json")?.let {
                     val o = JSONObject(it)
                     setLive(o.getJSONArray("cats").toCats(), o.getJSONArray("items").toItems())
+                    listsAt = o.optLong("t")
                 }
                 store.cacheRead("vod.json")?.let { vodCats = org.json.JSONArray(it).toCats() }
             }
         }
-        status = "Updating..."
+        lib.start()       // the saved catalog appears now; a stale one refreshes in the background
+        val fresh = channels.isNotEmpty() && vodCats.isNotEmpty() && System.currentTimeMillis() - listsAt < Library.MAX_AGE
+        if (fresh && !force) return@withContext
+        if (channels.isEmpty()) status = "Loading channels and categories…"
         try {
             val lc = api.liveCats()
             val ch = api.channels()
@@ -80,14 +93,21 @@ class Repo(ctx: Context) {
             setLive(lc, ch)
             if (vc != vodCats) { clearRows(); lib.version++ }
             vodCats = vc
-            store.cacheWrite("live.json", JSONObject().put("cats", catsJson(lc)).put("items", itemsJson(ch)).toString())
+            listsAt = System.currentTimeMillis()
+            store.cacheWrite("live.json", JSONObject().put("t", listsAt).put("cats", catsJson(lc)).put("items", itemsJson(ch)).toString())
             store.cacheWrite("vod.json", catsJson(vc).toString())
             status = ""
+            lib.start(force)
         } catch (e: Exception) {
             status = if (channels.isEmpty()) "Portal error: ${e.message}" else ""
             // Portal refresh failed but we have cached data; stay quiet instead of saying Offline
         }
     }
+
+    private val bg = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
+
+    /** Pull channels, categories and the whole movie / series catalog again (in the background). */
+    fun refreshAll() { bg.launch { load(force = true) } }
 
     /** Categories in the user's order; categories never arranged keep the portal order after them. */
     fun ordered(kind: String): List<Cat> {
@@ -138,6 +158,8 @@ class Repo(ctx: Context) {
     /** Load the first page of a VOD category (at most 3 requests at a time). */
     suspend fun loadRow(cat: Cat) {
         if (rows.containsKey(cat.id)) return
+        // The local catalog has (or is loading) every category: no portal request per row
+        if (lib.hasData || lib.loading) return
         withContext(Dispatchers.IO) {
             rowGate.withPermit {
                 if (rows.containsKey(cat.id)) return@withPermit
@@ -248,7 +270,8 @@ class Repo(ctx: Context) {
             val soft = core.filter { it in LANGS || it.matches(YEAR) }
             val hard = core.filter { it !in soft }
             val sq = (if (hard.isEmpty()) core else hard).joinToString(" ")
-            val res = runCatching { api.vod("*", 1, sq).first }.getOrDefault(emptyList())
+            // With the whole catalog saved locally the search is local only (searchAll adds the local matches)
+            val res = if (lib.complete) emptyList() else runCatching { api.vod("*", 1, sq).first }.getOrDefault(emptyList())
             val titles = vodCats.associate { it.id to it.title }
             val f = res.filter { m ->
                 val h = squash(m.name + " " + (titles[m.cat] ?: ""))

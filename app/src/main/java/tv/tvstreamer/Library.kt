@@ -10,6 +10,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -38,33 +39,65 @@ data class Group(val key: String, val items: List<Item>) {
 }
 
 /**
- * The movie / series library: the first [PAGES] pages (newest first) of every category in the
- * selected languages, loaded in the background (2 requests at a time), kept in a disk cache (lib.json).
+ * The movie / series catalog: pulled from the portal ONCE (every page of category "*", several requests in parallel,
+ * then any category the "*" listing missed), kept on disk (catalog.jsonl) and read from there at launch.
+ * Rows, language filters, sorting, grouping, See all and search all work on this local copy; the portal is asked
+ * again only once a day (in the background), when stream links keep failing, or from Settings > Refresh library.
+ * Stream links (create_link) and a series' episodes are still fetched when needed.
  */
 class Library(private val repo: Repo) {
     companion object {
-        const val PAGES = 4
-        const val MAX_AGE = 12L * 3600 * 1000
+        const val MAX_AGE = 24L * 3600 * 1000          // background refresh after a day
+        const val PARALLEL = 4                         // portal requests at a time
+        const val MAX_PAGES = 8000                     // safety cap (8000 x 14 = 112k titles)
+        const val FILE = "catalog.jsonl"
+        // Link / playback failures that suggest the catalog is stale (moved / removed titles)
+        const val FAIL_LIMIT = 4
+        const val FAIL_WINDOW = 15L * 60 * 1000
+        const val FAIL_MIN_GAP = 30L * 60 * 1000       // no more than one failure-driven refresh per 30 min
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val gate = Semaphore(2)
-    private val data = ConcurrentHashMap<String, List<Item>>()   // category id -> items
-    private val stamp = ConcurrentHashMap<String, Long>()
-    private var diskLoaded = false
+    @Volatile private var all: List<Item> = emptyList()               // portal order (newest added first)
+    @Volatile private var byCat: Map<String, List<Item>> = emptyMap()
+    @Volatile private var diskLoaded = false
     private var job: Job? = null
+    private val failures = FailureWindow(FAIL_LIMIT, FAIL_WINDOW, FAIL_MIN_GAP)
+    @Volatile private var owner = ""
+    private fun account() = (repo.store.portal.trim().trimEnd('/') + "|" + repo.store.mac.trim().uppercase()).hashCode().toString()
 
-    /** Bumped when items arrive (rows recompute). */
+    /** Bumped when the catalog changes (rows recompute). */
     var version by mutableIntStateOf(0)
     var loading by mutableStateOf(false)
+    /** Progress of the running load, in portal pages. */
     var done by mutableIntStateOf(0)
     var total by mutableIntStateOf(0)
     var note by mutableStateOf("")
+    /** When the catalog was last pulled completely from the portal (0 = never). */
+    var refreshedAt by mutableStateOf(0L)
+        private set
+    /** True when the catalog on screen is a complete pull (search and rows need no portal requests). */
+    var complete by mutableStateOf(false)
+        private set
 
-    fun catLang(c: Cat): String = Tags.language(c.title).ifEmpty { Tags.OTHER }
-    fun itemLang(i: Item): String = i.parsed.lang.ifEmpty { repo.vodCats.firstOrNull { it.id == i.cat }?.let { catLang(it) } ?: Tags.OTHER }
+    /** Anything in the local catalog (cached or partially loaded). */
+    val hasData: Boolean get() = all.isNotEmpty()
+    val size: Int get() = all.size
 
-    /** Does a category belong on this tab? Name-based guess only to skip pointless loads; items are classified one by one. */
+    // ---- Languages ----
+
+    private var catIndex: Pair<List<Cat>, Map<String, Cat>> = emptyList<Cat>() to emptyMap()
+    private fun catOf(id: String): Cat? {
+        val cats = repo.vodCats
+        if (catIndex.first !== cats) catIndex = cats to cats.associateBy { it.id }
+        return catIndex.second[id]
+    }
+
+    fun catLang(c: Cat): String = Tags.languageOrOther(c.title)
+    /** The title's own tag ("[Hindi]", "|TA|", "Hindi Dubbed") wins; else its category's language; else Other. */
+    fun itemLang(i: Item): String = i.parsed.lang.ifEmpty { catOf(i.cat)?.let { catLang(it) } ?: Tags.OTHER }
+
+    /** Does a category belong on this tab? Name-based guess, used for category rows. */
     fun catForTab(c: Cat, tab: String): Boolean = when {
         tab != "series" && tab != "movies" -> true
         !repo.hasSeriesCats() -> true
@@ -72,19 +105,30 @@ class Library(private val repo: Repo) {
         else -> !repo.isSeriesCat(c)
     }
 
+    /** Series: marked / named as a series, or listed in a series category ("TV SHOWS", "HINDI WEB SERIES"). */
+    fun seriesItem(i: Item): Boolean = i.seriesLike || (i.kind == "vod" && catOf(i.cat)?.let { repo.isSeriesCat(it) } == true)
+
     fun wantItem(i: Item, tab: String): Boolean = when (tab) {
-        "movies" -> !i.seriesLike
-        "series" -> i.seriesLike
+        "movies" -> !seriesItem(i)
+        "series" -> seriesItem(i)
         else -> true
     }
 
-    /** Language -> number of categories, for the tab's picker. */
+    private fun visible(i: Item, unlocked: Boolean): Boolean {
+        val c = catOf(i.cat)
+        return "vod:${i.cat}" !in repo.hidden && (unlocked || (!i.locked && c?.locked != true))
+    }
+
+    /** Language -> count for the tab's picker: titles in the local catalog, or categories before it has loaded. */
     fun languages(tab: String): List<Pair<String, Int>> {
         val unlocked = repo.gate(true) == null
-        return repo.vodCats.filter { (!it.locked || unlocked) && catForTab(it, tab) }
-            .groupingBy { catLang(it) }.eachCount().toList()
-            .sortedWith(compareBy<Pair<String, Int>> { it.first == Tags.OTHER }.thenByDescending { it.second })
+        val counts = if (hasData)
+            all.filter { wantItem(it, tab) && visible(it, unlocked) }.groupingBy { itemLang(it) }.eachCount()
+        else repo.vodCats.filter { (!it.locked || unlocked) && catForTab(it, tab) }.groupingBy { catLang(it) }.eachCount()
+        return counts.toList().sortedWith(compareBy<Pair<String, Int>> { it.first == Tags.OTHER }.thenByDescending { it.second })
     }
+    /** What [languages] counts: "title" (local catalog) or "category". */
+    val countUnit: String get() = if (hasData) "title" else "category"
 
     fun selected(tab: String): Set<String>? = repo.store.langs(tab)
 
@@ -93,98 +137,196 @@ class Library(private val repo: Repo) {
         return repo.visibleVod().filter { (!it.locked || unlocked) && catForTab(it, tab) && (langs == null || catLang(it) in langs) }
     }
 
-    fun loadedCount(tab: String, langs: Set<String>?) = cats(tab, langs).count { data.containsKey(it.id) }
+    /** A category's titles from the local catalog (portal order). */
+    fun inCat(id: String): List<Item> = byCat[id] ?: emptyList()
 
-    /** Start (or continue) loading the tab's categories in the background. */
-    fun ensure(tab: String, langs: Set<String>?, force: Boolean = false) {
-        if (langs != null && langs.isEmpty()) return
-        val list = cats(tab, langs)
-        if (list.isEmpty()) return
-        if (job?.isActive == true && !force) return
+    // ---- Loading ----
+
+    /** Kept for callers of the old per-tab loader: the whole catalog is loaded once, whatever the tab. */
+    fun ensure(@Suppress("UNUSED_PARAMETER") tab: String = "", @Suppress("UNUSED_PARAMETER") langs: Set<String>? = null, force: Boolean = false) = start(force)
+
+    /** Shows the disk copy at once, then pulls the portal when there is none or it is a day old (or [force]). */
+    fun start(force: Boolean = false) {
+        if (repo.store.portal.isBlank()) return
+        val who = account()
+        if (owner != who) {            // another portal / MAC: its catalog is not this one
+            job?.cancel(); all = emptyList(); byCat = emptyMap(); complete = false; refreshedAt = 0; diskLoaded = false
+            owner = who; version++
+        }
+        if (job?.isActive == true) { if (!force) return; job?.cancel() }
         job = scope.launch {
             if (!diskLoaded) readDisk()
-            val now = System.currentTimeMillis()
-            val todo = list.filter { force || !data.containsKey(it.id) || now - (stamp[it.id] ?: 0) > MAX_AGE }
-            if (todo.isEmpty()) { loading = false; return@launch }
-            loading = true; done = 0; total = todo.size; note = ""
-            val failed = java.util.concurrent.atomic.AtomicInteger(0)
-            todo.chunked(8).forEach { chunk ->
-                chunk.map { c ->
-                    async {
-                        gate.withPermit {
-                            val got = mutableListOf<Item>()
-                            try {
-                                for (p in 1..PAGES) {
-                                    val (items, more) = repo.api.vod(c.id, p)
-                                    got += items
-                                    if (!more || items.isEmpty()) break
-                                }
-                                data[c.id] = got.distinctBy { it.key }
-                                stamp[c.id] = System.currentTimeMillis()
-                                if (!repo.rows.containsKey(c.id)) repo.rows[c.id] = got.take(14)
-                            } catch (e: Exception) {
-                                failed.incrementAndGet()
-                                if (got.isNotEmpty()) data[c.id] = got.distinctBy { it.key }
-                            }
-                            done++
-                        }
-                    }
-                }.awaitAll()
-                version++
-                writeDisk()
-            }
-            note = if (failed.get() > 0) "${failed.get()} categories could not be loaded" else ""
-            loading = false
-            version++
+            val stale = !complete || System.currentTimeMillis() - refreshedAt > MAX_AGE
+            if (!force && !stale) return@launch
+            if (repo.vodCats.isEmpty()) return@launch       // Repo.load() calls start() again once categories are known
+            pull()
         }
     }
 
-    fun refresh(tab: String, langs: Set<String>?) {
-        job?.cancel()
-        ensure(tab, langs, force = true)
+    fun refresh(@Suppress("UNUSED_PARAMETER") tab: String = "", @Suppress("UNUSED_PARAMETER") langs: Set<String>? = null) = start(force = true)
+
+    /** Settings: drop the local copy and pull everything again. */
+    fun clear() {
+        job?.cancel(); all = emptyList(); byCat = emptyMap(); complete = false; refreshedAt = 0; loading = false
+        repo.store.cacheDelete(FILE); repo.store.cacheDelete("lib.json"); version++
+        start(force = true)
     }
 
-    fun clear() { job?.cancel(); data.clear(); stamp.clear(); loading = false; version++ ; repo.store.cacheWrite("lib.json", "{}") }
+    /** A stream link / playback failure. Several in a short time usually mean the catalog is out of date: refresh it. */
+    fun reportFailure() {
+        if (failures.hit(System.currentTimeMillis(), refreshedAt)) { note = "Several titles failed to play; refreshing the library in the background"; repo.refreshAll() }
+    }
+
+    private fun publish(items: List<Item>) {
+        val l = items.distinctBy { it.key }
+        all = l
+        byCat = l.groupBy { it.cat }
+        version++
+    }
+
+    private suspend fun pull() = coroutineScope {
+        val first = all.isEmpty()
+        loading = true; done = 0; total = 0; note = ""
+        val gate = Semaphore(PARALLEL)
+        try {
+            // 1) Every page of category "*" (one listing of the whole VOD library), PARALLEL pages at a time
+            val pages = ConcurrentHashMap<Int, List<Item>>()
+            val head = runCatching { repo.api.vodPage("*", 1, big = true) }.getOrNull()
+            val starOk = head != null && head.items.isNotEmpty() && head.items.any { it.cat.isNotEmpty() && it.cat != "*" }
+            var failed = 0
+            if (starOk) {
+                head!!; pages[1] = head.items
+                val n = head.pages.coerceAtMost(MAX_PAGES)
+                total = n; done = 1
+                var p = 2
+                var emptyRun = 0
+                var batches = 0
+                while (p <= n && emptyRun < PARALLEL * 2) {
+                    val batch = (p until minOf(p + PARALLEL * 4, n + 1)).toList()
+                    val got = batch.map { pg ->
+                        async { gate.withPermit { pg to fetchPage("*", pg) } }
+                    }.awaitAll()
+                    for ((pg, items) in got) {
+                        if (items == null) failed++ else pages[pg] = items
+                        if (items != null && items.isEmpty()) emptyRun++ else if (items != null) emptyRun = 0
+                    }
+                    done += batch.size
+                    p += batch.size
+                    if (first && ++batches % 3 == 0) publish(pages.toSortedMap().values.flatten())   // first launch: show titles as they arrive
+                }
+            }
+            val star = pages.toSortedMap().values.flatten()
+            // 2) Categories the "*" listing did not include (some portals leave out some, or do not support "*")
+            val seen = star.map { it.cat }.toHashSet()
+            val missing = repo.vodCats.filter { it.id !in seen }
+            val extra = ConcurrentHashMap<String, List<Item>>()
+            if (missing.isNotEmpty()) {
+                total += missing.size
+                if (first && star.isNotEmpty()) publish(star)
+                missing.chunked(PARALLEL * 4).forEach { chunk ->
+                    chunk.map { c -> async { gate.withPermit { c.id to fetchCategory(c.id) } } }.awaitAll().forEach { (id, l) ->
+                        if (l == null) failed++ else extra[id] = l
+                    }
+                    done += chunk.size
+                    if (first) publish(star + extra.values.flatten())
+                }
+            }
+            val result = star + missing.flatMap { extra[it.id] ?: emptyList() }
+            if (result.isEmpty()) {
+                note = if (hasData) "Could not refresh the library; showing the saved copy" else "Could not load the library from the portal. Try Refresh."
+                return@coroutineScope
+            }
+            // A pull that lost a lot of pages keeps the old copy instead of shrinking the library
+            if (!first && failed > 0 && result.size < all.size * 0.8) {
+                note = "Library refresh was incomplete ($failed requests failed); kept the saved copy"
+                return@coroutineScope
+            }
+            refreshedAt = System.currentTimeMillis()
+            complete = failed == 0
+            publish(result)
+            writeDisk()
+            note = if (failed > 0) "$failed portal requests failed; Refresh to try again" else ""
+        } finally {
+            loading = false
+        }
+    }
+
+    /** One page with two retries; null when it kept failing. */
+    private fun fetchPage(cat: String, page: Int): List<Item>? {
+        repeat(3) { n ->
+            try { return repo.api.vodPage(cat, page, big = true).items } catch (e: Exception) { if (n < 2) Thread.sleep(400L * (n + 1)) }
+        }
+        return null
+    }
+
+    /** Every page of one category. */
+    private fun fetchCategory(cat: String): List<Item>? {
+        val out = mutableListOf<Item>()
+        val head = runCatching { repo.api.vodPage(cat, 1, big = true) }.getOrNull() ?: return null
+        out += head.items
+        for (p in 2..head.pages.coerceAtMost(500)) {
+            val l = fetchPage(cat, p) ?: break
+            if (l.isEmpty()) break
+            out += l
+        }
+        return out
+    }
+
+    // ---- Disk: one JSON item per line, written to a temp file and swapped in ----
 
     private fun readDisk() {
         diskLoaded = true
         runCatching {
-            val o = JSONObject(repo.store.cacheRead("lib.json") ?: return)
-            val cats = o.optJSONObject("c") ?: return
-            val st = o.optJSONObject("t")
-            val valid = repo.vodCats.map { it.id }.toSet()
-            cats.keys().forEach { id ->
-                if (id in valid && !data.containsKey(id)) {
-                    data[id] = cats.getJSONArray(id).toItems()
-                    stamp[id] = st?.optLong(id) ?: 0L
+            val f = repo.store.cacheFile(FILE)
+            if (!f.exists()) { readOldCache(); return }
+            val items = ArrayList<Item>()
+            var t = 0L; var ok = false
+            f.bufferedReader().useLines { lines ->
+                lines.forEachIndexed { n, line ->
+                    if (n == 0) { val h = JSONObject(line); if (h.optString("a") != owner) return; t = h.optLong("t"); ok = h.optBoolean("complete") }
+                    else if (line.isNotBlank()) runCatching { items += Item.from(JSONObject(line)) }
                 }
             }
-            version++
+            if (items.isNotEmpty()) { refreshedAt = t; complete = ok; publish(items) }
+        }
+    }
+
+    /** One-time import of the old per-category cache (lib.json), so an update does not start empty. */
+    private fun readOldCache() {
+        runCatching {
+            val o = JSONObject(repo.store.cacheRead("lib.json") ?: return)
+            val cats = o.optJSONObject("c") ?: return
+            val items = ArrayList<Item>()
+            cats.keys().forEach { id -> items += cats.getJSONArray(id).toItems() }
+            if (items.isNotEmpty()) { complete = false; refreshedAt = 0; publish(items) }
         }
     }
 
     private fun writeDisk() {
         runCatching {
-            val c = JSONObject(); val t = JSONObject()
-            data.forEach { (k, v) -> c.put(k, itemsJson(v)); t.put(k, stamp[k] ?: 0L) }
-            repo.store.cacheWrite("lib.json", JSONObject().put("c", c).put("t", t).toString())
+            val f = repo.store.cacheFile(FILE)
+            val tmp = java.io.File(f.path + ".tmp")
+            tmp.bufferedWriter().use { w ->
+                w.write(JSONObject().put("v", 1).put("t", refreshedAt).put("complete", complete).put("n", all.size).put("a", owner).toString()); w.newLine()
+                for (i in all) { w.write(i.toJson().toString()); w.newLine() }
+            }
+            if (!tmp.renameTo(f)) { f.delete(); tmp.renameTo(f) }
+            repo.store.cacheDelete("lib.json")
         }
     }
 
-    /** Everything loaded for the tab: language-filtered, classified per item (movie vs series), unique. */
+    /** Everything for the tab: not hidden / locked, language-filtered per title, classified per title (movie vs series), unique. */
     fun pool(tab: String, langs: Set<String>?): List<Item> {
-        val ids = cats(tab, langs).map { it.id }
-        return ids.flatMap { data[it] ?: repo.rows[it] ?: emptyList() }
-            .filter { wantItem(it, tab) && (langs == null || itemLang(it) in langs) }
-            .distinctBy { it.key }
+        val unlocked = repo.gate(true) == null
+        return all.filter { wantItem(it, tab) && visible(it, unlocked) && (langs == null || itemLang(it) in langs) }
     }
 
     /** All loaded items (any language), for "Versions". */
-    fun everything(): List<Item> = (data.values.flatten() + repo.rows.values.flatten()).distinctBy { it.key }
+    fun everything(): List<Item> = if (hasData) all else repo.rows.values.flatten().distinctBy { it.key }
 
     // ---- Versions ----
 
-    fun groupKey(i: Item): String = "${if (i.seriesLike) "tv" else "mv"}|${Tags.norm(i.parsed.title)}"
+    fun groupKey(i: Item): String = "${if (seriesItem(i)) "tv" else "mv"}|${Tags.norm(i.parsed.title)}"
 
     /** Best version first: quality rank, then not dubbed, then has poster. CAM is rank 0 so it is last. */
     private val bestFirst = compareByDescending<Item> { it.parsed.rank }.thenBy { it.parsed.dub }.thenByDescending { it.img.isNotEmpty() }
@@ -276,4 +418,20 @@ class Library(private val repo: Repo) {
 
     fun genresOf(i: Item): List<String> =
         (metaOf(i)?.genres?.takeIf { it.isNotEmpty() } ?: i.genre).split(',', '/', '|').map { it.trim() }.filter { it.length > 1 }
+}
+
+/**
+ * Counts stream failures in a sliding window: true (and the count starts over) when [limit] happened within [window] ms
+ * and the last refresh is at least [minGap] ms old.
+ */
+class FailureWindow(private val limit: Int, private val window: Long, private val minGap: Long) {
+    private val times = ArrayDeque<Long>()
+    @Synchronized fun hit(now: Long, lastRefresh: Long): Boolean {
+        times.addLast(now)
+        while (times.isNotEmpty() && now - times.first() > window) times.removeFirst()
+        if (times.size < limit || now - lastRefresh < minGap) return false
+        times.clear()
+        return true
+    }
+    @get:Synchronized val count: Int get() = times.size
 }

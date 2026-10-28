@@ -75,17 +75,24 @@ fun searchAll(repo: Repo, q: String, scope: Scope): SearchResult {
     if (!wantVod) return SearchResult(live, emptyList(), emptyList())
     // Titles already loaded locally (any language) that match every word of the query
     val words = Tags.norm(q).split(' ').filter { it.length > 1 || it.all(Char::isDigit) }
-    val local = if (words.isEmpty()) emptyList() else repo.lib.everything().filter { i ->
-        val h = Tags.norm(i.name)
-        words.all { it in h }
-    }.take(300)
+    val lib = repo.lib
+    val catTitle = repo.vodCats.associate { it.id to Tags.norm(it.title) }
+    val local = if (words.isEmpty()) emptyList() else {
+        // Title words first; when nothing matches the title, the category / language counts too ("hindi pathaan")
+        val inTitle = lib.everything().filter { i -> val h = Tags.norm(i.name); words.all { it in h } }
+        val wide = if (inTitle.size >= 20) inTitle else (inTitle + lib.everything().filter { i ->
+            val h = Tags.norm(i.name) + " " + (catTitle[i.cat] ?: "") + " " + Tags.norm(lib.itemLang(i))
+            words.all { it in h }
+        }).distinctBy { it.key }
+        wide.take(600)
+    }
     val unlocked = repo.gate(true) == null
-    val all = (vod0 + local).distinctBy { it.key }.filter { !it.locked || unlocked }
-    val groups = repo.lib.cards(all)
+    val all = (vod0 + local).distinctBy { it.key }.filter { (!it.locked || unlocked) && "vod:${it.cat}" !in repo.hidden }
+    val groups = lib.cards(all)
     return SearchResult(
         live,
-        if (scope == Scope.SERIES) emptyList() else groups.filter { !it.best.seriesLike },
-        if (scope == Scope.MOVIES) emptyList() else groups.filter { it.best.seriesLike }
+        if (scope == Scope.SERIES) emptyList() else groups.filter { !lib.seriesItem(it.best) },
+        if (scope == Scope.MOVIES) emptyList() else groups.filter { lib.seriesItem(it.best) }
     )
 }
 
