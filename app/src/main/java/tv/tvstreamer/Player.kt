@@ -676,6 +676,7 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int, onBack: () -> Unit) {
 fun ChoiceDialog(title: String, opts: List<Pair<String, () -> Unit>>, focusKey: Any? = title, onClose: () -> Unit) {
     val first = remember { FocusRequester() }
     LaunchedEffect(focusKey, opts.size) { delay(60); runCatching { first.requestFocus() } }
+    androidx.activity.compose.BackHandler { onClose() }
     Box(Modifier.fillMaxSize().background(Color(0x99000000)).pointerInput(Unit) { detectTapGestures { onClose() } }, contentAlignment = Alignment.Center) {
         Column(
             Modifier.widthIn(min = 280.dp, max = 460.dp).heightIn(max = 420.dp)

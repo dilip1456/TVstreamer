@@ -180,6 +180,19 @@ class Repo(ctx: Context) {
         store.saveList("fav", favs)
     }
 
+    /** Moves a favourite channel one place up (-1) or down (+1) among the favourite channels (My order). */
+    fun moveFav(i: Item, step: Int) {
+        val l = favs.toMutableList()
+        val idx = l.indexOfFirst { it.key == i.key }
+        if (idx < 0) return
+        var j = idx + step
+        while (j in l.indices && l[j].kind != i.kind) j += step
+        if (j !in l.indices) return
+        l[idx] = l[j]; l[j] = i
+        favs = l
+        store.saveList("fav", favs)
+    }
+
     fun markPlayed(i: Item) { if (i.kind == "itv") store.addRecent(i) }
 
     /** Returns an error message, or null when access is allowed. */

@@ -65,6 +65,25 @@ Fire TV app buttons (Netflix, Prime Video, Hulu...) are handled by Fire TV itsel
 On supported remotes you can point a shortcut button at TVStreamer in Fire TV Settings > Controllers & Bluetooth Devices >
 Amazon Fire TV Remotes > Remote button shortcuts.
 
+## Live TV (1.40)
+- Two modes at the top, remembered: **All channels** and **★ Favorites**.
+- All channels: grouped by type (News, Sports, Entertainment, Movies, Music, Kids, Documentary & Lifestyle, Religious,
+  Regional / General, Other) with a language row, or "Original categories" for the portal's own folders.
+  "Languages" picks which languages to show (from category and channel names).
+- Favorites: "Grouped" shows only the groups that contain favourites (by type or original category), each with just the
+  favourite channels; "Single list" shows them all in one list, in your order (Menu > Move up / down) or A-Z.
+- Channel up/down in the player steps through the list you started from.
+- Hidden channels: "Show hidden in this group" lists them so you can unhide.
+
+## Search (1.40)
+The gold search button (bottom-right; also the Search or blue remote key) opens search over any screen.
+Choose All / Movies / TV Series / Live. It searches every category and language on the portal. OK on a result opens it;
+Back closes search.
+
+## Series (1.40)
+Seasons and episodes are shown without the show's name ("Season 1", "Episode 2" or the real episode title).
+Opening a show you started goes to the season and episode you were on (the next one if you finished it).
+
 ## Updating from inside the app
 Home > Update downloads the newest release and opens the Android installer. The first time,
 Android asks you to allow "Install unknown apps" for TVStreamer: turn it on, go back and press Update again.
