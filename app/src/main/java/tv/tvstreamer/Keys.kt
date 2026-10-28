@@ -61,7 +61,7 @@ object Keys {
         KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT,
         KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER, KeyEvent.KEYCODE_BACK,
         KeyEvent.KEYCODE_HOME, KeyEvent.KEYCODE_POWER, KeyEvent.KEYCODE_VOLUME_UP, KeyEvent.KEYCODE_VOLUME_DOWN,
-        KeyEvent.KEYCODE_VOLUME_MUTE, KeyEvent.KEYCODE_SEARCH, KeyEvent.KEYCODE_ASSIST, KeyEvent.KEYCODE_VOICE_ASSIST
+        KeyEvent.KEYCODE_VOLUME_MUTE, KeyEvent.KEYCODE_ASSIST, KeyEvent.KEYCODE_VOICE_ASSIST
     )
 
     /** Defaults: hold Menu = favorite. Extra buttons some remotes send while the app is open. */
@@ -72,7 +72,9 @@ object Keys {
         KeyEvent.KEYCODE_PROG_RED to Act.FAV,
         KeyEvent.KEYCODE_BOOKMARK to Act.FAV,
         KeyEvent.KEYCODE_TV to Act.LIVE,
-        KeyEvent.KEYCODE_SETTINGS to Act.SETTINGS
+        KeyEvent.KEYCODE_SETTINGS to Act.SETTINGS,
+        KeyEvent.KEYCODE_SEARCH to Act.SEARCH,
+        KeyEvent.KEYCODE_PROG_BLUE to Act.SEARCH
     )
     val defaultLong: Map<Int, Act> = mapOf(KeyEvent.KEYCODE_MENU to Act.FAV)
 

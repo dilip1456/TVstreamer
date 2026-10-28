@@ -256,7 +256,7 @@ private fun groupCategories(cats: List<Cat>): Map<String, List<Cat>> {
 }
 
 @Composable
-private fun ChannelCard(ch: Item, fav: Boolean, onClick: () -> Unit, onMenu: () -> Unit) {
+fun ChannelCard(ch: Item, fav: Boolean, onClick: () -> Unit, onMenu: () -> Unit) {
     val hue = (ch.name.hashCode() and 0xFFFFFF) % 360
     val bg = Color.hsl(hue.toFloat(), 0.45f, 0.28f)
     Column(
@@ -273,37 +273,6 @@ private fun ChannelCard(ch: Item, fav: Boolean, onClick: () -> Unit, onMenu: () 
         Spacer(Modifier.height(6.dp))
         Label(ch.name, 13, maxLines = 2)
         if (ch.num > 0) Label("#${ch.num}", 11, DIM)
-    }
-}
-
-@Composable
-fun Search(repo: Repo, play: (List<Item>, Int) -> Unit, open: (Item) -> Unit) {
-    var q by remember { mutableStateOf("") }
-    var live by remember { mutableStateOf(listOf<Item>()) }
-    var vod by remember { mutableStateOf(listOf<Item>()) }
-    var busy by remember { mutableStateOf(false) }
-    val fr = remember { FocusRequester() }
-    LaunchedEffect(Unit) { delay(250); runCatching { fr.requestFocus() } }
-    LaunchedEffect(q) {
-        delay(300)
-        if (q.isBlank()) { live = emptyList(); vod = emptyList(); return@LaunchedEffect }
-        busy = true
-        val r = withContext(Dispatchers.IO) { runCatching { repo.search(q) }.getOrDefault(emptyList<Item>() to emptyList()) }
-        live = r.first
-        vod = r.second
-        busy = false
-    }
-    Column(Modifier.fillMaxSize().padding(32.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        TextField(
-            value = q, onValueChange = { q = it }, singleLine = true,
-            placeholder = { Text("Hold the mic and say: hindi movies 2023") },
-            modifier = Modifier.fillMaxWidth().focusRequester(fr)
-        )
-        if (busy) Label("Searching...", 16, DIM)
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            itemsIndexed(live) { i, c -> Row1("LIVE   ${c.name}", { play(live, i) }, onMenu = { repo.toggleFav(c) }) }
-            itemsIndexed(vod) { _, m -> Row1((if (m.isSeries) "SERIES   " else "MOVIE   ") + Names.title(m.name), { open(m) }, onMenu = { repo.toggleFav(m) }) }
-        }
     }
 }
 

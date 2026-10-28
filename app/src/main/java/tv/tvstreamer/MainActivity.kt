@@ -8,6 +8,10 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.unit.dp
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.darkColorScheme
@@ -116,6 +120,9 @@ fun App(repo: Repo) {
     val ctx = LocalContext.current
     var screen by remember { mutableStateOf<Screen>(Screen.Home) }
     var tick by remember { mutableIntStateOf(0) }
+    val search = remember { SearchState() }
+    // Detail screen opened from a search result: Back from it brings the search overlay back
+    var fromSearch by remember { mutableStateOf<Screen?>(null) }
     LaunchedEffect(Unit) {
         repo.load()
         val code = try { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionCode } catch (e: Exception) { 1 }
@@ -134,6 +141,7 @@ fun App(repo: Repo) {
             Screen.Remote -> Screen.Settings
             else -> Screen.Home
         }
+        if (s === fromSearch) { search.open = true; fromSearch = null }
         tick++
     }
     BackHandler(screen != Screen.Home) { back() }
@@ -145,7 +153,8 @@ fun App(repo: Repo) {
         else play(listOf(item), 0)
     }
     // Grid / list screens remember where they were opened from
-    val go: (Screen) -> Unit = { to ->
+    val go: (Screen) -> Unit = go@{ to ->
+        if (to == Screen.Search) { search.open = true; return@go }
         val cur = screen
         screen = when {
             to is Screen.Grid && cur !is Screen.Grid -> Screen.Grid(to.cat, cur)
@@ -164,7 +173,7 @@ fun App(repo: Repo) {
                 Act.MOVIES -> { screen = Screen.MoviesTab; true }
                 Act.SERIES -> { screen = Screen.SeriesTab; true }
                 Act.LIVE -> { screen = Screen.Live; true }
-                Act.SEARCH -> { screen = Screen.Search; true }
+                Act.SEARCH -> { if (screen !is Screen.Play) search.open = !search.open; true }
                 Act.SETTINGS -> { screen = Screen.Settings; true }
                 Act.BACK -> { if (screen != Screen.Home) back(); true }
                 Act.FAV -> {
@@ -188,7 +197,7 @@ fun App(repo: Repo) {
             Screen.MoviesTab -> Catalog(repo, "movies", go, open, play, tick)
             Screen.SeriesTab -> Catalog(repo, "series", go, open, play, tick)
             Screen.Live -> Live(repo, play)
-            Screen.Search -> Search(repo, play, open)
+            Screen.Search -> Catalog(repo, "home", go, open, play, tick)
             Screen.Settings -> SettingsScreen(repo, go)
             Screen.Categories -> CategoriesScreen(repo, go)
             Screen.Remote -> RemoteScreen { back() }
@@ -197,6 +206,20 @@ fun App(repo: Repo) {
             is Screen.Grid -> GridScreen(repo, s.cat, open, play)
             is Screen.Pool -> PoolScreen(repo, s.tab, s.lang, s.genre, s.title, s.sort, open)
             is Screen.Play -> PlayerScreen(repo, s.list, s.index) { back() }
+        }
+        // Floating search: on every screen except the full-screen player and the remote-learning screen
+        val cur = screen
+        if (cur !is Screen.Play && cur != Screen.Remote) {
+            if (search.open) {
+                BackHandler { search.open = false }
+                SearchOverlay(repo, search, { item ->
+                    search.open = false
+                    open(item)
+                    fromSearch = screen.takeIf { it is Screen.Detail }
+                }, { l, i -> search.open = false; play(l, i) })
+            } else Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomEnd) {
+                SearchFab(Modifier.padding(if (rememberIsTv()) 28.dp else 18.dp)) { search.open = true }
+            }
         }
     }
 }
