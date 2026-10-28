@@ -377,6 +377,10 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
             }
         }
         item { Row1("Browse, arrange and hide categories", { go(Screen.Categories) }) }
+        item {
+            val n = repo.hiddenChannelCount()
+            Row1(if (n > 0) "Unhide all hidden channels ($n)" else "No hidden channels", { if (n > 0) { repo.unhideAllChannels(); note = "All channels shown again" } })
+        }
     }
 }
 

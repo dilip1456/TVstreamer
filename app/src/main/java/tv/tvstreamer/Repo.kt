@@ -158,6 +158,8 @@ class Repo(ctx: Context) {
         store.hidden = hidden
     }
     fun isChannelHidden(i: Item) = "ch:${i.key}" in hidden
+    fun hiddenChannelCount() = hidden.count { it.startsWith("ch:") }
+    fun unhideAllChannels() { hidden = hidden.filterNot { it.startsWith("ch:") }.toSet(); store.hidden = hidden }
     fun toggleHide(kind: String, id: String) {
         val k = "$kind:$id"
         hidden = if (k in hidden) hidden - k else hidden + k

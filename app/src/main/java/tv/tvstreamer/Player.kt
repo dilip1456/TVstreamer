@@ -557,7 +557,6 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int, onBack: () -> Unit) {
                     onFav = { repo.toggleFav(item); favTick++; touch() },
                     onDialog = { dialog = it },
                     onAspect = { setAspect(when (aspect) { "fit" -> "fill"; "fill" -> "zoom"; else -> "fit" }); touch() },
-                    onHide = { controls = false },
                     onMove = { barPos = when (barPos) { "bottom" -> "left"; "left" -> "right"; else -> "bottom" }; repo.store.barPos = barPos; touch() },
                     onTouch = { touch() }
                 )
@@ -577,7 +576,7 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int, onBack: () -> Unit) {
                     modifier = Modifier.heightIn(max = 260.dp).verticalScroll(rememberScrollState()))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     PillButton("Retry", { autoRetries = 0; linkFrom = 0; attempt++ }, Modifier.focusRequester(retryFr), primary = true)
-                    PillButton(if (showLog) "Hide portal replies" else "Portal replies", { showLog = !showLog })
+                    PillButton(if (showLog) "Close portal replies" else "Portal replies", { showLog = !showLog })
                     if (list.size > 1) PillButton(if (live) "Next channel" else "Next", { go(idx + 1) })
                     PillButton("Back", onBack)
                 }
@@ -617,7 +616,6 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int, onBack: () -> Unit) {
                     add((if (repo.isFav(item)) "Remove favorite" else "Add favorite") to { repo.toggleFav(item); favTick++; dialog = null })
                     if (live) {
                         add("Move to My Channels" to { repo.moveToCustom(item, "My Channels"); dialog = null })
-                        add((if (repo.isChannelHidden(item)) "Unhide channel" else "Hide channel") to { repo.toggleHideChannel(item); dialog = null })
                     }
                     add("Audio track" to { dialog = "audio" })
                     add("Subtitles" to { dialog = "subs" })
@@ -721,7 +719,7 @@ private fun Controls(
     playFr: FocusRequester, seekFr: FocusRequester,
     onBack: () -> Unit, onPlay: () -> Unit, onSeekBy: (Long) -> Unit, onSeekTo: (Long) -> Unit,
     onPrev: () -> Unit, onNext: () -> Unit, onFav: () -> Unit, onDialog: (String) -> Unit, onAspect: () -> Unit,
-    onHide: () -> Unit, onMove: () -> Unit, onTouch: () -> Unit
+    onMove: () -> Unit, onTouch: () -> Unit
 ) {
     val pad = if (isTv) 40.dp else 16.dp
     Box(Modifier.fillMaxSize()) {
@@ -766,7 +764,6 @@ private fun Controls(
             if (hasAudio || !live) PillButton("Audio", { onDialog("audio") }, size = 14)
             PillButton(if (hasSubs) "Subtitles" else "Subs (none)", { onDialog("subs") }, size = 14)
             PillButton(when (aspect) { "fill" -> "Fill"; "zoom" -> "Zoom"; else -> "Fit" }, onAspect, size = 14)
-            PillButton("Hide", onHide, size = 14)
             PillButton("Move", onMove, size = 14)
         }
 
