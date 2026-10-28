@@ -124,8 +124,8 @@ Google sign-in on TVs needs an "OAuth client" that belongs to you (no client ID 
    Continue (it is your own app). The app syncs at once.
 
 Note: while the consent screen is in "Testing", Google may expire the sign-in after 7 days; the app then says
-"Sign in again". Publishing the app to "In production" in the consent screen (no review is needed for these scopes
-for personal use) avoids that.
+"Sign in again". Switching the consent screen to "In production" avoids that; Google may then show an
+"unverified app" warning, which is fine for your own personal use.
 
 ## Updating from inside the app
 Home > Update downloads the newest release and opens the Android installer. The first time,
