@@ -313,7 +313,7 @@ object Cloud {
     private suspend fun apply(r: Repo, l: SyncLocal, withSecrets: Boolean) {
         val loginChanged = r.store.syncWrite(l, withSecrets)
         Tmdb.replaceOverrides(l.fixes)
-        if (withSecrets) Tmdb.setKeys(r.store.tmdbKey, r.store.omdbKey)
+        if (withSecrets) { Tmdb.setKeys(r.store.tmdbKey, r.store.omdbKey); Gemini.useKey(r.store.geminiKey) }
         withContext(Dispatchers.Main) {
             r.reloadSynced()
             Keys.reload(r.store)

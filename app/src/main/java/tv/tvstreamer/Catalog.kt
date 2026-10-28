@@ -157,6 +157,14 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
 
     fun wantItem(i: Item): Boolean = lib.wantItem(i, mode)
 
+    // Gemini "Suggested for you": cached for 12 h; refreshed (debounced) when the key, history or library changes. Quiet without a key.
+    LaunchedEffect(Gemini.key) { Ai.loadCache(repo) }
+    LaunchedEffect(Gemini.key, tick, lib.version) {
+        if (!Gemini.enabled) return@LaunchedEffect
+        delay(4000)
+        Ai.refreshSuggested(repo)
+    }
+
     val shelves = buildList {
         val c = cont.filter { wantItem(it.first) }
         if (c.isNotEmpty()) {
@@ -168,6 +176,8 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
         }
         repo.favs.filter { !it.locked && it.kind == "vod" && wantItem(it) }.takeIf { it.isNotEmpty() }
             ?.let { add(Shelf("fav", "My List", it, "vod")) }
+        if (Gemini.enabled) Ai.suggested.filter { (!it.locked || unlocked) && wantItem(it) }.takeIf { it.isNotEmpty() }
+            ?.let { add(Shelf("ai", "✨ Suggested for you", it, "vod")) }
         if (mode == "home") {
             repo.favs.filter { !it.locked && it.kind == "itv" }.takeIf { it.isNotEmpty() }?.let { add(Shelf("favc", "Favorite channels", it, "itv")) }
             if (recent.isNotEmpty()) add(Shelf("recent", "Recent channels", recent, "itv"))

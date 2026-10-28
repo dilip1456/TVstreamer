@@ -138,6 +138,7 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
     var pw by remember { mutableStateOf(s.password) }
     var tmdb by remember { mutableStateOf(s.tmdbKey) }
     var omdb by remember { mutableStateOf(s.omdbKey) }
+    var gem by remember { mutableStateOf(s.geminiKey) }
     var note by remember { mutableStateOf("") }
     var linkNote by remember { mutableStateOf("") }
     val ctx = LocalContext.current
@@ -241,6 +242,31 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
                 }, primary = true)
                 PillButton("Clear movie info cache", { Tmdb.clearCache(); note = "Movie info cache cleared" })
             }
+        }
+        item { Label("AI suggestions & voice assistant (optional)", 18) }
+        item {
+            Label("With your own Google Gemini API key (free at Google AI Studio), Home shows \"Suggested for you\" picked from your library, " +
+                "and the 🎤 / ✨ buttons in Search understand requests like \"funny movies for tonight\". Titles from your history, favourites and library " +
+                "are sent to Google Gemini. With Google sync on, the key also syncs to your other devices.", 13, DIM, maxLines = 10)
+        }
+        item {
+            FieldWithLink({ SettingField("Gemini API key", gem, password = true) { gem = it } },
+                "Get a Gemini key ↗") { link("Google AI Studio", Gemini.KEY_URL) }
+        }
+        item {
+            PillButton("Save Gemini key and test", {
+                keyboard?.hide()
+                s.geminiKey = gem
+                Gemini.useKey(gem)
+                if (gem.isBlank()) { note = "Gemini key removed; AI features are off" }
+                else {
+                    note = "Testing Gemini key..."
+                    scope.launch {
+                        note = withContext(Dispatchers.IO) { Gemini.test(gem) }
+                        launch { Ai.refreshSuggested(repo, force = true) }
+                    }
+                }
+            }, primary = true)
         }
         item {
             val n = repo.hiddenChannelCount()

@@ -10,6 +10,7 @@ import java.io.File
 class Store(ctx: Context) {
     private val p: SharedPreferences = ctx.getSharedPreferences("data", Context.MODE_PRIVATE)
     private val dir: File = ctx.filesDir
+    private val appCtx: Context = ctx.applicationContext
 
     // Prefs + internal file (always writable) + external file (survives reinstall)
     private val sec: SharedPreferences = ctx.getSharedPreferences("secure", Context.MODE_PRIVATE)
@@ -184,6 +185,24 @@ class Store(ctx: Context) {
         get() = sec.getString("omdb_key", "") ?: ""
         set(v) { sec.edit().putString("omdb_key", v.trim()).apply() }
 
+    /** Encrypted prefs (Android Keystore AES-256) for the Gemini key; app-private plain prefs if the device can't encrypt. */
+    private val enc: SharedPreferences by lazy {
+        runCatching {
+            val mk = androidx.security.crypto.MasterKey.Builder(appCtx).setKeyScheme(androidx.security.crypto.MasterKey.KeyScheme.AES256_GCM).build()
+            androidx.security.crypto.EncryptedSharedPreferences.create(appCtx, "secure_ai", mk,
+                androidx.security.crypto.EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                androidx.security.crypto.EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM)
+        }.getOrElse { sec }
+    }
+
+    /** The user's own Google Gemini API key (Settings > AI). Never in the repo; synced with the other keys. */
+    var geminiKey: String
+        get() = runCatching { enc.getString("gemini_key", "") }.getOrNull() ?: ""   // unreadable after a restore to another device: treat as unset
+        set(v) { if (v.trim() != geminiKey) { runCatching { enc.edit().putString("gemini_key", v.trim()).apply() }; if (!muted) onChange?.invoke() } }
+
+    /** Everything played (newest first, up to 40), finished or not: watch history for suggestions. */
+    fun history(): List<Item> = resumeArray().let { a -> (0 until a.length()).mapNotNull { runCatching { Item.from(a.getJSONObject(it)) }.getOrNull() } }
+
     /** Remote button mapping (JSON, see Keys). */
     var keymap: String
         get() = p.getString("keymap", "") ?: ""
@@ -272,7 +291,8 @@ class Store(ctx: Context) {
         val resume = resumeArray().let { a -> (0 until a.length()).map { a.getJSONObject(it).toString() } }
         val last = runCatching { JSONObject(p.getString("lastep", "{}") ?: "{}").let { o -> o.keys().asSequence().associateWith { o.getJSONObject(it).toString() } } }.getOrDefault(emptyMap())
         val secrets = if (!withSecrets) emptyMap() else mapOf(
-            "portal" to portal, "mac" to mac, "serial" to serial, "pw" to password, "tmdb" to tmdbKey, "omdb" to omdbKey
+            "portal" to portal, "mac" to mac, "serial" to serial, "pw" to password, "tmdb" to tmdbKey, "omdb" to omdbKey,
+            "gemini" to geminiKey
         ).filterValues { it.isNotEmpty() }
         return SyncLocal(
             favs = favs, hidden = hidden, custom = custom, orders = orders, langs = langs, prefs = prefStrings(),
@@ -302,7 +322,7 @@ class Store(ctx: Context) {
             if (withSecrets) {
                 fun put(name: String, cur: String, set: (String) -> Unit) {
                     val v = l.secrets[name]
-                    if (!v.isNullOrEmpty() && v != cur) { set(v); if (name != "tmdb" && name != "omdb") secretsChanged = true }
+                    if (!v.isNullOrEmpty() && v != cur) { set(v); if (name != "tmdb" && name != "omdb" && name != "gemini") secretsChanged = true }
                 }
                 put("portal", portal) { portal = it }
                 put("mac", mac) { mac = it }
@@ -310,6 +330,7 @@ class Store(ctx: Context) {
                 put("pw", password) { password = it }
                 put("tmdb", tmdbKey) { tmdbKey = it }
                 put("omdb", omdbKey) { omdbKey = it }
+                put("gemini", geminiKey) { geminiKey = it }
             }
         } finally { muted = false }
         return secretsChanged

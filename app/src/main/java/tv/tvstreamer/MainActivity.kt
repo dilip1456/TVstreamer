@@ -59,6 +59,7 @@ class MainActivity : ComponentActivity() {
         Cloud.init(applicationContext, repo)
         Theme.mode = repo.store.theme
         AppUi.phoneNav = !isLeanback(this)
+        if (savedInstanceState == null) handleIntent(intent)
         setContent {
             MaterialTheme(
                 colorScheme = if (Theme.dark) darkColorScheme(primary = Pal.Accent, background = Pal.Bg, surface = Pal.Surface, onPrimary = Color.White)
@@ -68,6 +69,27 @@ class MainActivity : ComponentActivity() {
                 App(repo)
             }
         }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIntent(intent)
+    }
+
+    /**
+     * Voice / search intents (Fire TV Alexa or Google Assistant "search for X in TVstreamer", the remote's search):
+     * a query lands in the app's search bar; an assist request without one opens search and starts listening.
+     */
+    private fun handleIntent(i: android.content.Intent?) {
+        val a = i?.action ?: return
+        val searchy = a == android.content.Intent.ACTION_SEARCH || a == "com.google.android.gms.actions.SEARCH_ACTION" ||
+            a == android.content.Intent.ACTION_ASSIST || a == android.content.Intent.ACTION_VOICE_COMMAND
+        if (!searchy) return
+        val q = (i.getStringExtra(android.app.SearchManager.QUERY) ?: i.getStringExtra("query")
+            ?: i.getStringExtra(android.app.SearchManager.USER_QUERY))?.trim()
+        if (!q.isNullOrEmpty()) VoiceBus.query = q
+        else VoiceBus.request++
     }
 
     override fun onStart() { super.onStart(); Cloud.syncSoon() }
@@ -91,6 +113,14 @@ class MainActivity : ComponentActivity() {
         val code = e.keyCode
         Keys.learn?.let { learn ->
             if (e.action == KeyEvent.ACTION_DOWN && e.repeatCount == 0) learn(if (code == KeyEvent.KEYCODE_BACK) -1 else code)
+            return true
+        }
+        // Remote mic / search key (Fire TV Alexa remote, Android TV remotes): open search and listen.
+        // KEYCODE_SEARCH only while it keeps its default mapping, so a custom assignment still wins.
+        val voiceKey = code == KeyEvent.KEYCODE_VOICE_ASSIST || code == KeyEvent.KEYCODE_ASSIST ||
+            (code == KeyEvent.KEYCODE_SEARCH && Keys.shortOf(code) == Act.SEARCH && Keys.longOf(code) == Act.DEFAULT)
+        if (voiceKey) {
+            if (e.action == KeyEvent.ACTION_DOWN && e.repeatCount == 0) VoiceBus.request++
             return true
         }
         if (code in Keys.reserved) return super.dispatchKeyEvent(e)
@@ -181,6 +211,22 @@ fun App(repo: Repo) {
             to is Screen.Detail -> Screen.Detail(to.item, cur, to.focusEp)
             else -> to
         }
+    }
+
+    // Remote mic key / assist intent: open search and start voice capture (not over the player)
+    LaunchedEffect(VoiceBus.request) {
+        if (VoiceBus.request > VoiceBus.handled) {
+            VoiceBus.handled = VoiceBus.request
+            if (screen !is Screen.Play && screen != Screen.Remote) { search.open = true; search.voiceReq++ }
+        }
+    }
+    // Search intent with a query (e.g. "Alexa, search for Inception" / android.intent.action.SEARCH)
+    LaunchedEffect(VoiceBus.query) {
+        val q = VoiceBus.query ?: return@LaunchedEffect
+        VoiceBus.query = null
+        if (screen is Screen.Play || screen == Screen.Remote) screen = Screen.Home
+        search.aiItems = emptyList(); search.aiMsg = ""
+        search.query = q; search.open = true
     }
 
     // Remote button actions outside the player

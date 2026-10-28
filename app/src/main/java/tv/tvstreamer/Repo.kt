@@ -26,7 +26,7 @@ class Repo(ctx: Context) {
     /** Movies / series of the selected languages, loaded in the background (see Library). */
     val lib = Library(this)
 
-    init { Tmdb.init(ctx, store.tmdbKey, store.omdbKey) }
+    init { Tmdb.init(ctx, store.tmdbKey, store.omdbKey); Gemini.useKey(store.geminiKey) }
 
     var liveCats by mutableStateOf(emptyList<Cat>())
     var vodCats by mutableStateOf(emptyList<Cat>())

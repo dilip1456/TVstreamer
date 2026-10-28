@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** What the search overlay looks in. */
@@ -49,6 +50,12 @@ class SearchState {
     var open by mutableStateOf(false)
     var query by mutableStateOf("")
     var scope by mutableStateOf(Scope.ALL)
+    /** Bumped to start voice capture when the overlay is (or becomes) visible; [voiceHandled] is the last one acted on. */
+    var voiceReq by mutableIntStateOf(0)
+    var voiceHandled = 0
+    /** Gemini assistant picks from the library, shown above the normal results. */
+    var aiItems by mutableStateOf<List<Item>>(emptyList())
+    var aiMsg by mutableStateOf("")
 }
 
 data class SearchResult(val live: List<Item>, val movies: List<Group>, val series: List<Group>) {
@@ -108,7 +115,43 @@ fun SearchOverlay(repo: Repo, st: SearchState, open: (Item) -> Unit, play: (List
     var busy by remember { mutableStateOf(false) }
     val fieldFr = remember { FocusRequester() }
     val firstResFr = remember { FocusRequester() }
+    val scope = rememberCoroutineScope()
+    var status by remember { mutableStateOf("") }
+    var aiBusy by remember { mutableStateOf(false) }
+    var heard by remember { mutableStateOf("") }
+    /** A spoken or typed request: Gemini (when a key is set) turns it into search words or picks titles; otherwise a plain search. */
+    fun handle(text: String) {
+        val t = text.trim()
+        if (t.isEmpty()) return
+        heard = ""
+        if (!Gemini.enabled) { st.aiItems = emptyList(); st.aiMsg = ""; st.query = t; return }
+        aiBusy = true; status = "Asking AI about \"$t\"…"
+        scope.launch {
+            when (val o = Ai.ask(repo, t)) {
+                is AiOutcome.Search -> { st.aiItems = emptyList(); st.aiMsg = o.message; st.query = o.query.ifBlank { t } }
+                is AiOutcome.Suggest -> { st.aiItems = o.items; st.aiMsg = o.message; st.query = "" }
+                is AiOutcome.Failed -> { st.aiItems = emptyList(); st.aiMsg = "AI unavailable (${o.message}). Showing a normal search."; st.query = t }
+            }
+            aiBusy = false; status = ""
+            if (st.aiItems.isNotEmpty()) { delay(150); runCatching { firstResFr.requestFocus() } }
+        }
+    }
+    val voice = rememberVoiceInput(
+        onPartial = { heard = it },
+        onText = { handle(it) },
+        onStatus = { m ->
+            status = when (m) {
+                NO_VOICE -> if (Gemini.enabled) "Voice input isn't available here. Type your request and press ✨ Ask AI." else m
+                else -> m
+            }
+            if (m == NO_VOICE || m.contains("Type your request")) runCatching { fieldFr.requestFocus() }
+        }
+    )
     LaunchedEffect(Unit) { delay(150); runCatching { fieldFr.requestFocus() } }
+    // The remote's mic / search key (or a long press on 🎤) asked for voice
+    LaunchedEffect(st.voiceReq) {
+        if (st.voiceReq > st.voiceHandled) { st.voiceHandled = st.voiceReq; delay(250); voice.start() }
+    }
     // Debounced search: waits for typing to pause
     LaunchedEffect(st.query, st.scope) {
         val q = st.query.trim()
@@ -133,19 +176,33 @@ fun SearchOverlay(repo: Repo, st: SearchState, open: (Item) -> Unit, play: (List
                     val kb = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         TextField(
-                            value = st.query, onValueChange = { st.query = it }, singleLine = true,
-                            placeholder = { Text(if (isTv) "Search movies, series, channels (OK for keyboard / voice)" else "Search movies, series, channels") },
+                            value = st.query, onValueChange = { st.query = it; if (it.isNotBlank() && st.aiItems.isNotEmpty()) { st.aiItems = emptyList(); st.aiMsg = "" } }, singleLine = true,
+                            placeholder = { Text(if (Gemini.enabled) "Search, or ask: \"funny movies for tonight\"" else if (isTv) "Search movies, series, channels" else "Search movies, series, channels") },
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                             keyboardActions = KeyboardActions(onSearch = { kb?.hide(); runCatching { firstResFr.requestFocus() } }),
                             modifier = Modifier.weight(1f).clip(RoundedCornerShape(28.dp)).focusRequester(fieldFr)
                         )
-                        Spacer(Modifier.width(10.dp))
-                        PillButton("✕  Close", { st.open = false }, size = 14)
+                        Spacer(Modifier.width(8.dp))
+                        PillButton(if (voice.listening) "■" else "🎤", { if (voice.listening) voice.stop() else voice.start() }, selected = voice.listening, size = 14)
+                        if (Gemini.enabled) {
+                            Spacer(Modifier.width(8.dp))
+                            PillButton("✨ Ask AI", {
+                                kb?.hide()
+                                if (st.query.isBlank()) { status = "Type or say a request, e.g. \"a feel-good movie\""; runCatching { fieldFr.requestFocus() } }
+                                else handle(st.query)
+                            }, size = 14)
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        PillButton("✕  Close", { voice.stop(); st.open = false }, size = 14)
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Scope.entries.forEach { s -> PillButton(s.label, { st.scope = s }, selected = st.scope == s, size = 14) }
                     }
+                    if (heard.isNotEmpty() && voice.listening) Text("“$heard”", color = Pal.Text, fontSize = 15.sp)
+                    if (status.isNotEmpty()) Text(status, color = if (aiBusy || voice.listening) Pal.Dim else Pal.Warn, fontSize = 14.sp)
+                    if (st.aiMsg.isNotEmpty()) Text(st.aiMsg, color = Pal.Dim, fontSize = 13.sp)
                     when {
+                        st.aiItems.isNotEmpty() || aiBusy || voice.listening -> {}
                         st.query.trim().length < 2 -> Text("Type at least 2 letters. Searches every category and language on the portal.", color = Pal.Dim, fontSize = 13.sp)
                         busy -> Text("Searching…", color = Pal.Dim, fontSize = 13.sp)
                         result?.empty == true -> Text("No results for \"${st.query.trim()}\"" + (if (st.scope != Scope.ALL) " in ${st.scope.label}. Try All." else "."), color = Pal.Warn, fontSize = 15.sp)
@@ -158,6 +215,15 @@ fun SearchOverlay(repo: Repo, st: SearchState, open: (Item) -> Unit, play: (List
             val r = result
             var first = true
             fun firstMod(): Modifier = if (first) { first = false; Modifier.focusRequester(firstResFr) } else Modifier
+            if (st.aiItems.isNotEmpty()) {
+                val ai = st.aiItems
+                item(span = { GridItemSpan(maxLineSpan) }) { Section("✨ Suggested", ai.size) }
+                val a0 = firstMod()
+                gridItemsIndexed(ai, key = { i, it -> "ai|$i|${it.key}" }) { i, it ->
+                    PosterCard(it, posterW, null, if (i == 0) a0 else Modifier, { open(it) },
+                        { repo.toggleFav(it) }, fav = repo.isFav(it)) { Keys.focused = it }
+                }
+            }
             if (r != null) {
                 if (r.live.isNotEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }) { Section("Live channels", r.live.size) }
