@@ -23,6 +23,8 @@ The next episode plays automatically.
 - Play/Pause, Fast-forward, Rewind and Channel up/down keys work at any time
 - Back: hides the controls first, then leaves the player
 - Search: the on-screen keyboard supports voice dictation
+- Voice (1.44): the remote's microphone / Search key (Fire TV, Android TV) opens Search and starts listening;
+  system voice-search requests aimed at TVStreamer open its Search with the words filled in (needs microphone permission)
 
 ## Phone
 - The player turns to landscape full screen.
@@ -32,23 +34,46 @@ The next episode plays automatically.
 - Swipe up/down on live TV to change channel.
 
 ## Catalog (Home, Movies, Series)
-- Hero banner on top, then Continue watching, My List and one row per category (posters load as you scroll).
+- Hero banner on top (1.44: the last movie or episode you watched, with "Resume · time"; a featured title only when
+  there is no watch history yet), then Continue watching, My List and one row per category (posters load as you scroll).
 - OK / tap a poster for details (plot, year, rating, seasons and episodes). Menu / long-press: My List, move row up/down, hide category.
 - "See all" at the end of a row opens the whole category as a grid.
 - Categories: browse every category with a sample poster, filter by name, move up/down, hide/unhide.
 - Names are tidied for display only ("EN| Action" shows as "Action · EN").
 
 ## Languages, versions and sorting (1.39)
-- Movies and Series are separate tabs. Each has a Languages picker (with category counts, Select all / none).
-  The language is read from category and title names ("HINDI 4K", "|EN|", "[Tamil]", "Telugu Dubbed").
-  Dub, CAM, 4K, HD and so on are versions, not languages; names with no language go under "Other".
+- Movies and Series are separate tabs. Each has a Languages picker (with title counts, Select all / none).
+  The language is read per title, then from its category ("HINDI 4K", "IN| BOLLYWOOD", "|EN|", "[Tamil]", "Pathaan Hindi").
+  A dubbed title counts as the language it is dubbed in ("HOLLYWOOD HINDI DUBBED" is Hindi). Short codes such as IN or IT
+  only count as tags ("IN| …", "[IT]"), so "MOVIES IN 4K" is not Hindi. Dub, CAM, 4K, HD and so on are versions, not
+  languages; anything with no recognisable language is listed under "Other".
 - For each chosen language: Latest added, Top rated, Newest releases, then rows by genre.
   Languages you did not pick are hidden from the rows but are still found by Search and in Categories ("Show all languages").
 - The same title and year in several qualities (CAM / 4K / Dub) shows once. The detail screen has a Versions choice
   (best first, CAM last).
 - Sort on grids: Recently added (default), Release year, Rating (IMDb first), A-Z. Titles without that info go last.
-- The library loads in the background, is kept on the device for 12 hours and has a Refresh button.
+- See "Library and refresh" below for how the catalog is loaded.
 - Continue watching: Menu / long-press on an episode gives Resume, Start over, See all episodes and Remove.
+
+## Library and refresh (1.44)
+- The whole movie / series catalog is pulled from the portal once (several pages at a time, with progress on the
+  Movies / Series tabs during the first load) and saved on the device. After that the app opens instantly from the
+  saved copy: rows, language filters, sorting, See all, Categories and Search all work locally, with no portal request
+  per category. Channels and categories are saved the same way.
+- It refreshes by itself in the background once a day, and sooner when several titles fail to play within a few
+  minutes (a sign the portal has moved them).
+- Settings > Library shows how many titles are saved and when they were last refreshed, with a "Refresh library" button.
+- Stream links are still requested from the portal only when you press Play.
+
+## AI suggestions and voice assistant (1.44, optional)
+Settings > AI suggestions & voice assistant: paste a Google Gemini API key (free at aistudio.google.com/apikey) and press "Save Gemini key and test".
+The key is stored encrypted on the device (and synced to your other devices with Google sync on), never in this repo.
+With a key:
+- Home, Movies and Series get a "✨ Suggested for you" row based on what you watch, chosen from your own portal library.
+- In Search, "✨ Ask AI" (or the 🎤 button / remote mic) understands requests like "a funny Hindi movie from the 90s" or
+  "something like Dark" and shows matching titles from your library.
+Titles from your history, favourites and library (never your portal login) are sent to Google Gemini for this.
+Without a key everything else works as before.
 
 ## Movie info from TMDB / OMDb (optional)
 Settings > Movie & series info: paste a TMDB API key (v3 key or v4 read token, free at themoviedb.org)
