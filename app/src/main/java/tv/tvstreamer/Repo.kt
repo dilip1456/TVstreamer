@@ -177,6 +177,7 @@ class Repo(ctx: Context) {
         customCats = store.customCats()
         vodOrder = store.catOrder("vod")
         liveOrder = store.catOrder("itv")
+        Theme.mode = store.theme
         syncTick++
     }
     /** Bumped after a cloud sync changed local data. */

@@ -10,11 +10,15 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -30,6 +34,7 @@ sealed interface Screen {
     object Categories : Screen
     object Remote : Screen
     object Account : Screen
+    object Profile : Screen
     /** Language checklist for a tab ("movies" / "series"). */
     class Languages(val tab: String, val back: Screen) : Screen
     /** focusEp: episode key to open on (its season, focused) — from Continue watching. */
@@ -52,10 +57,16 @@ class MainActivity : ComponentActivity() {
         repo = Repo(applicationContext)
         Keys.init(repo.store)
         Cloud.init(applicationContext, repo)
+        Theme.mode = repo.store.theme
+        AppUi.phoneNav = !isLeanback(this)
         setContent {
             MaterialTheme(
-                colorScheme = darkColorScheme(primary = Pal.Accent, background = Pal.Bg, surface = Pal.Surface, onPrimary = Color.White)
-            ) { App(repo) }
+                colorScheme = if (Theme.dark) darkColorScheme(primary = Pal.Accent, background = Pal.Bg, surface = Pal.Surface, onPrimary = Color.White)
+                    else lightColorScheme(primary = Pal.Accent, background = Pal.Bg, surface = Pal.Surface, onPrimary = Color.White)
+            ) {
+                Theme.systemDark = androidx.compose.foundation.isSystemInDarkTheme()
+                App(repo)
+            }
         }
     }
 
@@ -143,8 +154,9 @@ fun App(repo: Repo) {
             is Screen.Grid -> s.back
             is Screen.Pool -> s.back
             is Screen.Languages -> s.back
-            Screen.Remote -> Screen.Settings
-            Screen.Account -> Screen.Settings
+            Screen.Remote -> if (AppUi.phoneNav) Screen.Profile else Screen.Settings
+            Screen.Account -> if (AppUi.phoneNav) Screen.Profile else Screen.Settings
+            Screen.Categories -> if (AppUi.phoneNav) Screen.Profile else Screen.Home
             else -> Screen.Home
         }
         if (s === fromSearch) { search.open = true; fromSearch = null }
@@ -197,36 +209,56 @@ fun App(repo: Repo) {
         onDispose { Keys.app = null }
     }
 
+    val phone = AppUi.phoneNav
+    val cur = screen
+    val showBar = phone && cur !is Screen.Play && cur != Screen.Remote
+    val barSpace = if (showBar) 84.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() else 0.dp
     Surface(Modifier.fillMaxSize().background(Pal.Bg), color = Pal.Bg) {
-        when (val s = screen) {
-            Screen.Home -> Catalog(repo, "home", go, open, play, tick)
-            Screen.MoviesTab -> Catalog(repo, "movies", go, open, play, tick)
-            Screen.SeriesTab -> Catalog(repo, "series", go, open, play, tick)
-            Screen.Live -> Live(repo, play)
-            Screen.Search -> Catalog(repo, "home", go, open, play, tick)
-            Screen.Settings -> SettingsScreen(repo, go)
-            Screen.Categories -> CategoriesScreen(repo, go)
-            Screen.Remote -> RemoteScreen { back() }
-            Screen.Account -> AccountScreen(repo) { screen = Screen.Home; tick++ }
-            is Screen.Languages -> LanguagesScreen(repo, s.tab) { back() }
-            is Screen.Detail -> DetailScreen(repo, s.item, play, { back() }, tick, s.focusEp, go)
-            is Screen.Grid -> GridScreen(repo, s.cat, open, play)
-            is Screen.Pool -> PoolScreen(repo, s.tab, s.lang, s.genre, s.title, s.sort, open)
-            is Screen.Play -> PlayerScreen(repo, s.list, s.index) { back() }
-        }
-        // Floating search: on every screen except the full-screen player and the remote-learning screen
-        val cur = screen
-        if (cur !is Screen.Play && cur != Screen.Remote) {
-            if (search.open) {
-                BackHandler { search.open = false }
-                SearchOverlay(repo, search, { item ->
-                    search.open = false
-                    open(item)
-                    fromSearch = screen.takeIf { it is Screen.Detail }
-                }, { l, i -> search.open = false; play(l, i) })
-            } else Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomEnd) {
-                SearchFab(Modifier.padding(if (rememberIsTv()) 28.dp else 18.dp)) { search.open = true }
+        Box(Modifier.fillMaxSize()) {
+            Box(Modifier.fillMaxSize().padding(bottom = barSpace)) {
+                when (val s = screen) {
+                    Screen.Home -> Catalog(repo, "home", go, open, play, tick)
+                    Screen.MoviesTab -> Catalog(repo, "movies", go, open, play, tick)
+                    Screen.SeriesTab -> Catalog(repo, "series", go, open, play, tick)
+                    Screen.Live -> Live(repo, play)
+                    Screen.Search -> Catalog(repo, "home", go, open, play, tick)
+                    Screen.Settings -> SettingsScreen(repo, go)
+                    Screen.Categories -> CategoriesScreen(repo, go)
+                    Screen.Remote -> RemoteScreen { back() }
+                    Screen.Account -> AccountScreen(repo) { screen = Screen.Home; tick++ }
+                    Screen.Profile -> ProfileScreen(repo, go)
+                    is Screen.Languages -> LanguagesScreen(repo, s.tab) { back() }
+                    is Screen.Detail -> DetailScreen(repo, s.item, play, { back() }, tick, s.focusEp, go)
+                    is Screen.Grid -> GridScreen(repo, s.cat, open, play)
+                    is Screen.Pool -> PoolScreen(repo, s.tab, s.lang, s.genre, s.title, s.sort, open)
+                    is Screen.Play -> PlayerScreen(repo, s.list, s.index) { back() }
+                }
+                // Floating search: on every screen except the full-screen player and the remote-learning screen
+                if (cur !is Screen.Play && cur != Screen.Remote) {
+                    if (search.open) {
+                        BackHandler { search.open = false }
+                        SearchOverlay(repo, search, { item ->
+                            search.open = false
+                            open(item)
+                            fromSearch = screen.takeIf { it is Screen.Detail }
+                        }, { l, i -> search.open = false; play(l, i) })
+                    } else Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomEnd) {
+                        SearchFab(Modifier.padding(if (rememberIsTv() && !phone) 28.dp else 18.dp)) { search.open = true }
+                    }
+                }
             }
+            if (showBar) BottomBar(tabOf(cur), { t ->
+                search.open = false
+                when (t) {
+                    NavTab.HOME -> screen = Screen.Home
+                    NavTab.MOVIES -> screen = Screen.MoviesTab
+                    NavTab.SERIES -> screen = Screen.SeriesTab
+                    NavTab.LIVE -> screen = Screen.Live
+                    NavTab.PROFILE -> AppUi.accountMenu = true
+                }
+                tick++
+            }, Modifier.align(Alignment.BottomCenter))
+            if (AppUi.accountMenu && cur !is Screen.Play) AccountMenu(repo.store, go) { AppUi.accountMenu = false }
         }
     }
 }

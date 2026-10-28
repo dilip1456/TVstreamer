@@ -160,6 +160,11 @@ class Store(ctx: Context) {
         return 0L to 0L
     }
 
+    /** App theme: dark (default), light or system. Synced. */
+    var theme: String
+        get() = p.getString("theme", "dark") ?: "dark"
+        set(v) { p.edit().putString("theme", v).apply() }
+
     /** Player picture mode: fit, fill or zoom. */
     var aspect: String
         get() = p.getString("aspect", "fit") ?: "fit"

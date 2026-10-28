@@ -127,6 +127,16 @@ Note: while the consent screen is in "Testing", Google may expire the sign-in af
 "Sign in again". Switching the consent screen to "In production" avoids that; Google may then show an
 "unverified app" warning, which is fine for your own personal use.
 
+## Profile, account menu and theme (1.41)
+
+- **Phone:** a floating black bar at the bottom with Home, Movies, Series, Live TV and Profile (the selected tab is gold). It hides in the player. The search button sits above it.
+- **TV:** the top bar stays the same and is still moved with the D-pad. Your avatar is at the end of the tab row.
+- **Phone or TV is decided by the device type** (Android TV / Fire TV), not by screen size.
+- **Avatar:** after Google sign-in, the bar shows your Google photo. Without a photo it shows gold initials, and when you're not signed in it shows a person icon.
+- **Account menu** (tap Profile or the avatar): your name and email, the theme (Dark / Light / System), Settings, Preferences, Sync now, Check for update, and Sign out (or Sign in).
+- **Theme:** Dark by default. It is saved and synced to your other devices. The player always stays dark.
+- **Preferences page:** account and sync, theme, languages, categories, remote buttons, movie info keys, picture size, update check and version.
+
 ## Updating from inside the app
 Home > Update downloads the newest release and opens the Android installer. The first time,
 Android asks you to allow "Install unknown apps" for TVStreamer: turn it on, go back and press Update again.

@@ -25,8 +25,8 @@ import kotlinx.coroutines.withContext
 import java.text.DateFormat
 import java.util.Date
 
-private val ADIM = Color(0xFF9AA0B5)
-private val AWARN = Color(0xFFFFB37A)
+private val ADIM get() = Pal.Dim
+private val AWARN get() = Pal.Warn
 
 /** Settings > Google account & sync. */
 @Composable
@@ -74,12 +74,12 @@ fun AccountScreen(repo: Repo, onReady: () -> Unit) {
                 "Continue watching and Fix match choices the same on your TV and phone. They are saved in a private app folder " +
                 "in your own Google Drive that only TVstreamer can see.", 14, ADIM, maxLines = 4)
         }
-        if (note.isNotEmpty()) item { Label(note, 15, Pal.Gold, maxLines = 4) }
+        if (note.isNotEmpty()) item { Label(note, 15, Pal.GoldText, maxLines = 4) }
 
         if (Cloud.signedIn) {
             item {
-                Column(Modifier.fillMaxWidth().background(Color(0xFF1A1A22), RoundedCornerShape(8.dp)).padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Label("Signed in as ${Cloud.email.ifEmpty { "(email not shared)" }}", 20, Color.White)
+                Column(Modifier.fillMaxWidth().background(Pal.Field, RoundedCornerShape(8.dp)).padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Label("Signed in as ${Cloud.email.ifEmpty { "(email not shared)" }}", 20, Pal.Text)
                     Label("Status: " + (if (Cloud.busy) "Syncing..." else Cloud.status.ifEmpty { "Signed in" }), 15, ADIM)
                     Label("Last synced: " + if (Cloud.lastSync > 0) DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(Cloud.lastSync)) else "never", 15, ADIM)
                     if (Cloud.error.isNotEmpty()) Label(Cloud.error, 15, AWARN, maxLines = 4)
@@ -104,7 +104,7 @@ fun AccountScreen(repo: Repo, onReady: () -> Unit) {
             }
             item {
                 if (!confirmDelete) Row1("Delete cloud data…", { confirmDelete = true })
-                else Column(Modifier.fillMaxWidth().background(Color(0xFF2A1F1A), RoundedCornerShape(8.dp)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                else Column(Modifier.fillMaxWidth().background(Pal.WarnBox, RoundedCornerShape(8.dp)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Label("Delete the synced copy from your Google Drive and sign this device out? Data on this device stays. " +
                         "Sign your other devices out first, or they will upload their copy again.", 15, AWARN, maxLines = 3)
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -157,14 +157,14 @@ fun AccountScreen(repo: Repo, onReady: () -> Unit) {
 private fun SignInCode(c: Google.DeviceCode, openLink: () -> Unit) {
     val qr = remember(c.url) { qrBitmap(c.url) }
     Row(
-        Modifier.fillMaxWidth().background(Color(0xFF1A1A22), RoundedCornerShape(8.dp)).padding(18.dp),
+        Modifier.fillMaxWidth().background(Pal.Field, RoundedCornerShape(8.dp)).padding(18.dp),
         horizontalArrangement = Arrangement.spacedBy(24.dp), verticalAlignment = Alignment.CenterVertically
     ) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Label("On your phone or computer go to", 16, ADIM)
-            Label(c.url.removePrefix("https://"), 26, Color.White)
+            Label(c.url.removePrefix("https://"), 26, Pal.Text)
             Label("and enter this code:", 16, ADIM)
-            Text(c.userCode, color = Pal.Gold, fontSize = 40.sp, fontWeight = FontWeight.Bold, letterSpacing = 4.sp)
+            Text(c.userCode, color = Pal.GoldText, fontSize = 40.sp, fontWeight = FontWeight.Bold, letterSpacing = 4.sp)
             Label("Choose your Google account and allow access. This page updates by itself.", 14, ADIM, maxLines = 2)
             Row1("Open the page on this device ↗", openLink, Modifier.width(340.dp))
         }

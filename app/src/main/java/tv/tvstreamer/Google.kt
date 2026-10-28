@@ -31,7 +31,7 @@ object Google {
     private val JSON = "application/json; charset=utf-8".toMediaType()
 
     data class DeviceCode(val deviceCode: String, val userCode: String, val url: String, val expiresAt: Long, val interval: Int)
-    data class Tokens(val access: String, val expiresAt: Long, val refresh: String?, val email: String?)
+    data class Tokens(val access: String, val expiresAt: Long, val refresh: String?, val email: String?, val name: String? = null, val photo: String? = null)
 
     private fun call(req: Request): Pair<Int, String> = try {
         http.newCall(req).execute().use { it.code to (it.body?.string() ?: "") }
@@ -100,8 +100,15 @@ object Google {
         o.getString("access_token"),
         System.currentTimeMillis() + o.optLong("expires_in", 3600) * 1000,
         o.optString("refresh_token").ifEmpty { oldRefresh },
-        o.optString("id_token").takeIf { it.isNotEmpty() }?.let { emailFromIdToken(it) }
+        o.optString("id_token").takeIf { it.isNotEmpty() }?.let { emailFromIdToken(it) },
+        o.optString("id_token").takeIf { it.isNotEmpty() }?.let { claim(it, "name") },
+        o.optString("id_token").takeIf { it.isNotEmpty() }?.let { claim(it, "picture") }
     )
+
+    fun claim(jwt: String, name: String): String? = runCatching {
+        val bytes = android.util.Base64.decode(jwt.split('.')[1], android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP)
+        JSONObject(String(bytes)).optString(name).ifEmpty { null }
+    }.getOrNull()
 
     /** The email claim from an id_token (received directly from Google over HTTPS, so not re-verified). */
     fun emailFromIdToken(jwt: String): String? = runCatching {
@@ -110,9 +117,12 @@ object Google {
         JSONObject(String(bytes)).optString("email").ifEmpty { null }
     }.getOrNull()
 
-    fun userEmail(access: String): String? = runCatching {
+    fun userEmail(access: String): String? = userInfo(access)?.optString("email")?.ifEmpty { null }
+
+    /** Google profile: email, name, picture (URL of the profile photo). */
+    fun userInfo(access: String): JSONObject? = runCatching {
         val (code, body) = call(Request.Builder().url("https://openidconnect.googleapis.com/v1/userinfo").header("Authorization", "Bearer $access").build())
-        if (code == 200) JSONObject(body).optString("email").ifEmpty { null } else null
+        if (code == 200) JSONObject(body) else null
     }.getOrNull()
 
     // ---------- Drive app folder ----------

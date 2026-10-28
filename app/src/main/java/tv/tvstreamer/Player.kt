@@ -160,6 +160,7 @@ private fun choices(tracks: Tracks, type: Int): List<TrackChoice> {
 @Composable
 fun PlayerScreen(repo: Repo, list: List<Item>, start: Int, onBack: () -> Unit) {
     val ctx = LocalContext.current
+    DisposableEffect(Unit) { Theme.forceDark = true; onDispose { Theme.forceDark = false } }
     val isTv = rememberIsTv()
     var idx by remember { mutableIntStateOf(start.coerceIn(0, (list.size - 1).coerceAtLeast(0))) }
     var attempt by remember { mutableIntStateOf(0) }
@@ -680,12 +681,12 @@ fun ChoiceDialog(title: String, opts: List<Pair<String, () -> Unit>>, focusKey: 
     Box(Modifier.fillMaxSize().background(Color(0x99000000)).pointerInput(Unit) { detectTapGestures { onClose() } }, contentAlignment = Alignment.Center) {
         Column(
             Modifier.widthIn(min = 280.dp, max = 460.dp).heightIn(max = 420.dp)
-                .background(Color(0xF21A1A22), RoundedCornerShape(14.dp))
+                .background(Pal.Surface.copy(alpha = 0.97f), RoundedCornerShape(14.dp))
                 .pointerInput(Unit) { detectTapGestures { } }
                 .padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Text(title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(title, color = Pal.Text, fontSize = 20.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 itemsIndexed(opts) { i, (label, action) ->
                     PillButton(label, action, Modifier.fillMaxWidth().then(if (i == 0) Modifier.focusRequester(first) else Modifier), size = 16)

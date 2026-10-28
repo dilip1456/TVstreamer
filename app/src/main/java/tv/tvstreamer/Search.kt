@@ -92,7 +92,7 @@ fun SearchFab(modifier: Modifier = Modifier, onClick: () -> Unit) {
         modifier
             .size(size)
             .onFocusChanged { f = it.isFocused }
-            .then(if (f) Modifier.border(3.dp, Color.White, CircleShape) else Modifier)
+            .then(if (f) Modifier.border(3.dp, Pal.Text, CircleShape) else Modifier)
             .clip(CircleShape)
             .background(if (f) Color(0xFFF3D97A) else Pal.Gold)
             .clickable(onClick = onClick)
@@ -120,7 +120,7 @@ fun SearchOverlay(repo: Repo, st: SearchState, open: (Item) -> Unit, play: (List
     }
     val posterW = posterWidth(isTv)
     val hPad = if (isTv) 48.dp else 12.dp
-    Box(Modifier.fillMaxSize().background(Color(0xF00A0A0A))) {
+    Box(Modifier.fillMaxSize().background(Pal.Bg.copy(alpha = 0.97f))) {
         LazyVerticalGrid(
             columns = GridCells.Adaptive(posterW),
             contentPadding = PaddingValues(horizontal = hPad, vertical = if (isTv) 24.dp else 12.dp),
@@ -186,7 +186,7 @@ fun SearchOverlay(repo: Repo, st: SearchState, open: (Item) -> Unit, play: (List
 @Composable
 private fun Section(title: String, n: Int) {
     Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(top = 8.dp)) {
-        Text(title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Text(title, color = Pal.Text, fontSize = 20.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.width(8.dp))
         Text("$n", color = Pal.Dim, fontSize = 13.sp)
     }
@@ -197,8 +197,8 @@ private fun Shimmer(w: androidx.compose.ui.unit.Dp) {
     val t = rememberInfiniteTransition(label = "shimmer")
     val a by t.animateFloat(0.25f, 0.6f, infiniteRepeatable(tween(700), RepeatMode.Reverse), label = "a")
     Column {
-        Box(Modifier.width(w).aspectRatio(2f / 3f).alpha(a).clip(RoundedCornerShape(8.dp)).background(Color(0xFF3A3A44)))
+        Box(Modifier.width(w).aspectRatio(2f / 3f).alpha(a).clip(RoundedCornerShape(8.dp)).background(Pal.Shimmer))
         Spacer(Modifier.height(6.dp))
-        Box(Modifier.width(w * 0.7f).height(10.dp).alpha(a).background(Color(0xFF3A3A44)))
+        Box(Modifier.width(w * 0.7f).height(10.dp).alpha(a).background(Pal.Shimmer))
     }
 }

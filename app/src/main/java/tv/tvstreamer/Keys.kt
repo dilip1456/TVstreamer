@@ -180,7 +180,7 @@ fun RemoteScreen(onBack: () -> Unit) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = hPad, vertical = 20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Remote buttons", color = Color.White, fontSize = if (isTv) 28.sp else 22.sp, fontWeight = FontWeight.Bold)
+                    Text("Remote buttons", color = Pal.Text, fontSize = if (isTv) 28.sp else 22.sp, fontWeight = FontWeight.Bold)
                     Text("Give a remote button its own action, separately for a short press and for holding it. " +
                         "Holding Menu adds or removes the focused / playing title from favorites; a short Menu press still opens the options menu.",
                         color = Pal.Dim, fontSize = 13.sp)
@@ -193,15 +193,15 @@ fun RemoteScreen(onBack: () -> Unit) {
                 }
             }
             items(codes, key = { it }) { c ->
-                Row(Modifier.fillMaxWidth().focusCard({ picked = c }, scale = 1.02f).background(Color(0x22FFFFFF)).padding(12.dp),
+                Row(Modifier.fillMaxWidth().focusCard({ picked = c }, scale = 1.02f).background(Pal.Soft).padding(12.dp),
                     verticalAlignment = Alignment.CenterVertically) {
-                    Text(Keys.name(c), color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    Text(Keys.name(c), color = Pal.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                     Text("Press: ${Keys.shortOf(c).label}    Hold: ${Keys.longOf(c).label}", color = Pal.Dim, fontSize = 13.sp)
                 }
             }
             item {
-                Column(Modifier.padding(top = 16.dp).background(Color(0xFF1A1A22), RoundedCornerShape(8.dp)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("About the app buttons (Netflix, Prime Video, Hulu …)", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                Column(Modifier.padding(top = 16.dp).background(Pal.Field, RoundedCornerShape(8.dp)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("About the app buttons (Netflix, Prime Video, Hulu …)", color = Pal.Text, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                     Text("Those shortcut buttons are handled by Fire TV itself, so apps usually never see them and they can't be learned here. " +
                         "If you press one while TVStreamer is open and nothing shows up above, that's why. " +
                         "To make a remote shortcut button open TVStreamer, use Fire TV's own setting on supported remotes: " +

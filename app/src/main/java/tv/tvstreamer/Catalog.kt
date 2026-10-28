@@ -229,17 +229,18 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                 )
                 Column(Modifier.padding(horizontal = hPad, vertical = if (isTv) 18.dp else 10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("TVSTREAMER", color = Pal.Gold, fontSize = if (isTv) 28.sp else 22.sp, fontWeight = FontWeight.Black)
+                        Text("TVSTREAMER", color = Pal.GoldText, fontSize = if (isTv) 28.sp else 22.sp, fontWeight = FontWeight.Black)
                         Spacer(Modifier.width(14.dp))
                         val ver = remember { try { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName } catch (e: Exception) { "?" } }
                         Text("v$ver", color = Pal.Dim, fontSize = 12.sp)
                     }
                     Spacer(Modifier.height(10.dp))
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(vertical = 4.dp), modifier = Modifier.focusRestorer()) {
+                    if (!AppUi.phoneNav) LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(vertical = 4.dp), modifier = Modifier.focusRestorer()) {
                         items(tabs, key = { it.second }) { (t, k, a) ->
                             PillButton(t, a, if (k == mode) Modifier.focusRequester(navFr).onFocusChanged { if (it.isFocused) repo.lastFocus[screenKey] = "nav" } else Modifier,
                                 selected = k == mode, size = 15)
                         }
+                        item(key = "avatar") { AvatarButton { AppUi.accountMenu = true } }
                     }
                     if (tabbed) {
                         Spacer(Modifier.height(8.dp))
@@ -360,9 +361,9 @@ private fun Hero(repo: Repo, raw: Item, isTv: Boolean, hPad: Dp, onPlay: () -> U
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.5f to Color.Transparent, 1f to Pal.Bg)))
         Row(Modifier.fillMaxSize().padding(horizontal = hPad, vertical = 16.dp), verticalAlignment = Alignment.Bottom) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(name, color = Color.White, fontSize = if (isTv) 34.sp else 24.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(name, color = Pal.Text, fontSize = if (isTv) 34.sp else 24.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 MetaLine(item)
-                if (item.desc.isNotEmpty()) Text(item.desc, color = Color(0xFFDDDDDD), fontSize = if (isTv) 15.sp else 13.sp, maxLines = 3,
+                if (item.desc.isNotEmpty()) Text(item.desc, color = Pal.Desc, fontSize = if (isTv) 15.sp else 13.sp, maxLines = 3,
                     overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth(if (isTv) 0.8f else 1f))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     PillButton(if (item.isSeries) "▶  Episodes" else "▶  Play", onPlay, playModifier.onFocusChanged { if (it.isFocused) Keys.focused = raw }, primary = true)
@@ -399,7 +400,7 @@ private fun ShelfRow(repo: Repo, screen: String, shelf: Shelf, isTv: Boolean, hP
     val tileW = if (isTv) 200.dp else 150.dp
     Column(Modifier.padding(top = if (isTv) 16.dp else 12.dp)) {
         Row(Modifier.padding(horizontal = hPad), verticalAlignment = Alignment.CenterVertically) {
-            Text(shelf.title, color = Color.White, fontSize = if (isTv) 20.sp else 17.sp, fontWeight = FontWeight.Bold,
+            Text(shelf.title, color = Pal.Text, fontSize = if (isTv) 20.sp else 17.sp, fontWeight = FontWeight.Bold,
                 maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
             if (shelf.cat?.locked == true) Text("  🔒", fontSize = 14.sp)
             if (!isTv && (shelf.cat != null || shelf.pool != null)) {
@@ -451,7 +452,7 @@ private fun ShelfRow(repo: Repo, screen: String, shelf: Shelf, isTv: Boolean, hP
                     Box(
                         Modifier.width(posterW).aspectRatio(2f / 3f).focusCard(onSeeAll).background(Pal.Card),
                         contentAlignment = Alignment.Center
-                    ) { Text("See all  ›", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold) }
+                    ) { Text("See all  ›", color = Pal.Text, fontSize = 15.sp, fontWeight = FontWeight.Bold) }
                 }
             }
         }
@@ -488,7 +489,7 @@ fun PosterCard(raw: Item, width: Dp, progress: Float?, modifier: Modifier, onCli
             }
         }
         Spacer(Modifier.height(6.dp))
-        Text(if (item.season.isNotEmpty()) "${item.season} · $name" else name, color = Color(0xFFE0E0E0), fontSize = 13.sp,
+        Text(if (item.season.isNotEmpty()) "${item.season} · $name" else name, color = Pal.Text2, fontSize = 13.sp,
             maxLines = 2, overflow = TextOverflow.Ellipsis)
         // Year and rating (IMDb when known)
         val r = meta?.imdbRating?.ifEmpty { null } ?: item.rating.takeIf { item.ratingNum > 0 }
@@ -508,7 +509,7 @@ fun ChannelTile(item: Item, width: Dp, fav: Boolean, modifier: Modifier, onClick
             if (fav) Text("★", color = Color(0xFFFFD54F), fontSize = 15.sp, modifier = Modifier.align(Alignment.TopEnd).padding(5.dp))
         }
         Spacer(Modifier.height(6.dp))
-        Text(item.name, color = Color(0xFFE0E0E0), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(item.name, color = Pal.Text2, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -631,17 +632,17 @@ fun DetailScreen(repo: Repo, item: Item, play: (List<Item>, Int) -> Unit, onBack
         if (e.type == KeyEventType.KeyUp && e.key == Key.Menu) { more = true; true } else false
     }) {
         Poster(meta?.backdrop?.ifEmpty { null } ?: shownItem.img, name, Modifier.fillMaxWidth().fillMaxHeight(0.7f), ContentScale.Crop, initialsSize = 1)
-        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color(0x990B0B0F), 0.55f to Pal.Bg)))
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Pal.Bg.copy(alpha = 0.6f), 0.55f to Pal.Bg)))
         LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(horizontal = hPad, vertical = if (isTv) 32.dp else 14.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(if (isTv) 28.dp else 14.dp)) {
                     Poster(shownItem.img, name, Modifier.width(if (isTv) 200.dp else 116.dp).aspectRatio(2f / 3f).clip(RoundedCornerShape(10.dp)))
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(name, color = Color.White, fontSize = if (isTv) 34.sp else 22.sp, fontWeight = FontWeight.Bold, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                        Text(name, color = Pal.Text, fontSize = if (isTv) 34.sp else 22.sp, fontWeight = FontWeight.Bold, maxLines = 3, overflow = TextOverflow.Ellipsis)
                         MetaLine(shownItem, meta)
                         meta?.released?.takeIf { it.length >= 10 }?.let { Text("Released $it", color = Pal.Dim, fontSize = 13.sp) }
-                        if (shownItem.desc.isNotEmpty()) Text(shownItem.desc, color = Color(0xFFDDDDDD), fontSize = if (isTv) 16.sp else 14.sp,
+                        if (shownItem.desc.isNotEmpty()) Text(shownItem.desc, color = Pal.Desc, fontSize = if (isTv) 16.sp else 14.sp,
                             maxLines = if (isTv) 6 else 8, overflow = TextOverflow.Ellipsis)
                         meta?.cast?.takeIf { it.isNotEmpty() }?.let { Text("Cast: $it", color = Pal.Dim, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis) }
                         if (msg.isNotEmpty()) Text(msg, color = Pal.Warn, fontSize = 14.sp, maxLines = 4)
@@ -673,7 +674,7 @@ fun DetailScreen(repo: Repo, item: Item, play: (List<Item>, Int) -> Unit, onBack
             }
             if (versions.size > 1) item {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Versions", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Text("Versions", color = Pal.Text, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 4.dp), modifier = Modifier.focusRestorer()) {
                         items(versions, key = { it.key }) { v ->
                             PillButton(versionLabel(repo, v), { cur = v }, selected = v.key == cur.key, size = 14)
@@ -689,7 +690,7 @@ fun DetailScreen(repo: Repo, item: Item, play: (List<Item>, Int) -> Unit, onBack
             }
             if (shown.isNotEmpty()) item {
                 Text(if (seasons.size > 1) "${seasonName(curSeason)} · ${shown.size} episodes" else "${shown.size} episodes",
-                    color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 6.dp))
+                    color = Pal.Text, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 6.dp))
             }
             itemsIndexed(shown, key = { i, e -> "$i|${e.key}" }) { _, e ->
                 val all = eps.indexOf(e)
@@ -699,7 +700,7 @@ fun DetailScreen(repo: Repo, item: Item, play: (List<Item>, Int) -> Unit, onBack
                 val title = em?.name?.takeIf { it.isNotEmpty() }?.let { n -> episodeNo(e).takeIf { it > 0 }?.let { "$it. $n" } ?: n } ?: Names.episodeLabel(e.name, shows, episodeNo(e))
                 Row(
                     Modifier.fillMaxWidth().then(if (e.key == focusKey) Modifier.focusRequester(epFr) else Modifier)
-                        .focusCard({ start(eps, all) }, scale = 1.02f).background(Color(0x22FFFFFF)).padding(8.dp),
+                        .focusCard({ start(eps, all) }, scale = 1.02f).background(Pal.Soft).padding(8.dp),
                     horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically
                 ) {
                     Box(Modifier.width(epW).aspectRatio(16f / 9f).clip(RoundedCornerShape(6.dp))) {
@@ -712,7 +713,7 @@ fun DetailScreen(repo: Repo, item: Item, play: (List<Item>, Int) -> Unit, onBack
                         }
                     }
                     Column(Modifier.weight(1f)) {
-                        Text(title, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(title, color = Pal.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         val sub = listOfNotNull(e.length.ifEmpty { null }, em?.airDate?.ifEmpty { null }).joinToString("  ·  ")
                         if (sub.isNotEmpty()) Text(sub, color = Pal.Dim, fontSize = 12.sp)
                         val ov = em?.overview?.ifEmpty { null } ?: e.desc.takeIf { it.isNotEmpty() && it != cur.desc }
@@ -746,12 +747,12 @@ private fun FixMatchDialog(item: Item, onClose: () -> Unit) {
     fun run() { busy = true; scope.launch { results = Tmdb.search(q, type); busy = false } }
     LaunchedEffect(Unit) { run(); delay(150); runCatching { fr.requestFocus() } }
     Box(Modifier.fillMaxSize().background(Color(0xCC000000)), contentAlignment = Alignment.Center) {
-        Column(Modifier.widthIn(max = 640.dp).fillMaxWidth(0.9f).heightIn(max = 560.dp).background(Color(0xF21A1A22), RoundedCornerShape(14.dp)).padding(18.dp),
+        Column(Modifier.widthIn(max = 640.dp).fillMaxWidth(0.9f).heightIn(max = 560.dp).background(Pal.Surface, RoundedCornerShape(14.dp)).padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Fix match: ${Names.title(item.name)}", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("Fix match: ${Names.title(item.name)}", color = Pal.Text, fontSize = 20.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             TextField(value = q, onValueChange = { q = it }, singleLine = true, modifier = Modifier.fillMaxWidth(),
-                colors = TextFieldDefaults.colors(focusedContainerColor = Pal.Surface, unfocusedContainerColor = Pal.Surface,
-                    focusedTextColor = Color.White, unfocusedTextColor = Color.White))
+                colors = TextFieldDefaults.colors(focusedContainerColor = Pal.FieldFocus, unfocusedContainerColor = Pal.Field,
+                    focusedTextColor = Pal.Text, unfocusedTextColor = Pal.Text))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 PillButton("Search", { run() }, Modifier.focusRequester(fr), primary = true, size = 14)
                 PillButton("Movie", { type = "movie"; run() }, selected = type == "movie", size = 14)
@@ -764,10 +765,10 @@ private fun FixMatchDialog(item: Item, onClose: () -> Unit) {
                 if (r != null && r.isEmpty() && !busy) item { Text("No TMDB results. Edit the title and search again.", color = Pal.Dim, fontSize = 14.sp) }
                 items(r ?: emptyList(), key = { "${it.type}${it.id}" }) { c ->
                     Row(Modifier.fillMaxWidth().focusCard({ scope.launch { Tmdb.setOverride(item, c); onClose() } }, scale = 1.02f)
-                        .background(Color(0x22FFFFFF)).padding(6.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        .background(Pal.Row).padding(6.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Poster(c.poster, c.title, Modifier.width(46.dp).aspectRatio(2f / 3f).clip(RoundedCornerShape(4.dp)), initialsSize = 12)
                         Column(Modifier.weight(1f)) {
-                            Text(c.title + (if (c.year.isNotEmpty()) " (${c.year})" else ""), color = Color.White, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(c.title + (if (c.year.isNotEmpty()) " (${c.year})" else ""), color = Pal.Text, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             if (c.overview.isNotEmpty()) Text(c.overview, color = Pal.Dim, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         }
                     }
@@ -851,7 +852,7 @@ fun GridScreen(repo: Repo, cat: Cat, open: (Item) -> Unit, play: (List<Item>, In
         ) {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Column {
-                    Text(Names.cat(cat.title), color = Color.White, fontSize = if (isTv) 28.sp else 22.sp, fontWeight = FontWeight.Bold)
+                    Text(Names.cat(cat.title), color = Pal.Text, fontSize = if (isTv) 28.sp else 22.sp, fontWeight = FontWeight.Bold)
                     Text(if (more) "${items.size}+ titles" else "${items.size} titles", color = Pal.Dim, fontSize = 13.sp)
                     Spacer(Modifier.height(6.dp))
                     PillButton("⇅  Sort: " + Sorts.label(sort), { sortMenu = true }, size = 14)
@@ -918,7 +919,7 @@ fun PoolScreen(repo: Repo, tab: String, lang: String, genre: String, title: Stri
             verticalArrangement = Arrangement.spacedBy(if (isTv) 18.dp else 12.dp), modifier = Modifier.fillMaxSize()) {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(title, color = Color.White, fontSize = if (isTv) 28.sp else 22.sp, fontWeight = FontWeight.Bold)
+                    Text(title, color = Pal.Text, fontSize = if (isTv) 28.sp else 22.sp, fontWeight = FontWeight.Bold)
                     Text("${cards.size} titles" + (if (lib.loading) " (still loading…)" else ""), color = Pal.Dim, fontSize = 13.sp)
                     PillButton("⇅  Sort: " + Sorts.label(sort), { sortMenu = true }, Modifier.focusRequester(firstFr), size = 14)
                 }
@@ -961,7 +962,7 @@ fun LanguagesScreen(repo: Repo, tab: String, onBack: () -> Unit) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = hPad, vertical = 20.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Languages · ${if (tab == "series") "Series" else "Movies"}", color = Color.White, fontSize = if (isTv) 28.sp else 22.sp, fontWeight = FontWeight.Bold)
+                    Text("Languages · ${if (tab == "series") "Series" else "Movies"}", color = Pal.Text, fontSize = if (isTv) 28.sp else 22.sp, fontWeight = FontWeight.Bold)
                     Text("Tick the languages to show. The language comes from the category and title names (e.g. \"HINDI 4K\", \"|EN|\", \"[Tamil]\"); " +
                         "Dub / CAM / 4K are treated as versions, not languages. Untick everything to go back to plain category rows. " +
                         "Other languages stay reachable through Search and Categories.", color = Pal.Dim, fontSize = 13.sp)
@@ -975,11 +976,11 @@ fun LanguagesScreen(repo: Repo, tab: String, onBack: () -> Unit) {
             items(langs, key = { it.first }) { (l, n) ->
                 val on = l in sel
                 Row(Modifier.fillMaxWidth().focusCard({ save(if (on) sel - l else sel + l) }, scale = 1.02f)
-                    .background(if (on) Color(0x33E50914) else Color(0x22FFFFFF)).padding(horizontal = 14.dp, vertical = 10.dp),
+                    .background(if (on) Color(0x33E50914) else Pal.Soft).padding(horizontal = 14.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically) {
-                    Text(if (on) "☑" else "☐", color = Color.White, fontSize = 20.sp)
+                    Text(if (on) "☑" else "☐", color = Pal.Text, fontSize = 20.sp)
                     Spacer(Modifier.width(12.dp))
-                    Text(l, color = Color.White, fontSize = 17.sp, fontWeight = if (on) FontWeight.Bold else FontWeight.Normal, modifier = Modifier.weight(1f))
+                    Text(l, color = Pal.Text, fontSize = 17.sp, fontWeight = if (on) FontWeight.Bold else FontWeight.Normal, modifier = Modifier.weight(1f))
                     Text("$n ${if (n == 1) "category" else "categories"}", color = Pal.Dim, fontSize = 13.sp)
                 }
             }
@@ -1030,7 +1031,7 @@ fun CategoriesScreen(repo: Repo, go: (Screen) -> Unit) {
         ) {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("All categories", color = Color.White, fontSize = if (isTv) 28.sp else 22.sp, fontWeight = FontWeight.Bold)
+                    Text("All categories", color = Pal.Text, fontSize = if (isTv) 28.sp else 22.sp, fontWeight = FontWeight.Bold)
                     Text(if (isTv) "OK opens a category. Menu (or long-press OK) moves it up / down or hides it. The order is used on Home, Movies, Series and Live TV."
                         else "Tap to open. Long-press to move up / down or hide. The order is used on Home, Movies, Series and Live TV.",
                         color = Pal.Dim, fontSize = 13.sp)
@@ -1047,7 +1048,7 @@ fun CategoriesScreen(repo: Repo, go: (Screen) -> Unit) {
                         modifier = Modifier.fillMaxWidth(if (isTv) 0.5f else 1f),
                         colors = TextFieldDefaults.colors(
                             focusedContainerColor = Pal.Surface, unfocusedContainerColor = Pal.Surface,
-                            focusedTextColor = Color.White, unfocusedTextColor = Color.White
+                            focusedTextColor = Pal.Text, unfocusedTextColor = Pal.Text
                         )
                     )
                     Text("${cats.size} of ${all.size}" + (if (q.isNotEmpty()) " match \"$q\"" else ""), color = Pal.Dim, fontSize = 12.sp)
@@ -1068,7 +1069,7 @@ fun CategoriesScreen(repo: Repo, go: (Screen) -> Unit) {
                     Poster(sample, label, Modifier.fillMaxSize(), if (kind == "vod") ContentScale.Crop else ContentScale.Fit, initialsSize = 30)
                     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.35f to Color.Transparent, 1f to Color(0xEE000000))))
                     Column(Modifier.align(Alignment.BottomStart).padding(10.dp)) {
-                        Text((if (c.locked) "🔒 " else "") + label, color = if (hidden) Color(0xFF999999) else Color.White, fontSize = 15.sp,
+                        Text((if (c.locked) "🔒 " else "") + label, color = if (hidden) Color(0xFF999999) else Pal.Text, fontSize = 15.sp,
                             fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         val n = if (kind == "itv") repo.channels.count { it.cat == c.id } else -1
                         Text(listOfNotNull("#${all.indexOf(c) + 1}", if (kind == "vod") repo.lib.catLang(c) else null, if (n >= 0) "$n channels" else null, if (hidden) "hidden" else null).joinToString("  ·  "),

@@ -51,15 +51,15 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private val WARN = Color(0xFFFFB74D)
-private val DIM = Color(0xFF9AA0B5)
+private val WARN get() = Pal.Warn
+private val DIM get() = Pal.Dim
 
 /** Focusable, D-pad friendly. Menu key or long press fires onMenu. */
 fun Modifier.tv(onClick: () -> Unit, onMenu: (() -> Unit)? = null, onFocus: (() -> Unit)? = null): Modifier = composed {
     var f by remember { mutableStateOf(false) }
     this
         .onFocusChanged { f = it.isFocused; if (it.isFocused) onFocus?.invoke() }
-        .background(if (f) Color(0xFF2E2710) else Color(0xFF1E1E26), RoundedCornerShape(8.dp))
+        .background(if (f) Pal.FocusBg else Pal.Row, RoundedCornerShape(8.dp))
         .then(if (f) Modifier.border(2.dp, Pal.Gold, RoundedCornerShape(8.dp)) else Modifier)
         .onKeyEvent { e ->
             if (onMenu != null && e.type == KeyEventType.KeyUp && e.key == Key.Menu) { onMenu(); true } else false
@@ -68,7 +68,7 @@ fun Modifier.tv(onClick: () -> Unit, onMenu: (() -> Unit)? = null, onFocus: (() 
 }
 
 @Composable
-fun Label(text: String, size: Int = 18, color: Color = Color.White, modifier: Modifier = Modifier, maxLines: Int = 1) {
+fun Label(text: String, size: Int = 18, color: Color = Pal.Text, modifier: Modifier = Modifier, maxLines: Int = 1) {
     Text(text, color = color, fontSize = size.sp, maxLines = maxLines, overflow = TextOverflow.Ellipsis, modifier = modifier)
 }
 
@@ -162,7 +162,7 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
             item {
                 Box(
                     Modifier.fillMaxWidth()
-                        .background(Color(0xFF2A1F1A), RoundedCornerShape(8.dp))
+                        .background(Pal.WarnBox, RoundedCornerShape(8.dp))
                         .padding(16.dp)
                 ) {
                     Label(statusText, 18, WARN, maxLines = 8)
@@ -173,7 +173,7 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
             var showLog by remember { mutableStateOf(false) }
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row1(if (showLog) "Hide last portal replies" else "Show last portal replies (for stream problems)", { showLog = !showLog })
-                if (showLog) Box(Modifier.fillMaxWidth().background(Color(0xFF1A1A22), RoundedCornerShape(8.dp)).padding(12.dp)) {
+                if (showLog) Box(Modifier.fillMaxWidth().background(Pal.Field, RoundedCornerShape(8.dp)).padding(12.dp)) {
                     Label(repo.api.debugLog(), 13, DIM, maxLines = 60)
                 }
             }
@@ -233,7 +233,7 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
                 Row1("Get an OMDb key ↗", { link("OMDb", OMDB_KEY_URL) }, Modifier.width(260.dp))
             }
         }
-        if (linkNote.isNotEmpty()) item { Label(linkNote, 15, Pal.Gold, maxLines = 3) }
+        if (linkNote.isNotEmpty()) item { Label(linkNote, 15, Pal.GoldText, maxLines = 3) }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row1("Save keys and test", {
@@ -266,10 +266,10 @@ fun SettingField(label: String, value: String, password: Boolean = false, onChan
             modifier = Modifier.fillMaxWidth().height(52.dp)
                 .onFocusChanged { if (it.isFocused) keyboard?.show() else keyboard?.hide() },
             colors = androidx.compose.material3.TextFieldDefaults.colors(
-                focusedContainerColor = Color(0xFF1E1E26),
-                unfocusedContainerColor = Color(0xFF1A1A22),
-                focusedTextColor = Color.White,
-                unfocusedTextColor = Color.White
+                focusedContainerColor = Pal.FieldFocus,
+                unfocusedContainerColor = Pal.Field,
+                focusedTextColor = Pal.Text,
+                unfocusedTextColor = Pal.Text
             ),
             textStyle = androidx.compose.ui.text.TextStyle(fontSize = 16.sp),
             placeholder = { Text("Tap to enter", color = DIM, fontSize = 14.sp) }

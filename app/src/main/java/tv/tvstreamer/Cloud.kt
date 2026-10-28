@@ -23,6 +23,12 @@ object Cloud {
 
     var email by mutableStateOf("")
         private set
+    /** Google profile name (for the Profile screen). */
+    var name by mutableStateOf("")
+        private set
+    /** Google profile photo URL. */
+    var photo by mutableStateOf("")
+        private set
     var status by mutableStateOf("")
         private set
     var error by mutableStateOf("")
@@ -77,6 +83,8 @@ object Cloud {
         }
         journalFile = File(ctx.filesDir, "sync_journal.json")
         email = acct.getString("email", "") ?: ""
+        name = acct.getString("name", "") ?: ""
+        photo = acct.getString("photo", "") ?: ""
         lastSync = acct.getLong("last_sync", 0L)
         status = if (signedIn) "Signed in" else ""
         hook(r)
@@ -142,8 +150,8 @@ object Cloud {
             accessToken = t.access; accessExp = t.expiresAt
             refreshToken = t.refresh ?: throw GoogleError("Google did not return a refresh token. Remove the app's access in your Google account and try again.")
             val mail = t.email ?: Google.userEmail(t.access) ?: ""
-            acct.edit().putString("email", mail).apply()
-            email = mail; error = ""; status = "Signed in"
+            acct.edit().putString("email", mail).putString("name", t.name ?: "").putString("photo", t.photo ?: "").apply()
+            email = mail; name = t.name ?: ""; photo = t.photo ?: ""; error = ""; status = "Signed in"
             // First sync on this device: cloud copy wins conflicts, this device's extra items are added
             runSync()
             return@withContext true
@@ -153,8 +161,8 @@ object Cloud {
 
     private fun clearTokens() {
         accessToken = ""; accessExp = 0
-        acct.edit().remove("refresh").remove("email").remove("last_sync").remove("file_id").commit()
-        email = ""; lastSync = 0
+        acct.edit().remove("refresh").remove("email").remove("name").remove("photo").remove("last_sync").remove("file_id").commit()
+        email = ""; name = ""; photo = ""; lastSync = 0
         runCatching { journalFile.delete() }   // next sign-in is a "first sync" again
     }
 
@@ -269,7 +277,17 @@ object Cloud {
             lastSync = System.currentTimeMillis()
             acct.edit().putLong("last_sync", lastSync).apply()
             error = ""; status = "Synced"
+            refreshProfile()
         } finally { busy = false }
+    }
+
+    /** Name / email / photo from Google, at most every 6 hours. */
+    private fun refreshProfile() {
+        if (System.currentTimeMillis() - acct.getLong("profile_at", 0) < 6 * 3600_000L) return
+        val o = runCatching { authed { Google.userInfo(it) } }.getOrNull() ?: return
+        val e = o.optString("email").ifEmpty { email }; val n = o.optString("name").ifEmpty { name }; val p = o.optString("picture").ifEmpty { photo }
+        acct.edit().putString("email", e).putString("name", n).putString("photo", p).putLong("profile_at", System.currentTimeMillis()).apply()
+        email = e; name = n; photo = p
     }
 
     private suspend fun apply(r: Repo, l: SyncLocal, withSecrets: Boolean) {

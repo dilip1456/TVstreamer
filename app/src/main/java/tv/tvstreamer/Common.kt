@@ -51,17 +51,48 @@ import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
 /** App colours (Netflix-like dark theme). */
+/** App theme: "dark" (default), "light" or "system". Saved in Store ("theme", synced) and applied app-wide. */
+object Theme {
+    var mode by mutableStateOf("dark")
+    /** System dark mode, updated by the activity. */
+    var systemDark by mutableStateOf(true)
+    /** The full-screen player is always dark. */
+    var forceDark by mutableStateOf(false)
+    val dark: Boolean get() = forceDark || when (mode) { "light" -> false; "system" -> systemDark; else -> true }
+    val label: String get() = when (mode) { "light" -> "Light"; "system" -> "System"; else -> "Dark" }
+    fun next(m: String) = when (m) { "dark" -> "light"; "light" -> "system"; else -> "dark" }
+}
+
+/** Colours for the current theme. Video / poster overlays keep fixed dark colours. */
 object Pal {
-    val Bg = Color(0xFF0B0B0F)
-    val Surface = Color(0xFF1A1A22)
-    val Card = Color(0xFF22222C)
+    private fun pick(dark: Long, light: Long) = Color(if (Theme.dark) dark else light)
+    val Bg get() = pick(0xFF0B0B0F, 0xFFF5F5F8)
+    val Surface get() = pick(0xFF1A1A22, 0xFFFFFFFF)
+    val Card get() = pick(0xFF22222C, 0xFFE6E6EC)
     val Accent = Color(0xFFE50914)
     /** Brand gold (logo #D4AF37): focus borders and highlights. */
     val Gold = Color(0xFFD4AF37)
+    /** Gold for text (darker in light mode so it stays readable). */
+    val GoldText get() = pick(0xFFD4AF37, 0xFF7A5C00)
     val Focus = Gold
-    val Dim = Color(0xFF9AA0B5)
-    val Warn = Color(0xFFFFB74D)
-    val Error = Color(0xFFFF8A80)
+    val Dim get() = pick(0xFF9AA0B5, 0xFF555B6B)
+    val Warn get() = pick(0xFFFFB74D, 0xFFA04F00)
+    val Error get() = pick(0xFFFF8A80, 0xFFC62828)
+    /** Main text, secondary text, descriptions. */
+    val Text get() = pick(0xFFFFFFFF, 0xFF141418)
+    val Text2 get() = pick(0xFFE0E0E0, 0xFF2A2A33)
+    val Desc get() = pick(0xFFDDDDDD, 0xFF3A3A44)
+    /** Subtle fills for rows / buttons. */
+    val Soft get() = pick(0x22FFFFFF, 0x12000000)
+    val Soft2 get() = pick(0x33FFFFFF, 0x1C000000)
+    val Selected get() = pick(0xFF3A3A48, 0xFFD5D5E0)
+    val Field get() = pick(0xFF1A1A22, 0xFFEBEBF1)
+    val FieldFocus get() = pick(0xFF1E1E26, 0xFFE2E2EA)
+    val Row get() = pick(0xFF1E1E26, 0xFFFFFFFF)
+    val FocusBg get() = pick(0xFF2E2710, 0xFFFFF1C4)
+    val WarnBox get() = pick(0xFF2A1F1A, 0xFFFFEEDC)
+    val ChipSel get() = pick(0xFF5A4A12, 0xFFF1DE9C)
+    val Shimmer get() = pick(0xFF383844, 0xFFF0F0F5)
 }
 
 /** True on Fire TV / Android TV (or a large screen), false on phones. */
@@ -118,8 +149,8 @@ fun PillButton(
     val bg = when {
         f -> Pal.Gold
         primary -> Pal.Accent
-        selected -> Color(0xFF3A3A48)
-        else -> Color(0x33FFFFFF)
+        selected -> Pal.Selected
+        else -> Pal.Soft2
     }
     Box(
         modifier
@@ -131,7 +162,7 @@ fun PillButton(
             .padding(horizontal = 18.dp, vertical = 10.dp),
         contentAlignment = Alignment.Center
     ) {
-        Text(text, color = if (f) Color.Black else Color.White, fontSize = size.sp,
+        Text(text, color = if (f) Color.Black else if (primary) Color.White else Pal.Text, fontSize = size.sp,
             fontWeight = if (primary || selected) FontWeight.Bold else FontWeight.Medium, maxLines = 1,
             overflow = TextOverflow.Ellipsis)
     }
@@ -172,7 +203,7 @@ fun Poster(url: String, title: String, modifier: Modifier = Modifier, fit: Conte
     ) {
         if (initialsSize > 1) Text(
             title.split(" ", "-", ":").filter { it.isNotBlank() }.take(2).joinToString("") { it.take(1) }.uppercase(),
-            color = Color(0xCCFFFFFF), fontSize = initialsSize.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center
+            color = Pal.Text.copy(alpha = 0.8f), fontSize = initialsSize.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center
         )
         if (url.isNotBlank()) {
             val req = remember(url) { ImageRequest.Builder(ctx).data(url).crossfade(true).build() }
@@ -186,7 +217,7 @@ fun Poster(url: String, title: String, modifier: Modifier = Modifier, fit: Conte
 fun Modifier.shimmer(): Modifier = composed {
     val t = rememberInfiniteTransition(label = "shimmer")
     val x by t.animateFloat(-1f, 2f, infiniteRepeatable(tween(1300, easing = LinearEasing)), label = "shimmerX")
-    background(Brush.linearGradient(listOf(Pal.Card, Color(0xFF383844), Pal.Card), start = Offset(x * 500f, 0f), end = Offset(x * 500f + 500f, 500f)))
+    background(Brush.linearGradient(listOf(Pal.Card, Pal.Shimmer, Pal.Card), start = Offset(x * 500f, 0f), end = Offset(x * 500f + 500f, 500f)))
 }
 
 object Ic {

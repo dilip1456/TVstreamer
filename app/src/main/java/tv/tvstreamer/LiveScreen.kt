@@ -25,8 +25,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
-private val DIM2 = Color(0xFF9AA0B5)
-private val WARN2 = Color(0xFFFFB74D)
+private val DIM2 get() = Pal.Dim
+private val WARN2 get() = Pal.Warn
 
 /** Type and language of one channel. */
 data class ChInfo(val type: String, val lang: String)
@@ -141,7 +141,7 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit) {
 private fun Chip(text: String, selected: Boolean, onClick: () -> Unit, onMenu: (() -> Unit)? = null) {
     Box(
         Modifier.tv(onClick, onMenu)
-            .background(if (selected) Color(0xFF5A4A12) else Color.Transparent, RoundedCornerShape(20.dp))
+            .background(if (selected) Pal.ChipSel else Color.Transparent, RoundedCornerShape(20.dp))
             .padding(horizontal = 16.dp, vertical = 9.dp)
     ) { Label(text, 15) }
 }
@@ -283,7 +283,7 @@ private fun LiveLanguages(counts: List<Pair<String, Int>>, cur: Set<String>?, sa
     LaunchedEffect(Unit) { delay(80); runCatching { fr.requestFocus() } }
     androidx.activity.compose.BackHandler { onClose() }
     Box(Modifier.fillMaxSize().background(Color(0xE6000000)), contentAlignment = Alignment.Center) {
-        Column(Modifier.widthIn(max = 560.dp).fillMaxHeight(0.9f).background(Color(0xFF1A1A22), RoundedCornerShape(12.dp)).padding(18.dp),
+        Column(Modifier.widthIn(max = 560.dp).fillMaxHeight(0.9f).background(Pal.Surface, RoundedCornerShape(12.dp)).padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Label("Live TV languages", 20)
             Label("Tick the languages to show (from category and channel names). Nothing ticked = all.", 13, DIM2, maxLines = 2)
