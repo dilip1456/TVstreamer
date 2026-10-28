@@ -132,6 +132,35 @@ class Store(ctx: Context) {
         m.forEach { (k, v) -> o.put(k, itemsJson(v)) }
         p.edit().putString("custom_cats", o.toString()).apply()
     }
+    fun removeResume(key: String) {
+        val old = resumeArray()
+        val out = JSONArray()
+        for (x in 0 until old.length()) {
+            val o = old.getJSONObject(x)
+            if ("${o.getString("k")}:${o.getString("i")}" != key) out.put(o)
+        }
+        p.edit().putString("resume", out.toString()).apply()
+    }
+
+    fun resumeInfo(i: Item): Pair<Long, Long> {
+        val a = resumeArray()
+        for (x in 0 until a.length()) {
+            val o = a.getJSONObject(x)
+            if ("${o.getString("k")}:${o.getString("i")}" == i.key) return o.optLong("p") to o.optLong("d")
+        }
+        return 0L to 0L
+    }
+
+    /** Player picture mode: fit, fill or zoom. */
+    var aspect: String
+        get() = p.getString("aspect", "fit") ?: "fit"
+        set(v) { p.edit().putString("aspect", v).apply() }
+
+    /** Where the player's option bar sits: bottom, left or right. */
+    var barPos: String
+        get() = p.getString("bar_pos", "bottom") ?: "bottom"
+        set(v) { p.edit().putString("bar_pos", v).apply() }
+
     fun clearHistory() { p.edit().remove("recent").remove("resume").apply() }
 
     fun cacheWrite(name: String, text: String) { runCatching { File(dir, name).writeText(text) } }

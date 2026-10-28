@@ -41,7 +41,7 @@ fun App(repo: Repo) {
     LaunchedEffect(Unit) {
         repo.load()
         val code = try { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionCode } catch (e: Exception) { 1 }
-        val msg = Updater.checkAndUpdate(ctx, code)
+        val msg = Updater.checkAndUpdate(ctx, code, interactive = false)
         if (msg.isNotEmpty() && !msg.startsWith("Up to date")) repo.status = msg
     }
 
@@ -60,7 +60,7 @@ fun App(repo: Repo) {
             Screen.Movies -> Movies(repo, play)
             Screen.Search -> Search(repo, play)
             Screen.Settings -> SettingsScreen(repo)
-            is Screen.Play -> PlayerScreen(repo, s.list, s.index)
+            is Screen.Play -> PlayerScreen(repo, s.list, s.index) { screen = s.back; tick++ }
         }
     }
 }
