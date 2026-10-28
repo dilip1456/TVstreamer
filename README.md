@@ -190,6 +190,18 @@ it, plus a Troubleshooting checklist at the bottom. Common causes:
 - **`invalid_client`**: with your own client, the Client ID/secret is mistyped or the client is not the TV type;
   with the built-in client, update the app.
 
+## TV speed and focus (1.47)
+- **Faster lists:** Home / Movies / Series rows are worked out in the background and remembered per tab, so a tab you
+  return to shows at once; title parsing is cheaper.
+- **Live TV sorting:** channels are sorted by type and language once per channel list (in the background, saved on the
+  device). Channels appear while sorting runs, with progress, **Cancel**, **Try again** and **Original categories**;
+  it never spins forever (stops with a message after 45 s).
+- **Hero banner:** starts with the last thing you played, then rotates every 7 s through recently played titles and My
+  List (each once, with Resume). A featured title is used only when there is neither. Pressing a key in the banner pauses
+  it; ‹ › step by hand.
+- **TV menu:** no floating Search button on TV (it trapped focus at the right end of the menu). Search is in the top
+  menu and on Live TV; Left / Right stop at the menu ends; Back inside a page returns to the top menu.
+
 ## TV launcher icon and banner (1.46)
 Android TV / Google TV / Fire TV show the 320x180 black-and-gold banner (`drawable-xhdpi/tv_banner_gold.png`); phones
 and the TV app grid use the adaptive black-and-gold icon (`mipmap-anydpi-v26`, PNG fallbacks for older Android). The
