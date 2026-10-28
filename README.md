@@ -84,6 +84,11 @@ Back closes search.
 Seasons and episodes are shown without the show's name ("Season 1", "Episode 2" or the real episode title).
 Opening a show you started goes to the season and episode you were on (the next one if you finished it).
 
+## Movie info keys (1.40)
+Settings > Movie & series info has "Get a TMDB key" and "Get an OMDb key" buttons next to the key boxes. They open
+https://www.themoviedb.org/settings/api and https://www.omdbapi.com/apikey.aspx in the browser. If the device has no
+browser (common on Fire TV), the address is shown on screen so you can open it on a phone or computer.
+
 ## Updating from inside the app
 Home > Update downloads the newest release and opens the Android installer. The first time,
 Android asks you to allow "Install unknown apps" for TVStreamer: turn it on, go back and press Update again.

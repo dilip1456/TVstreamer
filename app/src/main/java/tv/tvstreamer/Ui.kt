@@ -139,6 +139,12 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
     var tmdb by remember { mutableStateOf(s.tmdbKey) }
     var omdb by remember { mutableStateOf(s.omdbKey) }
     var note by remember { mutableStateOf("") }
+    var linkNote by remember { mutableStateOf("") }
+    val ctx = LocalContext.current
+    fun link(name: String, url: String) {
+        linkNote = if (openUrl(ctx, url)) "Opened $name in the browser. Copy the key, come back and paste it below."
+        else "No web browser on this device. On a phone or computer, open:  $url"
+    }
     LaunchedEffect(Unit) {
         portal = s.portal
         mac = s.mac
@@ -212,8 +218,19 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
             Label("Posters, plots, cast and release dates come from TMDB when a TMDB API key is set (free at themoviedb.org > Settings > API). " +
                 "An OMDb key (omdbapi.com) adds the IMDb rating. Without keys the portal's own info is used. Keys stay on this device.", 13, DIM, maxLines = 4)
         }
-        item { SettingField("TMDB API key (v3 key or v4 read token)", tmdb, password = true) { tmdb = it } }
-        item { SettingField("OMDb API key (optional, for IMDb ratings)", omdb, password = true) { omdb = it } }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.weight(1f)) { SettingField("TMDB API key (v3 key or v4 read token)", tmdb, password = true) { tmdb = it } }
+                Row1("Get a TMDB key ↗", { link("TMDB", TMDB_KEY_URL) }, Modifier.width(260.dp))
+            }
+        }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.weight(1f)) { SettingField("OMDb API key (optional, for IMDb ratings)", omdb, password = true) { omdb = it } }
+                Row1("Get an OMDb key ↗", { link("OMDb", OMDB_KEY_URL) }, Modifier.width(260.dp))
+            }
+        }
+        if (linkNote.isNotEmpty()) item { Label(linkNote, 15, Pal.Gold, maxLines = 3) }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row1("Save keys and test", {
@@ -256,3 +273,14 @@ fun SettingField(label: String, value: String, password: Boolean = false, onChan
         )
     }
 }
+
+
+const val TMDB_KEY_URL = "https://www.themoviedb.org/settings/api"
+const val OMDB_KEY_URL = "https://www.omdbapi.com/apikey.aspx"
+
+/** Opens [url] in a browser; false when the device has none (common on Fire TV). Never throws. */
+fun openUrl(ctx: android.content.Context, url: String): Boolean = try {
+    val i = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
+        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+    ctx.startActivity(i); true
+} catch (e: Exception) { false }
