@@ -234,8 +234,8 @@ class Library(private val repo: Repo) {
     fun syntheticEpisodes(series: Item): List<Item> {
         val norm = series.id.removePrefix("grp:").replace('_', ' ')
         return everything().filter { !it.isSeries && it.kind == "vod" && Tags.hasEpisodeMarker(it.name) && Tags.norm(it.parsed.title) == norm }
-            .map { e -> val (s, n) = Tags.episodeOf(e.name); e.copy(season = if (s > 0) "Season $s" else "Season 1", length = e.length) to (s * 1000 + n) }
-            .sortedBy { it.second }.map { it.first }.distinctBy { it.key }
+            .map { e -> val (s, _) = Tags.episodeOf(e.name); e.copy(season = if (s > 0) "Season $s" else "Season 1", length = e.length) }
+            .let { EpisodeOrder.sort(it) }.distinctBy { it.key }
     }
 
     /** Groups for display: loose episode entries collapse into one synthetic show per title. */

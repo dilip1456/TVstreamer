@@ -513,13 +513,8 @@ fun ChannelTile(item: Item, width: Dp, fav: Boolean, modifier: Modifier, onClick
     }
 }
 
-/** Season number of an episode: from its label ("Season 2") or its name ("S02E05"). 0 = unknown. */
-private fun seasonNo(e: Item): Int =
-    Regex("\\d+").find(e.season)?.value?.toIntOrNull() ?: Tags.episodeOf(e.name).first
-
-/** Episode number: portal series=N, else from the name ("Episode 5", "S02E05"). 0 = unknown. */
-private fun episodeNo(e: Item): Int =
-    e.series.takeIf { it > 0 } ?: Tags.episodeOf(e.name).second.takeIf { it > 0 } ?: Regex("\\d+").find(e.name)?.value?.toIntOrNull() ?: 0
+private fun seasonNo(e: Item): Int = EpisodeOrder.seasonNo(e)
+private fun episodeNo(e: Item): Int = EpisodeOrder.episodeNo(e)
 
 /** "4K · Hindi" / "CAM · Hindi · Dub" for the Versions selector. */
 private fun versionLabel(repo: Repo, v: Item): String {
@@ -557,7 +552,8 @@ fun DetailScreen(repo: Repo, item: Item, play: (List<Item>, Int) -> Unit, onBack
             val r = withContext(Dispatchers.IO) {
                 runCatching { if (cur.id.startsWith("grp:")) repo.lib.syntheticEpisodes(cur) else repo.api.episodes(cur) }
             }
-            eps = r.getOrDefault(emptyList())
+            // Always seasons ascending, episodes 1..N (the portal's order varies); next-episode logic uses this order too
+            eps = EpisodeOrder.sort(r.getOrDefault(emptyList()))
             msg = r.exceptionOrNull()?.message ?: if (eps.isEmpty()) "No episodes found for this series" else ""
             loading = false
         }
@@ -574,7 +570,7 @@ fun DetailScreen(repo: Repo, item: Item, play: (List<Item>, Int) -> Unit, onBack
             value = out.toMap()
         }
     }
-    val seasons = remember(eps) { eps.map { it.season }.distinct() }
+    val seasons = remember(eps) { EpisodeOrder.seasons(eps) }
     // Display names without the show's name ("Koffee With Karan Season 1" -> "Season 1"); raw names stay for requests
     val shows = listOfNotNull(cur.name, item.name, meta?.title?.ifEmpty { null })
     fun seasonName(s: String) = if (s.isEmpty()) "Episodes" else Names.seasonLabel(s, shows)
