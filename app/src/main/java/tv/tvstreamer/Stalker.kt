@@ -540,9 +540,11 @@ class Stalker(private val store: Store) {
 
 class NoLinkException(msg: String) : Exception(msg)
 
-/** Hides Google OAuth tokens, codes and secrets (access "ya29.", refresh "1//", and key=value forms). */
-fun maskGoogle(text: String): String = text
+/** Hides Google OAuth tokens, codes and secrets (access "ya29.", refresh "1//", client secrets, and key=value forms). */
+fun maskGoogle(text: String, known: List<String> = runCatching { listOf(GoogleClient.builtIn.secret) }.getOrDefault(emptyList())): String = known
+    .filter { it.length >= 8 }.fold(text) { t, k -> t.replace(k, "***") }
     .replace(Regex("ya29\\.[A-Za-z0-9_\\-.]+"), "ya29.***")
     .replace(Regex("\\b1//[A-Za-z0-9_\\-]{10,}"), "1//***")
-    .replace(Regex("GOCSPX-[A-Za-z0-9_\\-]+"), "GOCSPX-***")
+    // Google client secrets: six capital letters, a dash, then about 28 letters/digits
+    .replace(Regex("\\b([A-Z]{6})-[A-Za-z0-9_\\-]{20,}"), "$1-***")
     .replace(Regex("(?i)\\b(access_token|refresh_token|id_token|client_secret|device_code|Bearer)([\"']?\\s*[=: ]\\s*[\"']?)([^&\"'\\s,}]+)"), "$1$2***")

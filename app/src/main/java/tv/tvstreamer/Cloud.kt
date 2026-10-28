@@ -55,12 +55,19 @@ object Cloud {
 
     val signedIn: Boolean get() = ::acct.isInitialized && refreshToken.isNotEmpty()
 
+    /** Advanced override: the user's own Google client. Empty = use the client built into the app. */
     var clientId: String
         get() = acct.getString("client_id", "") ?: ""
         set(v) { acct.edit().putString("client_id", v.trim()).apply() }
     var clientSecret: String
         get() = acct.getString("client_secret", "") ?: ""
         set(v) { acct.edit().putString("client_secret", v.trim()).apply() }
+    private val custom: OAuthClient get() = OAuthClient(clientId, clientSecret, false)
+    /** The client a new sign-in would use (built-in unless a complete override is saved). */
+    val signInClient: OAuthClient get() = GoogleClient.forSignIn(GoogleClient.builtIn, custom)
+    /** The client that issued the current sign-in (recorded at sign-in). */
+    private val tokenClient: OAuthClient get() = GoogleClient.forRefresh(GoogleClient.builtIn, custom, acct.getString("token_client", "") ?: "")
+    @Volatile private var signingWith: OAuthClient? = null
     private var refreshToken: String
         get() = acct.getString("refresh", "") ?: ""
         set(v) { acct.edit().putString("refresh", v).commit() }
@@ -140,22 +147,26 @@ object Cloud {
     // ---------- Sign-in ----------
 
     fun startSignIn(): Google.DeviceCode {
-        if (clientId.isEmpty() || clientSecret.isEmpty()) throw GoogleError("Enter the Client ID and Client secret first.", "no_client")
-        return try { Google.startDevice(clientId, DriveSpace.APPDATA) } catch (e: GoogleError) {
+        val c = signInClient
+        if (!c.usable) throw GoogleError("This copy of the app has no built-in Google sign-in. " +
+            "Install the official release, or add your own client under Advanced below.", "no_client")
+        signingWith = c
+        return try { Google.startDevice(c.id, DriveSpace.APPDATA) } catch (e: GoogleError) {
             // Google's device flow rejects drive.appdata for some clients (a long-standing Google issue);
             // drive.file still lets the app keep its own file in the user's Drive.
             if (e.code != "invalid_scope") throw e
-            try { Google.startDevice(clientId, DriveSpace.FILE) } catch (e2: GoogleError) { throw if (e2.code == "invalid_scope") e else e2 }
+            try { Google.startDevice(c.id, DriveSpace.FILE) } catch (e2: GoogleError) { throw if (e2.code == "invalid_scope") e else e2 }
         }
     }
 
     /** Polls until the user approves (true), or throws. Call from a coroutine that is cancelled when the screen closes. */
     suspend fun waitForSignIn(dc: Google.DeviceCode): Boolean = withContext(Dispatchers.IO) {
+        val c = signingWith ?: signInClient
         var interval = dc.interval * 1000L
         while (isActive) {
             if (System.currentTimeMillis() > dc.expiresAt) throw GoogleError("The code expired. Start sign-in again.", "expired_token")
             delay(interval)
-            val t = try { Google.pollDevice(clientId, clientSecret, dc) } catch (e: GoogleError) {
+            val t = try { Google.pollDevice(c.id, c.secret, dc) } catch (e: GoogleError) {
                 if (e.code == "slow_down") { interval += 5000; null }
                 else if (e.code == "offline") null
                 else throw e
@@ -166,7 +177,7 @@ object Cloud {
                 throw GoogleErrors.scopeMissing(dc.space)
             }
             accessToken = t.access; accessExp = t.expiresAt
-            acct.edit().putString("drive_space", dc.space.name).commit()
+            acct.edit().putString("drive_space", dc.space.name).putString("token_client", c.id).commit()
             refreshToken = t.refresh ?: throw GoogleError("Google did not return a refresh token. Remove the app's access in your Google account and try again.")
             val mail = t.email ?: Google.userEmail(t.access) ?: ""
             acct.edit().putString("email", mail).putString("name", t.name ?: "").putString("photo", t.photo ?: "").apply()
@@ -180,7 +191,7 @@ object Cloud {
 
     private fun clearTokens() {
         accessToken = ""; accessExp = 0
-        acct.edit().remove("refresh").remove("drive_space").remove("email").remove("name").remove("photo").remove("last_sync").remove("file_id").commit()
+        acct.edit().remove("refresh").remove("drive_space").remove("email").remove("name").remove("photo").remove("last_sync").remove("file_id").remove("token_client").commit()
         email = ""; name = ""; photo = ""; lastSync = 0
         runCatching { journalFile.delete() }   // next sign-in is a "first sync" again
     }
@@ -221,7 +232,8 @@ object Cloud {
         if (accessToken.isNotEmpty() && System.currentTimeMillis() < accessExp - 60_000) return accessToken
         val r = refreshToken
         if (r.isEmpty()) throw GoogleError("Not signed in")
-        val t = Google.refresh(clientId, clientSecret, r)
+        val c = tokenClient
+        val t = Google.refresh(c.id, c.secret, r)
         accessToken = t.access; accessExp = t.expiresAt
         if (!t.refresh.isNullOrEmpty() && t.refresh != r) refreshToken = t.refresh
         return accessToken

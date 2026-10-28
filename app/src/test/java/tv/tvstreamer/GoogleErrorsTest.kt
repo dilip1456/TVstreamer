@@ -38,7 +38,7 @@ class GoogleErrorsTest {
         assertFalse(denied.message!!.contains("— Forbidden"))
         assertEquals("org_internal", GoogleErrors.poll(403, """{"error":"org_internal"}""")!!.code)
         assertEquals("admin_policy_enforced", GoogleErrors.poll(400, """{"error":"admin_policy_enforced"}""")!!.code)
-        assertTrue(GoogleErrors.poll(401, """{"error":"invalid_client","error_description":"Unauthorized"}""")!!.hint.contains("GOCSPX-"))
+        assertTrue(GoogleErrors.poll(401, """{"error":"invalid_client","error_description":"Unauthorized"}""")!!.hint.contains("Advanced"))
     }
 
     @Test fun refreshInvalidGrantSignsOut() {

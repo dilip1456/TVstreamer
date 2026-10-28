@@ -109,7 +109,11 @@ class SyncTest {
     @Test fun secretsAreSkippableAndTokensMasked() {
         val j = Sync.stamp(mapOf("secret/pw" to SyncEntry(1, "x")), emptyMap(), now = 50, skip = { Sync.isSecret(it) })
         assertEquals(SyncEntry(1, "x"), j["secret/pw"])      // not tombstoned while secrets are off
-        val masked = maskGoogle("Authorization: Bearer ya29.a0AfB_abc-123 refresh_token=1//0gAbCdEfGhIjKl client_secret=GOCSPX-zzz")
+        val masked = maskGoogle("Authorization: Bearer ya29.a0AfB_abc-123 refresh_token=1//0gAbCdEfGhIjKl client_secret=ABCDEF-zzz")
         assertFalse(masked.contains("a0AfB")); assertFalse(masked.contains("0gAbCdEf")); assertFalse(masked.contains("zzz"))
+        // a bare client secret in an error body, and the built-in secret passed as "known"
+        val bare = maskGoogle("bad pair ABCDEF-Qw3rTy_uIoP-aSdFgHjKlZxCvBnM12 end", known = listOf("my-built-in-secret"))
+        assertFalse(bare.contains("Qw3rTy")); assertTrue(bare.contains("end"))
+        assertEquals("x *** y", maskGoogle("x my-built-in-secret y", known = listOf("my-built-in-secret")))
     }
 }

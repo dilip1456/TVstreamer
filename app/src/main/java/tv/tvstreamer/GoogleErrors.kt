@@ -78,7 +78,7 @@ object GoogleErrors {
         return when (p.error) {
             "invalid_client" -> GoogleError(
                 "Google did not accept the Client ID. $s",
-                p.error, hint = "Copy the Client ID again (it ends in .apps.googleusercontent.com, no spaces). The client must be of type " +
+                p.error, hint = "If you entered your own client under Advanced: copy the Client ID again (it ends in .apps.googleusercontent.com, no spaces); the client must be of type " +
                     "\"TVs and Limited Input devices\" — a Web, Android or Desktop client does not work here.", link = CLIENTS_URL)
             "invalid_scope" -> GoogleError(
                 "Google would not offer the ${if (space == DriveSpace.APPDATA) "Drive app-folder (drive.appdata)" else "Drive file (drive.file)"} permission to this client. $s",
@@ -103,7 +103,8 @@ object GoogleErrors {
                     "in \"Testing\", add your Gmail in Google Auth Platform > Audience > Test users, then sign in again.", link = CONSENT_URL)
             "expired_token" -> GoogleError("The code expired before it was approved. Start sign-in again.", p.error)
             "invalid_client", "unauthorized_client" -> GoogleError("Google did not accept the Client ID / Client secret pair. $s", p.error,
-                hint = "Copy both again from the same \"TVs and Limited Input devices\" client (Client secret starts with GOCSPX-).", link = CLIENTS_URL)
+                hint = "If you entered your own client under Advanced, copy both again from the same \"TVs and Limited Input devices\" client, " +
+                    "or clear them to use the built-in client. Otherwise update the app.", link = CLIENTS_URL)
             "org_internal" -> GoogleError("This client only allows accounts from one Google Workspace organisation. $s", p.error,
                 hint = "Set the user type to External and add your Gmail as a test user.", link = CONSENT_URL)
             "admin_policy_enforced" -> GoogleError("Your Google Workspace administrator blocks this permission. $s", p.error,

@@ -125,10 +125,10 @@ hidden categories and channels, category order, languages, sorting, Live TV mode
 watching / last played episodes, TMDB "Fix match" choices and player settings stay the same on both.
 "Also sync portal login and API keys" is ON by default: portal URL, MAC, serial, locked-section password and TMDB/OMDb
 keys are synced too, so a new device is ready right after sign-in. Turn it off to keep them on each device only.
-The Google client ID / secret are never synced (they are needed to sign in).
+An own Google client entered under Advanced is never synced.
 
 Where it is stored: one file (`tvstreamer-sync.json`) in the hidden app-data folder of *your own* Google Drive. Only
-TVstreamer (your OAuth client) can read it; it does not appear in your Drive file list. (If Google refuses the
+TVstreamer can read it; it does not appear in your Drive file list. (If Google refuses the
 app-folder permission, the same file is kept in My Drive instead; see "If sign-in fails" below.) Sign-in tokens are stored
 encrypted on the device and never logged. "Sign out" removes them from the device; "Delete cloud data" removes the file.
 
@@ -137,8 +137,28 @@ item has its own change time, so the TV and phone can both make changes; the new
 removals are remembered. Offline changes are kept and sent later. On a device's first sign-in, the cloud copy wins
 any conflict and that device's extra items are added.
 
-### One-time Google Cloud setup (free, about 5 minutes)
-Google sign-in on TVs needs an "OAuth client" that belongs to you (no client ID is built into the app).
+### Signing in (1.46: nothing to set up)
+Official builds have a Google sign-in client built in, so every TV and phone only needs the Google code step:
+1. Settings > Google account & sync > **Sign in with Google**.
+2. The screen shows a code and a QR code. On your phone open https://www.google.com/device (or scan the QR), enter
+   the code and pick your account. If Google warns "app isn't verified", choose Continue. **Tick the Google Drive box**
+   ("See, create, and delete its own configuration data in your Google Drive", or "…files that you use with this
+   app") and press Continue. The app syncs at once.
+
+While the app's Google project is in "Testing", only Gmail addresses added as test users in that project can sign in.
+
+How the built-in client gets into the app: GitHub Actions passes the repository secrets `GOOGLE_CLIENT_ID` and
+`GOOGLE_CLIENT_SECRET` to the build as environment variables, and the build stores them as `BuildConfig` fields. They
+are never in the repository. A local build without them (`GOOGLE_CLIENT_ID=… GOOGLE_CLIENT_SECRET=… gradle
+assembleDebug`, or the same names in `~/.gradle/gradle.properties`) has no built-in client; it still builds and
+runs, and then asks for your own client under Advanced. Note: a client secret inside an installed app can always be
+read out of the APK; Google treats TV/installed-app secrets as not confidential, which is why this client type is used.
+
+### Advanced: your own Google client (optional)
+Settings > Google account & sync > **Advanced: use my own Google client…** overrides the built-in client on that
+device (leave it empty, or press "Use built-in client", to go back). An existing sign-in keeps using the client it
+was made with until you sign out and in again; sign-ins made before 1.46 keep using the client saved on the device.
+To make your own client (free, about 5 minutes):
 1. On a computer open https://console.cloud.google.com/ and sign in with the Google account you will use.
 2. Top bar > project picker > **New project**, name it e.g. `TVstreamer`, Create, and select it.
 3. **APIs & Services > Library**, search **Google Drive API**, open it, click **Enable**.
@@ -149,12 +169,7 @@ Google sign-in on TVs needs an "OAuth client" that belongs to you (no client ID 
    email, profile). Save.
 7. **APIs & Services > Credentials > Create credentials > OAuth client ID**, Application type
    **TVs and Limited Input devices**, name `TVstreamer TV`, Create.
-8. Copy the **Client ID** and **Client secret** into the app: Profile/Settings > Google account & sync. Enter them
-   on the TV and on the phone (or type them on one device and copy them across).
-9. Press **Sign in with Google**. The TV shows a code and a QR code: on your phone open https://www.google.com/device
-   (or scan the QR), enter the code, pick your account. Google warns "app isn't verified": choose Continue (it is
-   your own app). **Then tick the Google Drive box** ("See, create, and delete its own configuration data in your
-   Google Drive", or "…files that you use with this app") and press Continue. The app syncs at once.
+8. Copy the **Client ID** and **Client secret** into Advanced on each device and press Save client, then sign in.
 
 Note: while the consent screen is in "Testing", Google may expire the sign-in after 7 days; the app then says
 "Sign in again". Switching the consent screen to "In production" avoids that; Google may then show an
@@ -172,7 +187,15 @@ it, plus a Troubleshooting checklist at the bottom. Common causes:
   sign in again and tick the box.
 - **`access_denied`**: Cancel was pressed, or your Gmail is not on Audience > Test users.
 - **"Google Drive API is turned off"**: open the link shown, press Enable, wait a minute, press Sync now.
-- **`invalid_client`**: Client ID/secret mistyped, or the client is not the TV type.
+- **`invalid_client`**: with your own client, the Client ID/secret is mistyped or the client is not the TV type;
+  with the built-in client, update the app.
+
+## TV launcher icon and banner (1.46)
+Android TV / Google TV / Fire TV show the 320x180 black-and-gold banner (`drawable-xhdpi/tv_banner_gold.png`); phones
+and the TV app grid use the adaptive black-and-gold icon (`mipmap-anydpi-v26`, PNG fallbacks for older Android). The
+banner, icon and round icon are set on both `<application>` and the launcher activity (Fire TV reads the activity).
+TV launchers keep a cached copy of an app's icon: if the old blue icon still shows after updating, restart the TV
+(Fire TV: Settings > My Fire TV > Restart), or uninstall and reinstall the app.
 
 ## Keyboard (1.43)
 There are no "Hide keyboard" buttons any more. Close the on-screen keyboard with the remote's or phone's Back key, or

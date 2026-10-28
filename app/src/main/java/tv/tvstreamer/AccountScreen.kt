@@ -44,6 +44,8 @@ fun AccountScreen(repo: Repo, onReady: () -> Unit) {
     var signing by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     var secrets by remember { mutableStateOf(Cloud.syncSecrets) }
+    // Advanced: the user's own Google client. Hidden unless one is saved or the app has none built in.
+    var advanced by remember { mutableStateOf(Cloud.clientId.isNotEmpty() || !GoogleClient.builtIn.usable) }
 
     var noteErr by remember { mutableStateOf<GoogleError?>(null) }
     val tv = rememberIsTv()
@@ -62,7 +64,7 @@ fun AccountScreen(repo: Repo, onReady: () -> Unit) {
         if (!signing) return@LaunchedEffect
         try {
             keyboard?.hide()
-            Cloud.clientId = cid; Cloud.clientSecret = secret
+            if (advanced && cid.isNotBlank() && secret.isNotBlank()) { Cloud.clientId = cid; Cloud.clientSecret = secret }
             var attempts = 0
             while (true) {
                 val dc = withContext(Dispatchers.IO) { Cloud.startSignIn() }
@@ -117,7 +119,7 @@ fun AccountScreen(repo: Repo, onReady: () -> Unit) {
             })
             Label("Portal URL, MAC, serial, locked-section password and TMDB/OMDb keys are kept in your own Google Drive " +
                 "(private to your account), so a new device is ready right after sign-in. " +
-                "The Google client ID and secret below are never synced.", body - 2, ADIM, maxLines = 20)
+                "A Google client of your own (Advanced) is never synced.", body - 2, ADIM, maxLines = 20)
             if (!confirmDelete) PillButton("Delete cloud data…", { confirmDelete = true })
             else Column(Modifier.fillMaxWidth().background(Pal.WarnBox, RoundedCornerShape(8.dp)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Label("Delete the synced copy from your Google Drive and sign this device out? Data on this device stays. " +
@@ -137,16 +139,34 @@ fun AccountScreen(repo: Repo, onReady: () -> Unit) {
         }
 
         Spacer(Modifier.height(6.dp))
-        Label("Your Google sign-in client (one-time setup)", body + 3, maxLines = 2)
-        Label("Google needs a free \"OAuth client\" from your own Google Cloud project. Use the same Client ID and secret on the TV " +
-            "and the phone. The checklist below lists every step; full steps are in the README.", body - 2, ADIM, maxLines = 20)
-        FieldWithLink({ SettingField("Google OAuth Client ID (…apps.googleusercontent.com)", cid, multiLine = true) { cid = it } },
-            "Open Google Cloud ↗") { link(Google.CONSOLE_URL) }
-        SettingField("Google OAuth Client secret (starts with GOCSPX-)", secret, password = true) { secret = it }
-        PillButton("Save client", { keyboard?.hide(); Cloud.clientId = cid; Cloud.clientSecret = secret; note = "Saved" })
+        if (!Cloud.signedIn && GoogleClient.builtIn.usable) Label("Tip: on the Google page, choose your account, press Continue, and tick the " +
+            "Google Drive box (\"…its own configuration data…\") before pressing Continue again.", body - 2, ADIM, maxLines = 6)
+        if (!advanced) PillButton("Advanced: use my own Google client…", { advanced = true })
+        else {
+            Label("Advanced: your own Google client", body + 3, maxLines = 2)
+            Label(when {
+                Cloud.clientId.isNotEmpty() -> "Sign-in uses the client saved here instead of the built-in one. Leave it empty to use the built-in client."
+                GoogleClient.builtIn.usable -> "Not needed: the app has a built-in Google client. Only fill this in to use an \"OAuth client\" from " +
+                    "your own Google Cloud project (type \"TVs and Limited Input devices\"). Steps are in the README."
+                else -> "This copy of the app was built without a Google client. Enter an \"OAuth client\" (type \"TVs and Limited " +
+                    "Input devices\") from your own Google Cloud project, or install the official release. Steps are in the README."
+            }, body - 2, ADIM, maxLines = 20)
+            FieldWithLink({ SettingField("Google OAuth Client ID (…apps.googleusercontent.com)", cid, multiLine = true) { cid = it } },
+                "Open Google Cloud ↗") { link(Google.CONSOLE_URL) }
+            SettingField("Google OAuth Client secret", secret, password = true) { secret = it }
+            Buttons(listOf("Save client" to { keyboard?.hide(); Cloud.clientId = cid; Cloud.clientSecret = secret
+                    note = if (cid.isBlank()) "Saved: using the built-in client." else "Saved. Sign out and in again to switch clients." },
+                (if (Cloud.clientId.isNotEmpty() && GoogleClient.builtIn.usable) "Use built-in client" else "Hide") to {
+                    keyboard?.hide()
+                    if (Cloud.clientId.isNotEmpty() && GoogleClient.builtIn.usable) {
+                        cid = ""; secret = ""; Cloud.clientId = ""; Cloud.clientSecret = ""
+                        note = "Using the built-in client. Sign out and in again to switch clients."
+                    }
+                    advanced = !GoogleClient.builtIn.usable
+                }))
+            Troubleshooting(body) { u -> link(u) }
+        }
         if (!Cloud.encrypted) Label("Note: this device could not encrypt the sign-in data; it is still private to the app.", body - 2, AWARN, maxLines = 4)
-
-        Troubleshooting(body) { u -> link(u) }
         Spacer(Modifier.height(80.dp))
     }
 }

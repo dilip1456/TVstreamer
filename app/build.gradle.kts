@@ -3,6 +3,11 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+/** A value from the environment or a Gradle property; never stored in the repo. Quotes/backslashes are dropped. */
+fun buildSecret(name: String): String =
+    (System.getenv(name)?.takeIf { it.isNotBlank() } ?: (project.findProperty(name) as String?) ?: "")
+        .trim().filter { it != '"' && it != '\\' && it != '$' }
+
 android {
     signingConfigs {
         getByName("debug") {
@@ -18,8 +23,13 @@ android {
         applicationId = "tv.tvstreamer"
         minSdk = 23
         targetSdk = 34
-        versionCode = 45
-        versionName = "1.45"
+        versionCode = 46
+        versionName = "1.46"
+        // Built-in Google sign-in client (TV / limited-input type). Supplied only by the CI secrets
+        // GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET (or the same-named env vars / Gradle properties locally);
+        // empty when missing, and the app then asks for a client under Settings > Google account > Advanced.
+        buildConfigField("String", "GOOGLE_CLIENT_ID", "\"${buildSecret("GOOGLE_CLIENT_ID")}\"")
+        buildConfigField("String", "GOOGLE_CLIENT_SECRET", "\"${buildSecret("GOOGLE_CLIENT_SECRET")}\"")
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -30,7 +40,7 @@ android {
         getByName("debug") { signingConfig = signingConfigs.getByName("debug") }
         getByName("release") { signingConfig = signingConfigs.getByName("debug") }
     }
-    buildFeatures { compose = true }
+    buildFeatures { compose = true; buildConfig = true }
     composeOptions { kotlinCompilerExtensionVersion = "1.5.14" }
 }
 

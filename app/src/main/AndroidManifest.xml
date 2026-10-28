@@ -17,13 +17,17 @@
         android:label="TVStreamer"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
-        android:banner="@drawable/tv_banner"
+        android:banner="@drawable/tv_banner_gold"
         android:allowBackup="true"
         android:usesCleartextTraffic="true"
         android:theme="@android:style/Theme.Material.NoActionBar">
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:roundIcon="@mipmap/ic_launcher_round"
+            android:banner="@drawable/tv_banner_gold"
+            android:label="TVStreamer"
             android:launchMode="singleTop"
             android:configChanges="orientation|screenSize|keyboard|keyboardHidden|uiMode">
             <intent-filter>
