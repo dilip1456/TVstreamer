@@ -95,13 +95,14 @@ class Stalker(private val store: Store) {
         throw err ?: IllegalStateException("No portal URL")
     }
 
+    private fun ensureConnected() = synchronized(this) { if (token.isEmpty()) connect() }
+
     private fun call(q: String): JSONObject {
-        if (token.isEmpty()) connect()
+        ensureConnected()
         return try {
             fetch("$api?$q&JsHttpRequest=1-xml")
         } catch (e: Exception) {
-            token = ""
-            connect()
+            synchronized(this) { token = ""; connect() }
             fetch("$api?$q&JsHttpRequest=1-xml")
         }
     }
@@ -122,6 +123,28 @@ class Stalker(private val store: Store) {
     fun liveCats(): List<Cat> = parseCats(jsArray(call("type=itv&action=get_genres")))
     fun vodCats(): List<Cat> = parseCats(jsArray(call("type=vod&action=get_categories")))
 
+    /** Turns a portal image path (absolute, protocol-relative or relative) into a full URL. */
+    fun absUrl(path: String?, logoDir: Boolean = false): String {
+        val p = path?.trim().orEmpty()
+        if (p.isEmpty() || p == "null" || p == "0") return ""
+        if (p.startsWith("http://") || p.startsWith("https://")) return p
+        val portal = store.portal.trim().let { if (it.startsWith("http")) it else "http://$it" }
+        val origin = Regex("^(https?://[^/]+)").find(portal)?.value ?: return ""
+        if (p.startsWith("//")) return "http:$p"
+        if (p.startsWith("/")) return origin + p
+        // Relative path: resolve against the portal folder that holds load.php / portal.php
+        val dir = api.ifEmpty { candidates().first() }
+            .substringBeforeLast("/").removeSuffix("/server").removeSuffix("/c") + "/"
+        return if (logoDir && !p.contains("/")) dir + "misc/logos/320/" + p else dir + p
+    }
+
+    /** Headers the stream servers expect (same identity as the portal calls). */
+    fun streamHeaders(): Map<String, String> {
+        val h = mutableMapOf("Cookie" to cookie(), "X-User-Agent" to "Model: MAG250; Link: WiFi")
+        if (token.isNotEmpty()) h["Authorization"] = "Bearer $token"
+        return h
+    }
+
     fun channels(): List<Item> {
         val resp = call("type=itv&action=get_all_channels")
         val js = resp.opt("js")
@@ -133,36 +156,74 @@ class Stalker(private val store: Store) {
         return (0 until a.length()).mapNotNull { i ->
             val o = a.optJSONObject(i) ?: return@mapNotNull null
             Item("itv", o.optString("id"), o.optString("name"), o.optString("cmd"),
-                o.optString("tv_genre_id"), o.optInt("number"), o.optInt("censored") == 1)
+                o.optString("tv_genre_id"), o.optInt("number"), o.optInt("censored") == 1,
+                img = absUrl(o.optString("logo"), logoDir = true))
         }
+    }
+
+    private fun intList(a: JSONArray?): List<Int> =
+        if (a == null) emptyList() else (0 until a.length()).mapNotNull { a.opt(it)?.toString()?.toIntOrNull() }
+
+    private fun firstOf(o: JSONObject, vararg keys: String): String {
+        for (k in keys) {
+            val v = o.optString(k).trim()
+            if (v.isNotEmpty() && v != "null" && v != "0" && v != "N/A") return v
+        }
+        return ""
+    }
+
+    private fun vodItem(it: JSONObject, catFallback: String = ""): Item {
+        val id = it.optString("id")
+        val isSeries = it.optInt("is_series") == 1
+        val eps = intList(it.optJSONArray("series"))
+        val time = firstOf(it, "time", "length")
+        return Item("vod", id, it.optString("name").ifEmpty { it.optString("o_name") },
+            it.optString("cmd").ifEmpty { "/media/$id.mpg" },
+            it.optString("category_id").ifEmpty { catFallback },
+            if (isSeries || eps.isNotEmpty()) -1 else 0, it.optInt("censored") == 1,
+            img = absUrl(firstOf(it, "screenshot_uri", "cover_big", "cover", "poster", "pic", "logo")),
+            desc = firstOf(it, "description", "plot"),
+            year = firstOf(it, "year", "release_date").take(4).filter { c -> c.isDigit() },
+            rating = firstOf(it, "rating_imdb", "rating_kinopoisk", "rating"),
+            genre = firstOf(it, "genres_str", "genre"),
+            length = time.toIntOrNull()?.let { m -> if (m > 0) "${m / 60}h ${m % 60}m".removePrefix("0h ") else "" } ?: time,
+            eps = eps.joinToString(","))
     }
 
     /** Returns items and whether more pages exist. category "*" means all. */
     fun vod(cat: String, page: Int, search: String = ""): Pair<List<Item>, Boolean> {
         var q = "type=vod&action=get_ordered_list&category=${enc(cat)}&p=$page&sortby=added"
         if (search.isNotEmpty()) q += "&search=${enc(search)}"
-        val js = call(q).getJSONObject("js")
+        val js = call(q).optJSONObject("js") ?: return emptyList<Item>() to false
         val a = js.optJSONArray("data") ?: JSONArray()
         val total = js.optInt("total_items")
         val per = js.optInt("max_page_items", 14).coerceAtLeast(1)
-        val items = (0 until a.length()).map { a.getJSONObject(it) }
-            .map {
-                val id = it.optString("id")
-                Item("vod", id, it.optString("name"),
-                    it.optString("cmd").ifEmpty { "/media/$id.mpg" },
-                    it.optString("category_id"), if (it.optInt("is_series") == 1) -1 else 0, it.optInt("censored") == 1)
-            }
+        val items = (0 until a.length()).mapNotNull { a.optJSONObject(it) }.map { vodItem(it, cat) }
         return items to (page * per < total)
     }
 
+    private fun episodesFromArray(base: Item, cmd: String, season: String, nums: List<Int>, img: String): List<Item> =
+        nums.map { n ->
+            Item("vod", "${base.id}:${season.ifEmpty { "s" }}:$n", "Episode $n", cmd, base.cat, n, base.locked,
+                img = img.ifEmpty { base.img }, desc = base.desc, year = base.year, rating = base.rating,
+                genre = base.genre, series = n, season = season)
+        }
+
     /** Dig into a series and return a flat list of all episodes across seasons. */
-    fun seasons(seriesId: String): List<Item> {
+    fun seasons(seriesId: String): List<Item> = episodes(Item("vod", seriesId, "", "", "", -1, false))
+
+    fun episodes(series: Item): List<Item> {
+        val seriesId = series.id
+        // Classic Stalker: the series row carries a "series" array of episode numbers,
+        // played with create_link&cmd=<series cmd>&series=<n>
+        val classic = series.eps.split(",").mapNotNull { it.trim().toIntOrNull() }
+        if (classic.isNotEmpty() && series.cmd.isNotEmpty()) return episodesFromArray(series, series.cmd, "", classic, series.img)
+
         val out = mutableListOf<Item>()
-        // Try a few ways to get seasons/episodes
         val queries = listOf(
-            "type=vod&action=get_ordered_list&movie_id=$seriesId",
-            "type=vod&action=get_ordered_list&movie_id=$seriesId&season_id=0&episode_id=0",
-            "type=vod&action=get_seasons&movie_id=$seriesId"
+            "type=vod&action=get_ordered_list&movie_id=${enc(seriesId)}&season_id=0&episode_id=0",
+            "type=vod&action=get_ordered_list&movie_id=${enc(seriesId)}",
+            "type=vod&action=get_seasons&movie_id=${enc(seriesId)}"
         )
         for (q in queries) {
             try {
@@ -178,11 +239,15 @@ class Stalker(private val store: Store) {
                     val o = a.optJSONObject(i) ?: continue
                     val sid = o.optString("id").ifEmpty { o.optString("season_id") }
                     val sname = o.optString("name").ifEmpty { "Season ${i + 1}" }
+                    val nums = intList(o.optJSONArray("series"))
                     val isSeason = o.optInt("is_season") == 1 || o.has("season_id") || sname.contains("Season", true)
-                    if (isSeason && sid.isNotEmpty()) {
-                        // Dig into this season for episodes
+                    val img = absUrl(firstOf(o, "screenshot_uri", "cover_big", "cover", "poster"))
+                    if (nums.isNotEmpty() && o.optString("cmd").isNotEmpty()) {
+                        // Season row with an episode-number array
+                        out += episodesFromArray(series, o.optString("cmd"), if (isSeason || a.length() > 1) sname else "", nums, img)
+                    } else if (isSeason && sid.isNotEmpty()) {
                         try {
-                            val epResp = call("type=vod&action=get_ordered_list&movie_id=$seriesId&season_id=$sid")
+                            val epResp = call("type=vod&action=get_ordered_list&movie_id=${enc(seriesId)}&season_id=${enc(sid)}&episode_id=0")
                             val epJs = epResp.opt("js")
                             val eps = when (epJs) {
                                 is JSONObject -> epJs.optJSONArray("data") ?: JSONArray()
@@ -193,77 +258,71 @@ class Stalker(private val store: Store) {
                                 val ep = eps.optJSONObject(e) ?: continue
                                 val eid = ep.optString("id").ifEmpty { "$seriesId:$sid:$e" }
                                 val ename = ep.optString("name").ifEmpty { "Episode ${e + 1}" }
-                                out += Item("vod", eid, "$sname - $ename",
+                                val epNums = intList(ep.optJSONArray("series"))
+                                out += Item("vod", eid, ename,
                                     ep.optString("cmd").ifEmpty { "/media/$eid.mpg" },
-                                    ep.optString("category_id"), out.size + 1, false)
+                                    ep.optString("category_id").ifEmpty { series.cat }, e + 1, series.locked,
+                                    img = absUrl(firstOf(ep, "screenshot_uri", "cover_big", "cover")).ifEmpty { img.ifEmpty { series.img } },
+                                    desc = firstOf(ep, "description").ifEmpty { series.desc },
+                                    year = series.year, rating = series.rating, genre = series.genre,
+                                    series = if (epNums.size == 1) epNums[0] else 0, season = sname)
                             }
                         } catch (_: Exception) {}
                     } else {
                         // Direct episode
                         val eid = sid.ifEmpty { seriesId }
-                        val ename = sname.ifEmpty { "Episode ${i + 1}" }
-                        out += Item("vod", eid, ename,
+                        out += Item("vod", eid, sname.ifEmpty { "Episode ${i + 1}" },
                             o.optString("cmd").ifEmpty { "/media/$eid.mpg" },
-                            o.optString("category_id"), out.size + 1, false)
+                            o.optString("category_id").ifEmpty { series.cat }, out.size + 1, series.locked,
+                            img = img.ifEmpty { series.img }, desc = firstOf(o, "description").ifEmpty { series.desc },
+                            year = series.year, rating = series.rating, genre = series.genre)
                     }
                 }
+                // Ignore a response that just echoed the series itself back
+                if (out.size == 1 && out[0].id == seriesId && out[0].series == 0) out.clear()
                 if (out.isNotEmpty()) break
             } catch (_: Exception) {}
         }
         return out
     }
 
-    fun link(i: Item): String {
-        // Always go through create_link so the portal returns an authorized stream URL
-        // For VOD, try to get a fresh cmd from the portal first
-        var cmd = i.cmd
-        if (i.kind == "vod" && i.id.isNotEmpty()) {
-            try {
-                val info = call("type=vod&action=get_ordered_list&movie_id=${i.id}")
-                val js = info.opt("js")
-                val data = when (js) {
-                    is JSONObject -> js.optJSONArray("data")
-                    is JSONArray -> js
-                    else -> null
-                }
-                val first = data?.optJSONObject(0)
-                val better = first?.optString("cmd")?.ifEmpty { null }
-                if (!better.isNullOrEmpty()) cmd = better
-            } catch (_: Exception) {}
-        }
+    private fun clean(cmd: String): String {
+        var raw = cmd.trim()
+        for (p in listOf("ffmpeg ", "ffrt ", "ffrt2 ", "ffrt3 ", "ffrt4 ", "auto ")) raw = raw.removePrefix(p).trim()
+        if (raw.contains(" ")) raw = raw.substringAfterLast(" ").trim()
+        return raw
+    }
 
+    fun link(i: Item): String {
+        // Always go through create_link so the portal returns an authorized stream URL.
+        // Use the item's own cmd first: a movie_id lookup on many portals returns the whole
+        // category (so its first cmd is a *different* film), so it is only a last resort.
         val candidates = mutableListOf<String>()
-        if (cmd.isNotEmpty()) candidates += cmd
-        if (i.cmd.isNotEmpty() && i.cmd != cmd) candidates += i.cmd
-        if (i.kind == "vod") {
+        if (i.cmd.isNotEmpty()) candidates += i.cmd
+        if (i.kind == "vod" && i.id.isNotEmpty() && !i.id.contains(":")) {
             candidates += "/media/${i.id}.mpg"
             candidates += "ffmpeg /media/${i.id}.mpg"
         }
+        val ser = if (i.series > 0) i.series.toString() else ""
 
         var lastErr = ""
         for (c in candidates.distinct()) {
-            // Try a few series/parameter variants
             val variants = listOf(
-                "type=${i.kind}&action=create_link&cmd=${enc(c)}&series=&forced_storage=&disable_ad=0&download=0",
-                "type=${i.kind}&action=create_link&cmd=${enc(c)}&series=0&forced_storage=&disable_ad=0&download=0",
+                "type=${i.kind}&action=create_link&cmd=${enc(c)}&series=$ser&forced_storage=&disable_ad=0&download=0",
+                "type=${i.kind}&action=create_link&cmd=${enc(c)}&series=${ser.ifEmpty { "0" }}&forced_storage=0&disable_ad=0&download=0",
                 "type=${i.kind}&action=create_link&cmd=${enc(c)}"
             )
-            for (q in variants) {
+            for (q in variants.distinct()) {
                 try {
                     val resp = call(q)
                     lastErr = resp.toString().take(200)
                     val js = resp.opt("js")
-                    var raw = when (js) {
+                    val raw = clean(when (js) {
                         is JSONObject -> js.optString("cmd").ifEmpty { js.optString("url") }.ifEmpty { js.optString("link") }
                         is String -> js
                         else -> ""
-                    }
-                    raw = raw.trim()
-                        .removePrefix("ffmpeg ").removePrefix("ffrt ").removePrefix("ffrt2 ")
-                        .removePrefix("ffrt3 ").removePrefix("ffrt4 ").trim()
-                    if (raw.contains(" ")) raw = raw.substringAfterLast(" ").trim()
-                    if (raw.startsWith("http")) return raw
-                    // Portal error message
+                    })
+                    if (raw.startsWith("http") || raw.startsWith("rtsp") || raw.startsWith("rtmp") || raw.startsWith("udp")) return raw
                     if (js is JSONObject) {
                         val err = js.optString("error").ifEmpty { js.optString("msg") }
                         if (err.isNotEmpty()) lastErr = err
@@ -273,6 +332,9 @@ class Stalker(private val store: Store) {
                 }
             }
         }
+        // Some channels carry a direct stream URL; use it if create_link gave nothing usable
+        val direct = clean(i.cmd)
+        if (direct.startsWith("http") && !direct.contains("localhost") && !direct.contains("127.0.0.1")) return direct
         throw IllegalStateException("No stream link. Portal: $lastErr")
     }
 }

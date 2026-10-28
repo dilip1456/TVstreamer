@@ -11,24 +11,38 @@ data class Item(
     val name: String,
     val cmd: String,
     val cat: String,
-    val num: Int,
-    val locked: Boolean
+    val num: Int,      // channel number, -1 for a series, episode number for episodes
+    val locked: Boolean,
+    val img: String = "",     // poster / screenshot / channel logo (absolute URL)
+    val desc: String = "",
+    val year: String = "",
+    val rating: String = "",
+    val genre: String = "",
+    val series: Int = 0,      // episode number passed to create_link as series=N
+    val season: String = "",  // season label for episodes
+    val length: String = "",  // running time text
+    val eps: String = ""      // comma separated episode numbers (classic Stalker "series" array)
 ) {
     val key: String get() = "$kind:$id"
+    val isSeries: Boolean get() = kind == "vod" && num == -1
     fun toJson(): JSONObject = JSONObject()
         .put("k", kind).put("i", id).put("n", name).put("c", cmd)
         .put("g", cat).put("u", num).put("l", locked)
+        .put("m", img).put("d", desc).put("y", year).put("r", rating)
+        .put("ge", genre).put("s", series).put("se", season).put("t", length).put("ep", eps)
 
     companion object {
         fun from(o: JSONObject) = Item(
             o.getString("k"), o.getString("i"), o.getString("n"), o.optString("c"),
-            o.optString("g"), o.optInt("u"), o.optBoolean("l")
+            o.optString("g"), o.optInt("u"), o.optBoolean("l"),
+            o.optString("m"), o.optString("d"), o.optString("y"), o.optString("r"),
+            o.optString("ge"), o.optInt("s"), o.optString("se"), o.optString("t"), o.optString("ep")
         )
     }
 }
 
 fun itemsJson(l: List<Item>): JSONArray = JSONArray().also { a -> l.forEach { a.put(it.toJson()) } }
-fun JSONArray.toItems(): List<Item> = (0 until length()).map { Item.from(getJSONObject(it)) }
+fun JSONArray.toItems(): List<Item> = (0 until length()).mapNotNull { runCatching { Item.from(getJSONObject(it)) }.getOrNull() }
 
 fun catsJson(l: List<Cat>): JSONArray = JSONArray().also { a ->
     l.forEach { a.put(JSONObject().put("i", it.id).put("t", it.title).put("l", it.locked)) }
