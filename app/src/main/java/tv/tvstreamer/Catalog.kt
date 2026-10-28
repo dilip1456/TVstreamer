@@ -574,10 +574,29 @@ fun DetailScreen(repo: Repo, item: Item, play: (List<Item>, Int) -> Unit, onBack
         }
     }
     val seasons = remember(eps) { eps.map { it.season }.distinct() }
+    // Display names without the show's name ("Koffee With Karan Season 1" -> "Season 1"); raw names stay for requests
+    val shows = listOfNotNull(cur.name, item.name, meta?.title?.ifEmpty { null })
+    fun seasonName(s: String) = if (s.isEmpty()) "Episodes" else Names.seasonLabel(s, shows)
     var season by remember(cur.key) { mutableStateOf<String?>(null) }
     val cont = remember(tick) { repo.store.continueList().associate { it.first.key to it.second } }
     val target = focusEp?.let { k -> eps.indexOfFirst { it.key == k } } ?: -1
-    val resumeEp = if (target >= 0) target else eps.indexOfFirst { it.key in cont }
+    // Where to open: the episode asked for, else the last one played (the next one if it was finished),
+    // else one in Continue watching, else the first episode of the first season
+    val lastIdx = remember(eps, tick) {
+        val l = repo.store.lastEp(cur.key) ?: return@remember -1
+        val i = eps.indexOfFirst { it.key == l.first }
+        when {
+            i < 0 -> -1
+            l.second && eps[i].key !in cont && i + 1 < eps.size -> i + 1
+            else -> i
+        }
+    }
+    val resumeEp = when {
+        target >= 0 -> target
+        lastIdx >= 0 -> lastIdx
+        else -> eps.indexOfFirst { it.key in cont }
+    }
+    val focusKey = focusEp ?: eps.getOrNull(resumeEp)?.key
     val curSeason = season ?: (if (resumeEp >= 0) eps[resumeEp].season else null) ?: seasons.firstOrNull() ?: ""
     val shown = if (seasons.size > 1) eps.filter { it.season == curSeason } else eps
     val (rp, rd) = remember(tick, cur.key) { repo.store.resumeInfo(cur) }
@@ -596,10 +615,10 @@ fun DetailScreen(repo: Repo, item: Item, play: (List<Item>, Int) -> Unit, onBack
     LaunchedEffect(cur.key, loading) {
         if (loading) return@LaunchedEffect
         delay(100)
-        val i = shown.indexOfFirst { it.key == focusEp }
-        if (focusEp != null && i >= 0) {
-            // header + seasons row + count line come before the episodes
-            listState.scrollToItem(1 + (if (seasons.size > 1) 1 else 0) + 1 + i)
+        val i = shown.indexOfFirst { it.key == focusKey }
+        if (focusKey != null && i >= 0) {
+            // header (+ versions) (+ seasons row) + count line come before the episodes
+            listState.scrollToItem(1 + (if (versions.size > 1) 1 else 0) + (if (seasons.size > 1) 1 else 0) + 1 + i)
             delay(80)
             runCatching { epFr.requestFocus() }
         } else if (isTv) runCatching { playFr.requestFocus() }
@@ -633,7 +652,8 @@ fun DetailScreen(repo: Repo, item: Item, play: (List<Item>, Int) -> Unit, onBack
                                 cur.isSeries && eps.isNotEmpty() -> {
                                     val i = if (resumeEp >= 0) resumeEp else 0
                                     val e = eps[i]
-                                    val label = listOf(e.season, Names.title(e.name)).filter { it.isNotEmpty() }.joinToString(" · ")
+                                    val label = listOf(if (seasons.size > 1) seasonName(e.season) else "", epMeta[e.key]?.name?.ifEmpty { null } ?: Names.episodeLabel(e.name, shows, episodeNo(e)))
+                                        .filter { it.isNotEmpty() }.joinToString(" · ")
                                     PillButton((if (eps[i].key in cont) "▶  Resume " else "▶  Play ") + label, { start(eps, i) }, pm, primary = true, onMenu = { more = true })
                                 }
                                 cur.isSeries && loading -> PillButton("Loading episodes…", {}, pm)
@@ -664,11 +684,11 @@ fun DetailScreen(repo: Repo, item: Item, play: (List<Item>, Int) -> Unit, onBack
             if (cur.isSeries && loading) item { CircularProgressIndicator(color = Pal.Accent, modifier = Modifier.padding(16.dp)) }
             if (seasons.size > 1) item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 6.dp), modifier = Modifier.focusRestorer()) {
-                    items(seasons) { s -> PillButton(s.ifEmpty { "Episodes" }, { season = s }, selected = s == curSeason, size = 15) }
+                    items(seasons) { s -> PillButton(seasonName(s), { season = s }, selected = s == curSeason, size = 15) }
                 }
             }
             if (shown.isNotEmpty()) item {
-                Text(if (seasons.size > 1) "$curSeason · ${shown.size} episodes" else "${shown.size} episodes",
+                Text(if (seasons.size > 1) "${seasonName(curSeason)} · ${shown.size} episodes" else "${shown.size} episodes",
                     color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 6.dp))
             }
             itemsIndexed(shown, key = { i, e -> "$i|${e.key}" }) { _, e ->
@@ -676,9 +696,9 @@ fun DetailScreen(repo: Repo, item: Item, play: (List<Item>, Int) -> Unit, onBack
                 val p = cont[e.key]
                 val d = if (p != null) repo.store.resumeInfo(e).second else 0L
                 val em = epMeta[e.key]
-                val title = em?.name?.takeIf { it.isNotEmpty() }?.let { n -> episodeNo(e).takeIf { it > 0 }?.let { "$it. $n" } ?: n } ?: Names.title(e.name)
+                val title = em?.name?.takeIf { it.isNotEmpty() }?.let { n -> episodeNo(e).takeIf { it > 0 }?.let { "$it. $n" } ?: n } ?: Names.episodeLabel(e.name, shows, episodeNo(e))
                 Row(
-                    Modifier.fillMaxWidth().then(if (e.key == focusEp) Modifier.focusRequester(epFr) else Modifier)
+                    Modifier.fillMaxWidth().then(if (e.key == focusKey) Modifier.focusRequester(epFr) else Modifier)
                         .focusCard({ start(eps, all) }, scale = 1.02f).background(Color(0x22FFFFFF)).padding(8.dp),
                     horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically
                 ) {

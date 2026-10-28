@@ -223,6 +223,13 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int, onBack: () -> Unit) {
         val i = cur
         if (i.kind == "vod" && exo.duration > 0 && exo.duration != C.TIME_UNSET) repo.store.saveResume(i, exo.currentPosition, exo.duration)
     }
+    // Remember the last episode played for each show (opens the show there next time)
+    LaunchedEffect(cur.key) {
+        val ep = cur
+        if (ep.kind == "vod" && ep.isEpisode()) withContext(Dispatchers.IO) {
+            repo.store.parentOf(ep)?.let { repo.store.saveLastEp(it.key, ep.key, false) }
+        }
+    }
     fun go(n: Int) {
         if (list.size <= 1) return
         saveNow()
@@ -331,6 +338,8 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int, onBack: () -> Unit) {
                 buffering = state == Player.STATE_BUFFERING
                 if (state == Player.STATE_ENDED && cur.kind == "vod") {
                     repo.store.removeResume(cur.key)
+                    val ended = cur
+                    if (ended.isEpisode()) kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) { repo.store.parentOf(ended)?.let { repo.store.saveLastEp(it.key, ended.key, true) } }
                     if (idx < list.size - 1) go(idx + 1) else showControls()
                 }
             }

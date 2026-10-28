@@ -52,4 +52,73 @@ object Names {
             if (w.count { it.isLetter() } <= 3) w else w.lowercase().replaceFirstChar { it.uppercase() }
         }
     }
+
+    // ---- Seasons / episodes (display only) ----
+
+    private val seasonNum = listOf(
+        Regex("(?i)\\bS(?:eason)?\\s*[-_.:#]?\\s*0*(\\d{1,3})(?!\\d)"),                 // S01, Season 01, Season-1, S 1
+        Regex("(?i)\\b(?:series|saison|temporada|staffel|stagione|sezon)\\s*[-_.:#]?\\s*0*(\\d{1,3})(?!\\d)"),
+        Regex("^\\s*0*(\\d{1,3})\\s*$")                                                     // bare "1"
+    )
+    private val epMarker = Regex("(?i)\\bS\\d{1,3}\\s*[-_.]?\\s*E(?:p)?\\s*0*(\\d{1,4})\\b|\\b\\d{1,3}x0*(\\d{1,4})\\b")
+    private val epWord = Regex("(?i)^(?:episode|episodio|épisode|folge|ep|e)\\s*[-_.:#]?\\s*0*(\\d{1,4})\\b")
+    private val seps = Regex("^[\\s|:\\-–—_.,•*#/]+|[\\s|:\\-–—_.,•*#/]+$")
+
+    /** Season number from a label ("Koffee With Karan Season 1", "S01", "Season-1", "Series 1"). 0 = none. */
+    fun seasonNumber(raw: String): Int {
+        for (r in seasonNum) r.find(raw)?.let { m -> m.groupValues[1].toIntOrNull()?.let { if (it in 0..999) return it } }
+        return 0
+    }
+
+    /** Removes the show's name (and separators after it) from the start of a season / episode name. */
+    fun stripShow(raw: String, shows: List<String>): String {
+        var s = raw.trim()
+        for (show in shows.map { title(it).trim() }.filter { it.length >= 2 }.sortedByDescending { it.length }) {
+            val words = show.split(Regex("[^\\p{L}\\p{N}]+")).filter { it.isNotEmpty() }
+            if (words.isEmpty()) continue
+            val re = Regex("^\\W*" + words.joinToString("[^\\p{L}\\p{N}]*") { Regex.escape(it) } + "(?![\\p{L}\\p{N}])", RegexOption.IGNORE_CASE)
+            val m = re.find(s) ?: continue
+            val rest = seps.replace(s.substring(m.range.last + 1), "")
+            if (rest.isNotEmpty()) { s = rest; break }
+        }
+        return seps.replace(s, "").ifEmpty { raw.trim() }
+    }
+
+    /** "Koffee With Karan Season 1" -> "Season 1"; "S01" / "Season-01" / "Series 1" -> "Season 1"; else the name without the show. */
+    fun seasonLabel(raw: String, shows: List<String> = emptyList()): String {
+        if (raw.isBlank()) return raw
+        val n = seasonNumber(stripShow(raw, shows)).takeIf { it > 0 } ?: seasonNumber(raw)
+        if (n > 0) return "Season $n"
+        return title(stripShow(raw, shows))
+    }
+
+    /**
+     * Episode display name: show name, season and "S01E02" markers removed. A real title is kept as "2. Title";
+     * a name that was only numbering becomes "Episode 2".
+     */
+    fun episodeLabel(raw: String, shows: List<String> = emptyList(), number: Int = 0): String {
+        var s = title(raw)
+        s = stripShow(s, shows)
+        var n = number
+        epMarker.find(s)?.let { m ->
+            if (n <= 0) n = (m.groupValues[1].ifEmpty { m.groupValues[2] }).toIntOrNull() ?: 0
+            s = seps.replace(s.removeRange(m.range), " ").trim()
+        }
+        // leading "Season 1" left over
+        Regex("(?i)^(?:season|series|saison|temporada)\\s*[-_.:#]?\\s*\\d{1,3}\\b").find(s)?.let { s = seps.replace(s.removeRange(it.range), "") }
+        epWord.find(s)?.let { m ->
+            if (n <= 0) n = m.groupValues[1].toIntOrNull() ?: 0
+            s = seps.replace(s.removeRange(m.range), "")
+        }
+        s = seps.replace(s, "").replace(Regex("\\s{2,}"), " ")
+        if (s.matches(Regex("\\d{1,4}"))) { if (n <= 0) n = s.toInt(); s = "" }
+        // the remaining text is just the show name again -> no real title
+        if (s.isNotEmpty() && shows.any { Tags.norm(title(it)) == Tags.norm(s) }) s = ""
+        return when {
+            s.isEmpty() && n > 0 -> "Episode $n"
+            s.isEmpty() -> title(raw)
+            n > 0 -> "$n. $s"
+            else -> s
+        }
+    }
 }

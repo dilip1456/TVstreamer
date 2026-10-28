@@ -223,6 +223,22 @@ class Store(ctx: Context) {
         o.optJSONObject("s")?.optJSONObject(sk)?.let { Item.from(it) }
     }.getOrNull()
 
+    /** Last episode played per series (and whether it was watched to the end), for opening a show where you left off. */
+    fun saveLastEp(seriesKey: String, epKey: String, done: Boolean) {
+        val o = runCatching { JSONObject(p.getString("lastep", "{}") ?: "{}") }.getOrDefault(JSONObject())
+        o.remove(seriesKey)
+        o.put(seriesKey, JSONObject().put("e", epKey).put("d", done))
+        // keep the newest ~100 shows
+        val ks = o.keys().asSequence().toList()
+        if (ks.size > 100) ks.take(ks.size - 100).forEach { o.remove(it) }
+        p.edit().putString("lastep", o.toString()).apply()
+    }
+
+    /** (episode key, finished) or null when the show was never played. */
+    fun lastEp(seriesKey: String): Pair<String, Boolean>? = runCatching {
+        JSONObject(p.getString("lastep", "{}") ?: "{}").optJSONObject(seriesKey)?.let { it.getString("e") to it.optBoolean("d") }
+    }.getOrNull()
+
     fun clearHistory() { p.edit().remove("recent").remove("resume").apply() }
 
     fun cacheWrite(name: String, text: String) { runCatching { File(dir, name).writeText(text) } }
