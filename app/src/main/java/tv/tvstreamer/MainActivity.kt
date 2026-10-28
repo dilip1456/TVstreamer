@@ -16,10 +16,14 @@ import androidx.compose.ui.graphics.Color
 
 sealed interface Screen {
     object Home : Screen
+    object MoviesTab : Screen
+    object SeriesTab : Screen
     object Live : Screen
-    object Movies : Screen
     object Search : Screen
     object Settings : Screen
+    object Categories : Screen
+    class Detail(val item: Item, val back: Screen) : Screen
+    class Grid(val cat: Cat, val back: Screen) : Screen
     class Play(val list: List<Item>, val index: Int, val back: Screen) : Screen
 }
 
@@ -28,7 +32,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val repo = Repo(applicationContext)
         setContent {
-            MaterialTheme(colorScheme = darkColorScheme()) { App(repo) }
+            MaterialTheme(
+                colorScheme = darkColorScheme(primary = Pal.Accent, background = Pal.Bg, surface = Pal.Surface, onPrimary = Color.White)
+            ) { App(repo) }
         }
     }
 }
@@ -45,22 +51,41 @@ fun App(repo: Repo) {
         if (msg.isNotEmpty() && !msg.startsWith("Up to date")) repo.status = msg
     }
 
-    BackHandler(screen != Screen.Home) {
+    fun back() {
         val s = screen
-        screen = if (s is Screen.Play) s.back else Screen.Home
+        screen = when (s) {
+            is Screen.Play -> s.back
+            is Screen.Detail -> s.back
+            is Screen.Grid -> s.back
+            else -> Screen.Home
+        }
         tick++
     }
+    BackHandler(screen != Screen.Home) { back() }
 
-    val play: (List<Item>, Int) -> Unit = { l, i -> screen = Screen.Play(l, i, screen) }
+    val play: (List<Item>, Int) -> Unit = { l, i -> if (l.isNotEmpty()) screen = Screen.Play(l, i, screen) }
+    val open: (Item) -> Unit = { item ->
+        if (item.kind == "vod" && !item.isEpisode()) screen = Screen.Detail(item, screen)
+        else play(listOf(item), 0)
+    }
+    // Grid screens remember where they were opened from
+    val go: (Screen) -> Unit = { to ->
+        val cur = screen
+        screen = if (to is Screen.Grid && cur !is Screen.Grid) Screen.Grid(to.cat, cur) else to
+    }
 
-    Surface(Modifier.fillMaxSize().background(Color(0xFF101014)), color = Color(0xFF101014)) {
+    Surface(Modifier.fillMaxSize().background(Pal.Bg), color = Pal.Bg) {
         when (val s = screen) {
-            Screen.Home -> Home(repo, { screen = it }, play, tick)
+            Screen.Home -> Catalog(repo, "home", go, open, play, tick)
+            Screen.MoviesTab -> Catalog(repo, "movies", go, open, play, tick)
+            Screen.SeriesTab -> Catalog(repo, "series", go, open, play, tick)
             Screen.Live -> Live(repo, play)
-            Screen.Movies -> Movies(repo, play)
-            Screen.Search -> Search(repo, play)
-            Screen.Settings -> SettingsScreen(repo)
-            is Screen.Play -> PlayerScreen(repo, s.list, s.index) { screen = s.back; tick++ }
+            Screen.Search -> Search(repo, play, open)
+            Screen.Settings -> SettingsScreen(repo, go)
+            Screen.Categories -> CategoriesScreen(repo, go)
+            is Screen.Detail -> DetailScreen(repo, s.item, play, { back() }, tick)
+            is Screen.Grid -> GridScreen(repo, s.cat, open, play)
+            is Screen.Play -> PlayerScreen(repo, s.list, s.index) { back() }
         }
     }
 }

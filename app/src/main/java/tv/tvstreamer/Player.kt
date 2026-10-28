@@ -71,13 +71,13 @@ import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 private const val SEEK_MS = 10_000L
-private const val HOLD_SEEK_MS = 15_000L
 private const val HIDE_AFTER_MS = 5_000L
 
 private val streamHttp: OkHttpClient by lazy {
@@ -187,6 +187,10 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int, onBack: () -> Unit) {
     var flashTick by remember { mutableIntStateOf(0) }
     var zapTick by remember { mutableIntStateOf(0) }
     var favTick by remember { mutableIntStateOf(0) }
+    var seekSide by remember { mutableIntStateOf(0) }     // -1 / 1 while the double-tap ripple shows
+    var seekTotal by remember { mutableLongStateOf(0L) }
+    var seekTick by remember { mutableIntStateOf(0) }
+    var fastHold by remember { mutableStateOf(false) }    // press-and-hold 2x speed
 
     val item = list[idx]
     val cur by rememberUpdatedState(item)
@@ -227,13 +231,14 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int, onBack: () -> Unit) {
         zapTick++
         touch()
     }
-    fun seekBy(ms: Long) {
+    fun seekBy(ms: Long, quiet: Boolean = false) {
         if (live) return
         val d = exo.duration
         var t = exo.currentPosition + ms
         if (d > 0 && d != C.TIME_UNSET) t = t.coerceAtMost(d - 1000)
         exo.seekTo(t.coerceAtLeast(0))
         pos = exo.currentPosition
+        if (quiet) return
         flash = if (ms > 0) "+${ms / 1000}s" else "−${-ms / 1000}s"
         flashTick++
     }
@@ -447,42 +452,79 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int, onBack: () -> Unit) {
             modifier = Modifier.fillMaxSize()
         )
 
-        // Touch gestures (under the controls, so buttons still get their taps):
-        //  tap middle = show/hide controls, tap left/right third = seek 10 s (movies),
-        //  hold left/right = skip 15 s, swipe up/down = next/previous channel or episode.
+        // Touch gestures (under the controls, so buttons still get their taps). Standard player behaviour:
+        //  single tap = show / hide controls (never seeks)
+        //  double tap left / right half = -10 s / +10 s (movies, episodes); repeated double taps add up
+        //  press and hold = 2x speed while held (movies, episodes); live: hold = menu
+        //  swipe up / down = next / previous channel (live only)
+        val gestureScope = rememberCoroutineScope()
         var drag by remember { mutableFloatStateOf(0f) }
         Box(
             Modifier.fillMaxSize()
-                .pointerInput(list.size) {
+                .then(if (live) Modifier.pointerInput(list.size) {
                     detectVerticalDragGestures(
                         onDragEnd = {
                             if (drag < -100) go(idx + 1) else if (drag > 100) go(idx - 1)
                             drag = 0f
                         },
+                        onDragCancel = { drag = 0f },
                         onVerticalDrag = { _, d -> drag += d }
                     )
-                }
+                } else Modifier)
                 .pointerInput(live) {
-                    detectTapGestures(
-                        onTap = { o ->
-                            val w = size.width
-                            when {
-                                !live && o.x < w * 0.3f -> { seekBy(-SEEK_MS); if (controls) touch() }
-                                !live && o.x > w * 0.7f -> { seekBy(SEEK_MS); if (controls) touch() }
-                                else -> if (controls) controls = false else showControls()
+                    if (live) {
+                        detectTapGestures(
+                            onTap = { if (controls) controls = false else showControls() },
+                            onLongPress = { dialog = "menu" }
+                        )
+                    } else {
+                        detectTapGestures(
+                            onPress = {
+                                val hold = gestureScope.launch {
+                                    delay(viewConfiguration.longPressTimeoutMillis)
+                                    if (exo.isPlaying) { exo.setPlaybackSpeed(2f); fastHold = true }
+                                }
+                                tryAwaitRelease()
+                                hold.cancel()
+                                if (fastHold) { exo.setPlaybackSpeed(1f); fastHold = false }
+                            },
+                            onLongPress = { },
+                            onTap = { if (controls) controls = false else showControls() },
+                            onDoubleTap = { o ->
+                                val side = if (o.x < size.width / 2f) -1 else 1
+                                seekTotal = if (side == seekSide) seekTotal + SEEK_MS else SEEK_MS
+                                seekSide = side
+                                seekBy(side * SEEK_MS, quiet = true)
+                                seekTick++
+                                if (controls) touch()
                             }
-                        },
-                        onLongPress = { o ->
-                            val w = size.width
-                            when {
-                                !live && o.x < w * 0.3f -> seekBy(-HOLD_SEEK_MS)
-                                !live && o.x > w * 0.7f -> seekBy(HOLD_SEEK_MS)
-                                else -> dialog = "menu"
-                            }
-                        }
-                    )
+                        )
+                    }
                 }
         )
+        // Double-tap ripple on the side that was tapped, with the running total ("+30s")
+        LaunchedEffect(seekTick) { if (seekTick > 0) { delay(900); seekSide = 0; seekTotal = 0L } }
+        if (seekSide != 0) {
+            val left = seekSide < 0
+            Box(
+                Modifier.align(if (left) Alignment.CenterStart else Alignment.CenterEnd)
+                    .fillMaxHeight().fillMaxWidth(0.38f)
+                    .background(
+                        Color(0x33FFFFFF),
+                        if (left) RoundedCornerShape(topEndPercent = 50, bottomEndPercent = 50)
+                        else RoundedCornerShape(topStartPercent = 50, bottomStartPercent = 50)
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(if (left) "«  −${seekTotal / 1000}s" else "+${seekTotal / 1000}s  »",
+                    color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+        if (fastHold) {
+            Text("2×  ▶▶", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold,
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = 24.dp)
+                    .background(Color(0x99000000), RoundedCornerShape(20.dp)).padding(horizontal = 16.dp, vertical = 6.dp))
+        }
 
         if ((resolving || buffering) && err.isEmpty()) {
             CircularProgressIndicator(Modifier.align(Alignment.Center).size(56.dp), color = Pal.Accent)
@@ -591,9 +633,9 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int, onBack: () -> Unit) {
 }
 
 @Composable
-fun ChoiceDialog(title: String, opts: List<Pair<String, () -> Unit>>, onClose: () -> Unit) {
+fun ChoiceDialog(title: String, opts: List<Pair<String, () -> Unit>>, focusKey: Any? = title, onClose: () -> Unit) {
     val first = remember { FocusRequester() }
-    LaunchedEffect(title, opts.size) { delay(60); runCatching { first.requestFocus() } }
+    LaunchedEffect(focusKey, opts.size) { delay(60); runCatching { first.requestFocus() } }
     Box(Modifier.fillMaxSize().background(Color(0x99000000)).pointerInput(Unit) { detectTapGestures { onClose() } }, contentAlignment = Alignment.Center) {
         Column(
             Modifier.widthIn(min = 280.dp, max = 460.dp).heightIn(max = 420.dp)

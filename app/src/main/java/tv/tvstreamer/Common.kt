@@ -35,6 +35,20 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.layout.ContentScale
+import coil.ImageLoader
+import coil.compose.AsyncImage
+import coil.disk.DiskCache
+import coil.memory.MemoryCache
+import coil.request.ImageRequest
+import okhttp3.OkHttpClient
+import java.util.concurrent.TimeUnit
 
 /** App colours (Netflix-like dark theme). */
 object Pal {
@@ -121,6 +135,57 @@ fun PillButton(
     }
 }
 
+
+/** One shared Coil image loader: memory + 200 MB disk cache, MAG user agent. */
+object Images {
+    @Volatile private var loader: ImageLoader? = null
+    fun get(ctx: Context): ImageLoader = loader ?: synchronized(this) {
+        loader ?: ImageLoader.Builder(ctx.applicationContext)
+            .okHttpClient {
+                OkHttpClient.Builder()
+                    .connectTimeout(10, TimeUnit.SECONDS)
+                    .readTimeout(20, TimeUnit.SECONDS)
+                    .addInterceptor { chain -> chain.proceed(chain.request().newBuilder().header("User-Agent", UA).build()) }
+                    .build()
+            }
+            .memoryCache { MemoryCache.Builder(ctx.applicationContext).maxSizePercent(0.2).build() }
+            .diskCache { DiskCache.Builder().directory(ctx.applicationContext.cacheDir.resolve("img")).maxSizeBytes(200L * 1024 * 1024).build() }
+            .respectCacheHeaders(false)
+            .crossfade(true)
+            .build().also { loader = it }
+    }
+}
+
+/**
+ * Poster / backdrop / logo with a coloured initials card underneath: it shows while loading,
+ * and stays when the portal has no image or the image fails.
+ */
+@Composable
+fun Poster(url: String, title: String, modifier: Modifier = Modifier, fit: ContentScale = ContentScale.Crop, initialsSize: Int = 26) {
+    val ctx = LocalContext.current
+    val hue = ((title.hashCode() and 0x7FFFFFFF) % 360).toFloat()
+    Box(
+        modifier.background(Brush.linearGradient(listOf(Color.hsl(hue, 0.45f, 0.30f), Color.hsl((hue + 40) % 360, 0.45f, 0.14f)))),
+        contentAlignment = Alignment.Center
+    ) {
+        if (initialsSize > 1) Text(
+            title.split(" ", "-", ":").filter { it.isNotBlank() }.take(2).joinToString("") { it.take(1) }.uppercase(),
+            color = Color(0xCCFFFFFF), fontSize = initialsSize.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center
+        )
+        if (url.isNotBlank()) {
+            val req = remember(url) { ImageRequest.Builder(ctx).data(url).crossfade(true).build() }
+            AsyncImage(model = req, imageLoader = Images.get(ctx), contentDescription = title,
+                contentScale = fit, modifier = Modifier.fillMaxSize())
+        }
+    }
+}
+
+/** Animated grey placeholder used while a row or grid is loading. */
+fun Modifier.shimmer(): Modifier = composed {
+    val t = rememberInfiniteTransition(label = "shimmer")
+    val x by t.animateFloat(-1f, 2f, infiniteRepeatable(tween(1300, easing = LinearEasing)), label = "shimmerX")
+    background(Brush.linearGradient(listOf(Pal.Card, Color(0xFF383844), Pal.Card), start = Offset(x * 500f, 0f), end = Offset(x * 500f + 500f, 500f)))
+}
 
 object Ic {
     private fun icon(name: String, path: String): ImageVector =

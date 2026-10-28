@@ -26,8 +26,17 @@ The next episode plays automatically.
 
 ## Phone
 - The player turns to landscape full screen.
-- Tap the middle to show/hide controls; tap the left or right side to seek 10s; hold to skip 15s.
+- Single tap shows/hides the controls (it never seeks).
+- Double-tap the left or right half to go back / forward 10s; keep double-tapping to add more (-20s, +30s, ...).
+- Press and hold on a movie or episode to play at 2x while held.
 - Swipe up/down on live TV to change channel.
+
+## Catalog (Home, Movies, Series)
+- Hero banner on top, then Continue watching, My List and one row per category (posters load as you scroll).
+- OK / tap a poster for details (plot, year, rating, seasons and episodes). Menu / long-press: My List, move row up/down, hide category.
+- "See all" at the end of a row opens the whole category as a grid.
+- Categories: browse every category with a sample poster, filter by name, move up/down, hide/unhide.
+- Names are tidied for display only ("EN| Action" shows as "Action · EN").
 
 ## Updating from inside the app
 Home > Update downloads the newest release and opens the Android installer. The first time,

@@ -1,8 +1,12 @@
 package tv.tvstreamer
 
 import android.content.Context
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.runtime.*
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
@@ -12,6 +16,7 @@ private val STOP = MOVIE_W + LIVE_W + setOf("show", "shows", "watch", "play", "o
 private val LANGS = setOf("hindi", "english", "tamil", "telugu", "malayalam", "kannada", "punjabi",
     "bengali", "marathi", "gujarati", "urdu", "arabic", "spanish", "french", "korean")
 private val YEAR = Regex("(19|20)\\d\\d")
+private val SERIES_CAT = Regex("(?i)(series|serie|séries|tv ?shows?|\\bshows?\\b|seasons?|episod|dramas?|novelas?|sitcom|anime|docuseries|k-?drama)")
 
 fun squash(s: String) = s.lowercase().filter { it.isLetterOrDigit() }
 
@@ -29,6 +34,19 @@ class Repo(ctx: Context) {
     var lastLiveIndex by mutableStateOf(0)
     var lastLiveCatId by mutableStateOf("")
     var customCats by mutableStateOf(store.customCats())
+    var vodOrder by mutableStateOf(store.catOrder("vod"))
+    var liveOrder by mutableStateOf(store.catOrder("itv"))
+
+    /** First page of each VOD category (Home rows, category samples). Loaded only when a row scrolls into view. */
+    val rows = mutableStateMapOf<String, List<Item>>()
+    val rowMore = mutableStateMapOf<String, Boolean>()
+    val rowErrors = mutableStateMapOf<String, String>()
+    private val rowGate = Semaphore(3)
+    /** Scroll positions and last focused card per screen, so Back returns to the same place. */
+    val listStates = mutableMapOf<String, LazyListState>()
+    val gridStates = mutableMapOf<String, LazyGridState>()
+    val lastFocus = mutableMapOf<String, String>()
+    var catFilter by mutableStateOf("")
 
     private fun setLive(lc: List<Cat>, ch: List<Item>) {
         val lockedIds = lc.filter { it.locked }.map { it.id }.toSet()
@@ -56,6 +74,7 @@ class Repo(ctx: Context) {
             val ch = api.channels()
             val vc = api.vodCats()
             setLive(lc, ch)
+            if (vc != vodCats) clearRows()
             vodCats = vc
             store.cacheWrite("live.json", JSONObject().put("cats", catsJson(lc)).put("items", itemsJson(ch)).toString())
             store.cacheWrite("vod.json", catsJson(vc).toString())
@@ -66,8 +85,72 @@ class Repo(ctx: Context) {
         }
     }
 
-    fun visibleLive() = liveCats.filter { "itv:${it.id}" !in hidden }
-    fun visibleVod() = vodCats.filter { "vod:${it.id}" !in hidden }
+    /** Categories in the user's order; categories never arranged keep the portal order after them. */
+    fun ordered(kind: String): List<Cat> {
+        val cats = (if (kind == "itv") liveCats else vodCats).distinctBy { it.id }
+        val order = if (kind == "itv") liveOrder else vodOrder
+        if (order.isEmpty()) return cats
+        val pos = order.withIndex().associate { it.value to it.index }
+        return cats.filter { it.id in pos }.sortedBy { pos[it.id] } + cats.filter { it.id !in pos }
+    }
+
+    fun visibleLive() = ordered("itv").filter { "itv:${it.id}" !in hidden }
+    fun visibleVod() = ordered("vod").filter { "vod:${it.id}" !in hidden }
+
+    private fun saveOrder(kind: String, ids: List<String>) {
+        if (kind == "itv") liveOrder = ids else vodOrder = ids
+        store.saveCatOrder(kind, ids)
+    }
+
+    /** Move a category one visible step up (-1) or down (+1); hidden categories are jumped over. */
+    fun moveCat(kind: String, id: String, delta: Int) {
+        val ids = ordered(kind).map { it.id }.toMutableList()
+        val i = ids.indexOf(id)
+        if (i < 0 || delta == 0) return
+        val step = if (delta < 0) -1 else 1
+        var n = i + step
+        if ("$kind:$id" !in hidden) while (n in ids.indices && "$kind:${ids[n]}" in hidden) n += step
+        if (n !in ids.indices) return
+        ids.removeAt(i)
+        ids.add(n, id)
+        saveOrder(kind, ids)
+    }
+
+    fun moveCatTo(kind: String, id: String, top: Boolean) {
+        val ids = ordered(kind).map { it.id }.toMutableList()
+        if (!ids.remove(id)) return
+        if (top) ids.add(0, id) else ids.add(id)
+        saveOrder(kind, ids)
+    }
+
+    fun resetOrder(kind: String) = saveOrder(kind, emptyList())
+
+    fun isHidden(kind: String, id: String) = "$kind:$id" in hidden
+
+    /** Best guess from the category name: does this VOD category hold series? */
+    fun isSeriesCat(c: Cat) = SERIES_CAT.containsMatchIn(c.title)
+    fun hasSeriesCats() = vodCats.any { isSeriesCat(it) }
+
+    /** Load the first page of a VOD category (at most 3 requests at a time). */
+    suspend fun loadRow(cat: Cat) {
+        if (rows.containsKey(cat.id)) return
+        withContext(Dispatchers.IO) {
+            rowGate.withPermit {
+                if (rows.containsKey(cat.id)) return@withPermit
+                try {
+                    val r = api.vod(cat.id, 1)
+                    rows[cat.id] = r.first.distinctBy { it.key }
+                    rowMore[cat.id] = r.second
+                    rowErrors.remove(cat.id)
+                } catch (e: Exception) {
+                    rowErrors[cat.id] = e.message ?: "Load failed"
+                }
+            }
+        }
+    }
+
+    fun retryRow(cat: Cat) { rowErrors.remove(cat.id); rows.remove(cat.id) }
+    fun clearRows() { rows.clear(); rowMore.clear(); rowErrors.clear() }
 
     fun toggleHideChannel(i: Item) {
         val k = "ch:${i.key}"

@@ -132,6 +132,15 @@ class Store(ctx: Context) {
         m.forEach { (k, v) -> o.put(k, itemsJson(v)) }
         p.edit().putString("custom_cats", o.toString()).apply()
     }
+    /** User arranged order of categories by kind ("itv" or "vod"). Ids not listed keep the portal order after these. */
+    fun catOrder(kind: String): List<String> =
+        runCatching { JSONArray(p.getString("order_$kind", "[]")).let { a -> (0 until a.length()).map { a.getString(it) } } }
+            .getOrDefault(emptyList())
+
+    fun saveCatOrder(kind: String, ids: List<String>) {
+        p.edit().putString("order_$kind", JSONArray(ids).toString()).apply()
+    }
+
     fun removeResume(key: String) {
         val old = resumeArray()
         val out = JSONArray()
