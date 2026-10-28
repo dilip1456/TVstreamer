@@ -792,7 +792,7 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int) {
         AndroidView(
             factory = {
                 PlayerView(it).apply {
-                    useController = false
+                    useController = item.kind == "vod"
                     keepScreenOn = true
                     isFocusable = false
                     isFocusableInTouchMode = false
@@ -855,9 +855,11 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int) {
                 }
             }
         }
+        // Tap anywhere to show/hide controls
+        Box(Modifier.fillMaxSize().tv({ fullScreen = !fullScreen }))
         if (fullScreen) {
             Box(Modifier.align(Alignment.TopEnd).padding(12.dp).tv({ fullScreen = false })) {
-                Label("Exit full", 14, Color.White)
+                Label("Controls", 14, Color.White)
             }
         } else if (showHud || menu) {
             Column(
