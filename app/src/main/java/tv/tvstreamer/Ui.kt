@@ -187,7 +187,6 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
         item { SettingField("Locked section password", pw, password = true) { pw = it } }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row1("Hide keyboard", { keyboard?.hide() }, Modifier.weight(1f))
                 Row1("Save and reload", {
                     keyboard?.hide()
                     s.portal = portal
@@ -252,6 +251,7 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
 @Composable
 fun SettingField(label: String, value: String, password: Boolean = false, multiLine: Boolean = false, onChange: (String) -> Unit) {
     val keyboard = LocalSoftwareKeyboardController.current
+    val focus = androidx.compose.ui.platform.LocalFocusManager.current
     val tv = rememberIsTv()
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Label(label, if (tv) 16 else 14, DIM, maxLines = 3)
@@ -261,6 +261,11 @@ fun SettingField(label: String, value: String, password: Boolean = false, multiL
             singleLine = !multiLine || password,
             maxLines = if (multiLine && !password) 3 else 1,
             visualTransformation = if (password) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
+            // "Done" on the keyboard closes it and moves focus on (no separate hide-keyboard button; Back also closes it)
+            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+            keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = {
+                keyboard?.hide(); focus.moveFocus(androidx.compose.ui.focus.FocusDirection.Down)
+            }),
             modifier = Modifier.fillMaxWidth().heightIn(min = if (tv) 64.dp else 56.dp)
                 .onFocusChanged { if (it.isFocused) keyboard?.show() else keyboard?.hide() },
             colors = androidx.compose.material3.TextFieldDefaults.colors(

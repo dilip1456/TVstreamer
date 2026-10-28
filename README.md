@@ -144,6 +144,10 @@ it, plus a Troubleshooting checklist at the bottom. Common causes:
 - **"Google Drive API is turned off"**: open the link shown, press Enable, wait a minute, press Sync now.
 - **`invalid_client`**: Client ID/secret mistyped, or the client is not the TV type.
 
+## Keyboard (1.43)
+There are no "Hide keyboard" buttons any more. Close the on-screen keyboard with the remote's or phone's Back key, or
+press Done / Search on the keyboard (Done also moves to the next item, so the D-pad never gets stuck).
+
 ## Profile, account menu and theme (1.41)
 
 - **Phone:** a floating black bar at the bottom with Home, Movies, Series, Live TV and Profile (the selected tab is gold). It hides in the player. The search button sits above it.

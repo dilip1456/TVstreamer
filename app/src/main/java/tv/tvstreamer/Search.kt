@@ -130,12 +130,13 @@ fun SearchOverlay(repo: Repo, st: SearchState, open: (Item) -> Unit, play: (List
         ) {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    val kb = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         TextField(
                             value = st.query, onValueChange = { st.query = it }, singleLine = true,
                             placeholder = { Text(if (isTv) "Search movies, series, channels (OK for keyboard / voice)" else "Search movies, series, channels") },
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                            keyboardActions = KeyboardActions(onSearch = { runCatching { firstResFr.requestFocus() } }),
+                            keyboardActions = KeyboardActions(onSearch = { kb?.hide(); runCatching { firstResFr.requestFocus() } }),
                             modifier = Modifier.weight(1f).clip(RoundedCornerShape(28.dp)).focusRequester(fieldFr)
                         )
                         Spacer(Modifier.width(10.dp))

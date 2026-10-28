@@ -139,8 +139,7 @@ fun AccountScreen(repo: Repo, onReady: () -> Unit) {
         FieldWithLink({ SettingField("Google OAuth Client ID (…apps.googleusercontent.com)", cid, multiLine = true) { cid = it } },
             "Open Google Cloud ↗") { link(Google.CONSOLE_URL) }
         SettingField("Google OAuth Client secret (starts with GOCSPX-)", secret, password = true) { secret = it }
-        Buttons(listOf("Save client" to { keyboard?.hide(); Cloud.clientId = cid; Cloud.clientSecret = secret; note = "Saved" },
-            "Hide keyboard" to { keyboard?.hide() }))
+        Row1("Save client", { keyboard?.hide(); Cloud.clientId = cid; Cloud.clientSecret = secret; note = "Saved" })
         if (!Cloud.encrypted) Label("Note: this device could not encrypt the sign-in data; it is still private to the app.", body - 2, AWARN, maxLines = 4)
 
         Troubleshooting(body) { u -> link(u) }

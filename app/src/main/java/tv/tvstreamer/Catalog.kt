@@ -750,7 +750,10 @@ private fun FixMatchDialog(item: Item, onClose: () -> Unit) {
         Column(Modifier.widthIn(max = 640.dp).fillMaxWidth(0.9f).heightIn(max = 560.dp).background(Pal.Surface, RoundedCornerShape(14.dp)).padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Fix match: ${Names.title(item.name)}", color = Pal.Text, fontSize = 20.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            val kb = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
             TextField(value = q, onValueChange = { q = it }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
+                keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { kb?.hide(); run(); runCatching { fr.requestFocus() } }),
                 colors = TextFieldDefaults.colors(focusedContainerColor = Pal.FieldFocus, unfocusedContainerColor = Pal.Field,
                     focusedTextColor = Pal.Text, unfocusedTextColor = Pal.Text))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1042,8 +1045,12 @@ fun CategoriesScreen(repo: Repo, go: (Screen) -> Unit) {
                         if (kind == "vod" && picked.isNotEmpty()) PillButton(if (showAll) "All languages" else "Show all languages", { showAll = !showAll }, selected = showAll, size = 14)
                         PillButton("Reset order", { repo.resetOrder(kind) }, size = 14)
                     }
+                    val kb = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+                    val fm = androidx.compose.ui.platform.LocalFocusManager.current
                     TextField(
                         value = repo.catFilter, onValueChange = { repo.catFilter = it }, singleLine = true,
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                        keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { kb?.hide(); fm.moveFocus(androidx.compose.ui.focus.FocusDirection.Down) }),
                         placeholder = { Text("Filter categories…", color = Pal.Dim) },
                         modifier = Modifier.fillMaxWidth(if (isTv) 0.5f else 1f),
                         colors = TextFieldDefaults.colors(
