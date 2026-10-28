@@ -7,6 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -756,6 +757,30 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int) {
                     },
                     onVerticalDrag = { _, d -> drag += d }
                 )
+            }
+            .pointerInput(item.kind) {
+                if (item.kind == "vod") {
+                    detectTapGestures(
+                        onTap = { offset ->
+                            val w = size.width
+                            if (offset.x < w * 0.3f) {
+                                exo.seekTo((exo.currentPosition - 10000).coerceAtLeast(0))
+                            } else if (offset.x > w * 0.7f) {
+                                exo.seekTo(exo.currentPosition + 10000)
+                            }
+                            hud++
+                        },
+                        onLongPress = { offset ->
+                            val w = size.width
+                            if (offset.x < w * 0.3f) {
+                                exo.seekTo((exo.currentPosition - 15000).coerceAtLeast(0))
+                            } else if (offset.x > w * 0.7f) {
+                                exo.seekTo(exo.currentPosition + 15000)
+                            }
+                            hud++
+                        }
+                    )
+                }
             }
             .onPreviewKeyEvent { e ->
                 if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
