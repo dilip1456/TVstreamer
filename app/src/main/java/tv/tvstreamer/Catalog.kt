@@ -36,6 +36,7 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -74,6 +75,9 @@ fun Item.isEpisode(): Boolean = kind == "vod" && num != -1 && (series > 0 || sea
 fun Item.isEpisodeLike(): Boolean = isEpisode() || (kind == "vod" && !isSeries && Tags.hasEpisodeMarker(name))
 
 private const val ROW_LIMIT = 40
+/** Last rows / hero slides per tab, shown at once when the tab opens again while fresh ones are worked out. */
+private val shelfMemo = java.util.concurrent.ConcurrentHashMap<String, List<Shelf>>()
+private val heroMemo = java.util.concurrent.ConcurrentHashMap<String, List<HeroPick>>()
 private const val GENRE_ROWS = 6
 
 /** Poster width: fixed on TV, from the screen width on phones (about 3.3 posters visible). */
@@ -123,6 +127,11 @@ private inline fun <T> safely(f: () -> T): T? = runCatching(f).getOrNull()
 fun heroFromHistory(repo: Repo, mode: String): HeroPick? {
     val unlocked = repo.gate(true) == null
     val last = repo.store.history().firstOrNull { it.kind == "vod" && (!it.locked || unlocked) && repo.lib.wantItem(it, mode) } ?: return null
+    return heroPickFor(repo, last)
+}
+
+/** Hero for one movie / episode / series: resume it when in progress (episodes show their series). */
+fun heroPickFor(repo: Repo, last: Item): HeroPick {
     val (p, d) = repo.store.resumeInfo(last)
     val inProgress = p > 30000 && (d <= 0 || p < d * 0.95)
     if (last.isEpisode()) {
@@ -131,6 +140,20 @@ fun heroFromHistory(repo: Repo, mode: String): HeroPick? {
         return if (inProgress || parent == null) HeroPick(show, last, if (inProgress) p else 0L, d) else HeroPick(show, parent, 0L, 0L)
     }
     return HeroPick(last, last, if (inProgress) p else 0L, d)
+}
+
+/**
+ * Hero slides for a tab: the last played title first, then the other recently played titles, then My List (each once).
+ * Empty when there is neither (the caller falls back to a featured title). Runs off the main thread.
+ */
+fun heroPicks(repo: Repo, mode: String): List<HeroPick> {
+    val unlocked = repo.gate(true) == null
+    fun ok(i: Item) = i.kind == "vod" && (!i.locked || unlocked) && repo.lib.wantItem(i, mode)
+    val hist = repo.store.history().filter(::ok)
+    val favs = repo.favs.filter(::ok)
+    val keyOf = { i: Item -> if (i.isEpisode()) "s:" + (i.pid.ifEmpty { i.parsed.title.lowercase() }) else i.key }
+    return HeroOrder.build(hist, favs, keyOf).mapNotNull { runCatching { heroPickFor(repo, it) }.getOrNull() }
+        .distinctBy { it.show.key }
 }
 
 /** Language rows for one tab, computed off the main thread. */
@@ -198,17 +221,7 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
     }
 
     fun wantItem(i: Item): Boolean = lib.wantItem(i, mode)
-
-    // Gemini "Suggested for you": cached for 12 h; refreshed (debounced) when the key, history or library changes. Quiet without a key.
-    LaunchedEffect(Gemini.key) { Ai.loadCache(repo) }
-    LaunchedEffect(Gemini.key, tick, lib.version) {
-        if (!Gemini.enabled) return@LaunchedEffect
-        delay(4000)
-        Ai.refreshSuggested(repo)
-    }
-
-    lib.version   // recompose when the local catalog changes
-    val shelves = buildList {
+    fun buildShelves(): List<Shelf> = buildList {
         val c = cont.filter { wantItem(it.first) }
         if (c.isNotEmpty()) {
             val prog = c.associate { (i, p) ->
@@ -240,19 +253,63 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
             }
         }
     }
-    // Hero: the last thing watched on this tab (resume it); a featured pick only when there is no watch history
-    val lastWatched = remember(tick, contVer, mode) { safely { heroFromHistory(repo, mode) } }
-    val featured = remember(shelves.map { it.key to it.items.size }) {
+
+
+    // Gemini "Suggested for you": cached for 12 h; refreshed (debounced) when the key, history or library changes. Quiet without a key.
+    LaunchedEffect(Gemini.key) { Ai.loadCache(repo) }
+    LaunchedEffect(Gemini.key, tick, lib.version) {
+        if (!Gemini.enabled) return@LaunchedEffect
+        delay(4000)
+        Ai.refreshSuggested(repo)
+    }
+
+    // Rows are worked out off the main thread (category filters, language checks) and remembered per tab, so
+    // returning to a tab shows its rows at once and D-pad moves never wait for this
+    val rowErrs = repo.rowErrors.toMap()
+    val memoKey = "${System.identityHashCode(repo)}|$mode"
+    var shelvesReady by remember(mode) { mutableStateOf(shelfMemo[memoKey] != null) }
+    val shelves by produceState(shelfMemo[memoKey] ?: emptyList(), mode, cont, recent, langShelves, lib.version, repo.favs, repo.hidden,
+        repo.vodCats, repo.vodOrder, Ai.suggested, Gemini.enabled, unlocked, homeLangs, langs, rowErrs) {
+        val built = withContext(Dispatchers.Default) { runCatching { buildShelves() }.getOrNull() }
+        if (built != null) { value = built; shelfMemo[memoKey] = built }
+        shelvesReady = true
+    }
+    // Hero: the last thing watched leads, then it rotates through recently played and My List; featured only when neither exists
+    val picks by produceState(heroMemo[memoKey] ?: emptyList(), tick, contVer, mode, repo.favs, unlocked) {
+        value = withContext(Dispatchers.Default) { safely { heroPicks(repo, mode) } ?: emptyList() }
+        heroMemo[memoKey] = value
+    }
+    val featured = remember(shelves) {
         shelves.asSequence().filter { it.cat != null || it.pool != null }.flatMap { it.items.asSequence() }.firstOrNull { it.img.isNotEmpty() && !it.locked }
             ?: shelves.asSequence().flatMap { it.items.asSequence() }.firstOrNull { it.kind == "vod" && it.img.isNotEmpty() }
     }
-    val heroPick = lastWatched ?: featured?.let { HeroPick(it, it, 0L, 0L) }
+    val slides = if (picks.isNotEmpty()) picks else listOfNotNull(featured?.let { HeroPick(it, it, 0L, 0L) })
+    var heroIx by remember(mode) { mutableIntStateOf(0) }
+    // A new list (something was just played): start again at the last played
+    LaunchedEffect(slides.firstOrNull()?.show?.key, slides.size) { heroIx = 0 }
+    var heroTouched by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(slides.size) {
+        while (true) {
+            delay(HeroOrder.ROTATE_MS)
+            if (HeroOrder.shouldRotate(slides.size, System.currentTimeMillis(), heroTouched)) heroIx = HeroOrder.next(heroIx, slides.size)
+        }
+    }
+    val heroPick = slides.getOrNull(heroIx.coerceIn(0, (slides.size - 1).coerceAtLeast(0)))
     val hero = heroPick?.show
 
+    val shelvesShown = remember(shelves) { shelves.distinctBy { it.key } }
     val screenKey = "cat:$mode"
     val heroFr = remember { FocusRequester() }
     val navFr = remember { FocusRequester() }
-    LaunchedEffect(hero?.key) {
+    val searchFr = remember { FocusRequester() }
+    var navFocused by remember { mutableStateOf(false) }
+    var navIx by remember { mutableIntStateOf(-1) }
+    // Search closed (Back): focus returns to the Search tab it was opened from
+    LaunchedEffect(AppUi.searchClosed) {
+        if (isTv && AppUi.searchClosed > 0 && repo.lastFocus[screenKey] == "search") { delay(80); runCatching { searchFr.requestFocus() } }
+    }
+    // Focus the banner once when it first appears (not on every slide change)
+    LaunchedEffect(hero != null) {
         val lf = repo.lastFocus[screenKey]
         if (isTv && (lf == null || lf == "hero")) {
             delay(150)
@@ -265,6 +322,10 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
 
     val hPad = if (isTv) 48.dp else 14.dp
     val state = remember(mode) { repo.listStates.getOrPut(screenKey) { LazyListState() } }
+    // TV Back inside the page: first back to the top menu; Back on the menu then leaves the tab as before
+    androidx.activity.compose.BackHandler(enabled = isTv && !AppUi.phoneNav && !navFocused) {
+        scope.launch { runCatching { state.scrollToItem(0) }; delay(30); runCatching { navFr.requestFocus() } }
+    }
     Box(Modifier.fillMaxSize().background(Pal.Bg)) {
         LazyColumn(state = state, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 48.dp)) {
             item(key = "nav") {
@@ -292,12 +353,19 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                         Text("v$ver", color = Pal.Dim, fontSize = 12.sp)
                     }
                     Spacer(Modifier.height(10.dp))
-                    if (!AppUi.phoneNav) LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(vertical = 4.dp), modifier = Modifier.focusRestorer()) {
-                        items(tabs, key = { it.second }) { (t, k, a) ->
-                            PillButton(t, a, if (k == mode) Modifier.focusRequester(navFr).onFocusChanged { if (it.isFocused) repo.lastFocus[screenKey] = "nav" } else Modifier,
-                                selected = k == mode, size = 15)
+                    // TV menu: Left / Right stay inside the menu (no jumping out of either end), Down goes to the page
+                    if (!AppUi.phoneNav) LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(vertical = 4.dp),
+                        modifier = Modifier.menuRow({ navIx }, { tabs.size + 1 }).onFocusChanged { navFocused = it.hasFocus; if (!it.hasFocus) navIx = -1 }.focusRestorer()) {
+                        itemsIndexed(tabs, key = { _, it -> it.second }) { ti, (t, k, a) ->
+                            val at = Modifier.onFocusChanged { if (it.isFocused) navIx = ti }
+                            val m = at then when (k) {
+                                mode -> Modifier.focusRequester(navFr).onFocusChanged { if (it.isFocused) repo.lastFocus[screenKey] = "nav" }
+                                "search" -> Modifier.focusRequester(searchFr).onFocusChanged { if (it.isFocused) repo.lastFocus[screenKey] = "search" }
+                                else -> Modifier
+                            }
+                            PillButton(t, a, m, selected = k == mode, size = 15)
                         }
-                        item(key = "avatar") { AvatarButton { AppUi.accountMenu = true } }
+                        item(key = "avatar") { Box(Modifier.onFocusChanged { if (it.hasFocus) navIx = tabs.size }) { AvatarButton { AppUi.accountMenu = true } } }
                     }
                     if (tabbed) {
                         Spacer(Modifier.height(8.dp))
@@ -347,17 +415,20 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                 Hero(repo, hero, isTv, hPad, h.label,
                     onPlay = { if (h.play.isSeries) open(h.play) else playOrGate(h.play) },
                     onInfo = { open(hero) },
-                    playModifier = Modifier.focusRequester(heroFr).onFocusChanged { if (it.isFocused) repo.lastFocus[screenKey] = "hero" })
+                    playModifier = Modifier.focusRequester(heroFr).onFocusChanged { if (it.isFocused) repo.lastFocus[screenKey] = "hero" },
+                    slide = heroIx, slides = slides.size, onTouch = { heroTouched = System.currentTimeMillis() },
+                    onStep = { d -> heroTouched = System.currentTimeMillis(); heroIx = (heroIx + d).mod(slides.size.coerceAtLeast(1)) })
             }
             if (shelves.isEmpty() && repo.status.isEmpty()) item(key = "empty") {
                 Text(when {
                     repo.vodCats.isEmpty() -> "Loading your portal…"
+                    !shelvesReady -> "Loading…"
                     tabbed && !langs.isNullOrEmpty() && lib.loading -> "Loading…"
                     tabbed && !langs.isNullOrEmpty() -> "Nothing found for these languages yet. Try Refresh or pick more languages."
                     else -> "Nothing here yet. Open Categories to show hidden ones."
                 }, color = Pal.Dim, fontSize = 16.sp, modifier = Modifier.padding(hPad))
             }
-            items(shelves.distinctBy { it.key }, key = { it.key }) { shelf ->
+            items(shelvesShown, key = { it.key }) { shelf ->
                 // Lazy: a category's items are requested only when its row is composed (scrolled into view)
                 if (shelf.cat != null && shelf.loading) LaunchedEffect(shelf.key) { repo.loadRow(shelf.cat) }
                 ShelfRow(repo, screenKey, shelf, isTv, hPad,
@@ -417,13 +488,19 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
 }
 
 @Composable
-private fun Hero(repo: Repo, raw: Item, isTv: Boolean, hPad: Dp, playLabel: String, onPlay: () -> Unit, onInfo: () -> Unit, playModifier: Modifier) {
+private fun Hero(repo: Repo, raw: Item, isTv: Boolean, hPad: Dp, playLabel: String, onPlay: () -> Unit, onInfo: () -> Unit, playModifier: Modifier,
+                 slide: Int = 0, slides: Int = 1, onTouch: () -> Unit = {}, onStep: (Int) -> Unit = {}) {
     val meta = rememberMeta(raw)
     val item = raw.withMeta(meta)
     var fav by remember(item.key) { mutableStateOf(repo.isFav(item)) }
     val name = meta?.title?.ifEmpty { null } ?: Names.title(item.name)
-    Box(Modifier.fillMaxWidth().height(if (isTv) 320.dp else 260.dp)) {
-        Poster(meta?.backdrop?.ifEmpty { null } ?: item.img, name, Modifier.fillMaxSize(), ContentScale.Crop, initialsSize = 1)
+    // Any key press inside the banner pauses the rotation for a while; the buttons stay the same composables, so a
+    // slide change never moves D-pad focus
+    Box(Modifier.fillMaxWidth().height(if (isTv) 320.dp else 260.dp)
+        .onPreviewKeyEvent { if (it.type == KeyEventType.KeyDown) onTouch(); false }) {
+        androidx.compose.animation.Crossfade(meta?.backdrop?.ifEmpty { null } ?: item.img, animationSpec = androidx.compose.animation.core.tween(450), label = "hero") { url ->
+            Poster(url, name, Modifier.fillMaxSize(), ContentScale.Crop, initialsSize = 1)
+        }
         Box(Modifier.fillMaxSize().background(Color(0x66000000)))
         Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Pal.Bg, Pal.Bg.copy(alpha = 0.55f), Color.Transparent))))
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.5f to Color.Transparent, 1f to Pal.Bg)))
@@ -433,10 +510,22 @@ private fun Hero(repo: Repo, raw: Item, isTv: Boolean, hPad: Dp, playLabel: Stri
                 MetaLine(item)
                 if (item.desc.isNotEmpty()) Text(item.desc, color = Pal.Desc, fontSize = if (isTv) 15.sp else 13.sp, maxLines = 3,
                     overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth(if (isTv) 0.8f else 1f))
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                     PillButton(playLabel.ifEmpty { if (item.isSeries) "▶  Episodes" else "▶  Play" }, onPlay, playModifier.onFocusChanged { if (it.isFocused) Keys.focused = raw }, primary = true)
                     PillButton(if (fav) "✓  My List" else "+  My List", { repo.toggleFav(raw); fav = repo.isFav(raw) })
                     PillButton("ⓘ  Info", onInfo)
+                    if (slides > 1) {
+                        // Previous / next slide (also a D-pad stop, so the rotation can be driven by hand)
+                        PillButton("‹", { onStep(-1) }, size = 15)
+                        PillButton("›", { onStep(1) }, size = 15)
+                        Spacer(Modifier.width(6.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                            repeat(slides) { i ->
+                                Box(Modifier.size(if (i == slide) 9.dp else 6.dp).clip(RoundedCornerShape(50))
+                                    .background(if (i == slide) Pal.Gold else Pal.Dim.copy(alpha = 0.6f)))
+                            }
+                        }
+                    }
                 }
             }
             if (item.img.isNotEmpty()) {
@@ -470,6 +559,7 @@ private fun ShelfRow(repo: Repo, screen: String, shelf: Shelf, isTv: Boolean, hP
     val state = remember(shelf.key) { repo.listStates.getOrPut("$screen|${shelf.key}") { LazyListState() } }
     val posterW = posterWidth(isTv)
     val tileW = if (isTv) 200.dp else 150.dp
+    val shown = remember(shelf.items) { shelf.items.distinctBy { it.key }.take(ROW_LIMIT) }
     Column(Modifier.padding(top = if (isTv) 16.dp else 12.dp)) {
         Row(Modifier.padding(horizontal = hPad), verticalAlignment = Alignment.CenterVertically) {
             Text(shelf.title, color = Pal.Text, fontSize = if (isTv) 20.sp else 17.sp, fontWeight = FontWeight.Bold,
@@ -507,7 +597,6 @@ private fun ShelfRow(repo: Repo, screen: String, shelf: Shelf, isTv: Boolean, hP
                     }
                 }
             }
-            val shown = shelf.items.distinctBy { it.key }.take(ROW_LIMIT)
             itemsIndexed(shown, key = { _, it -> it.key }) { i, it ->
                 val k = "${shelf.key}|${it.key}"
                 val fr = remember { FocusRequester() }

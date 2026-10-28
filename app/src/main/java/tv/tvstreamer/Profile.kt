@@ -55,6 +55,8 @@ object AppUi {
     var accountMenu by mutableStateOf(false)
     /** Phone layout: floating bottom bar instead of the top tabs. */
     var phoneNav by mutableStateOf(false)
+    /** Bumped each time the search overlay closes, so the screen can put focus back where search was opened. */
+    var searchClosed by mutableIntStateOf(0)
 }
 
 /** Material icon paths (Apache 2.0) for the bottom bar. */

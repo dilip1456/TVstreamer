@@ -21,6 +21,31 @@ data class Parsed(
  * "Dub" / "Dubbed" is a variant tag, not a language. Unknown language -> "" (shown as "Other").
  */
 object Tags {
+    // Compiled once (these run for every title and channel)
+    private val TZ8 = Regex("\\s*[-–:|,]+\\s*$")
+    private val TZ1 = Regex("^\\s*[|\\[(]?\\s*([A-Za-z]{2,10})\\s*[|\\])]\\s*|^\\s*([A-Z]{2,3})\\s*[-:–]\\s+|^\\s*([A-Za-z]{2,10})\\s*:\\s+")
+    private val TZ2 = Regex("[\\[(|]([^\\])|]{1,30})[\\])|]")
+    private val TZ3 = Regex("\\s[-–]\\s*([\\p{L} ]{3,30})$")
+    private val TZ4 = Regex("(?i)([\\p{L}]+)\\s+(dubbed|dub)")
+    private val TZ5 = Regex("\\s([\\p{L}]{4,12})\\s*$")
+    private val TZ6 = Regex("(?i)\\b(4K|UHD|FHD|HD|SD|CAM|HDCAM|HDRip|WEB-?DL|1080p|720p)\\s*$")
+    private val TZ7 = Regex("(?i)\\s[-–]\\s*([\\p{L} ]{3,30})$")
+    private val RX1 = Regex("[^\\p{L}\\p{N}-]+")
+    private val RX2 = Regex("\\w\\.\\w+\\.\\w")
+    private val RX3 = Regex("\\[[^]]*]")
+    private val RX4 = Regex("\\((?:[^)]*)\\)")
+    private val RX5 = Regex("\\|[^|]{0,14}\\|")
+    private val RX6 = Regex("^\\s*[|\\-–:]+\\s*")
+    private val RX7 = Regex("^\\s*(?:[A-Z0-9+]{2,4}|[A-Za-z]{3,10})\\s*[|:»]\\s*")
+    private val RX8 = Regex("^\\s*[A-Z0-9+]{2,4}\\s+[-–]\\s+")
+    private val RX9 = Regex("^\\s*(4K|UHD|FHD|HD|SD)\\s*[-–]\\s*", RegexOption.IGNORE_CASE)
+    private val RX10 = Regex("(?i)(?<![\\p{L}])([\\p{L}]+)\\s+(dubbed|dub)(?![\\p{L}])")
+    private val RX11 = Regex("\\s+")
+    private val RX12 = Regex("^\\s*[-–:|,]+\\s*")
+    private val RX13 = Regex("\\p{M}+")
+    private val RX14 = Regex("[^\\p{L}\\p{N}]+")
+    private val RX15 = Regex("^(the|a|an) ")
+    internal val RX16 = Regex("\\d+(\\.\\d+)?")
     const val OTHER = "Other"
 
     /** Language -> lowercase full-word aliases (matched as whole words, any case). */
@@ -142,7 +167,7 @@ object Tags {
     private val YEAR_BR = Regex("[(\\[]\\s*((?:19|20)\\d{2})\\s*[)\\]]")
     private val YEAR_ANY = Regex("(?<![\\p{N}])((?:19[3-9]|20[0-4])\\d)(?![\\p{N}])")
 
-    private fun words(s: String) = s.split(Regex("[^\\p{L}\\p{N}-]+")).filter { it.isNotEmpty() }
+    private fun words(s: String) = s.split(RX1).filter { it.isNotEmpty() }
 
     /** Language named in [raw]. strict = only tag positions (prefix, brackets, "- Hindi", "Hindi Dubbed"), for item titles. */
     fun language(raw: String, strict: Boolean = false): String {
@@ -176,13 +201,13 @@ object Tags {
      */
     private fun tagZone(raw: String): String {
         val parts = mutableListOf<String>()
-        Regex("^\\s*[|\\[(]?\\s*([A-Za-z]{2,10})\\s*[|\\])]\\s*|^\\s*([A-Z]{2,3})\\s*[-:–]\\s+|^\\s*([A-Za-z]{2,10})\\s*:\\s+").find(raw)?.let { parts += it.value }
-        Regex("[\\[(|]([^\\])|]{1,30})[\\])|]").findAll(raw).forEach { parts += it.groupValues[1] }
-        Regex("\\s[-–]\\s*([\\p{L} ]{3,30})$").find(raw)?.let { parts += it.groupValues[1] }
+        TZ1.find(raw)?.let { parts += it.value }
+        TZ2.findAll(raw).forEach { parts += it.groupValues[1] }
+        TZ3.find(raw)?.let { parts += it.groupValues[1] }
         YEAR_ANY.findAll(raw).lastOrNull()?.let { parts += raw.substring(it.range.last + 1) }
-        Regex("(?i)([\\p{L}]+)\\s+(dubbed|dub)").findAll(raw).forEach { parts += it.groupValues[0] }
+        TZ4.findAll(raw).forEach { parts += it.groupValues[0] }
         // A trailing language word: "Pathaan Hindi", "Leo (2023) Tamil" (full names only, not codes)
-        Regex("\\s([\\p{L}]{4,12})\\s*$").find(raw.replace(Regex("(?i)\\b(4K|UHD|FHD|HD|SD|CAM|HDCAM|HDRip|WEB-?DL|1080p|720p)\\s*$"), "").trimEnd())
+        TZ5.find(raw.replace(TZ6, "").trimEnd())
             ?.let { m -> if (ALIAS[m.groupValues[1].lowercase()] != null) parts += m.groupValues[1] }
         return parts.joinToString(" | ")
     }
@@ -218,20 +243,20 @@ object Tags {
         val (season, ep) = episodeOf(raw)
         var s = raw.replace('_', ' ')
         // Dots used as spaces ("Avatar.2009.1080p") but keep "Mr. Robot", "U.S."
-        if (Regex("\\w\\.\\w+\\.\\w").containsMatchIn(s) && !s.contains(' ')) s = s.replace('.', ' ')
+        if (RX2.containsMatchIn(s) && !s.contains(' ')) s = s.replace('.', ' ')
         var year = YEAR_BR.find(s)?.groupValues?.get(1) ?: ""
-        s = s.replace(Regex("\\[[^]]*]"), " ").replace(Regex("\\((?:[^)]*)\\)"), " ")
-        s = s.replace(Regex("\\|[^|]{0,14}\\|"), " ")
+        s = s.replace(RX3, " ").replace(RX4, " ")
+        s = s.replace(RX5, " ")
         // Leading tag prefixes: "EN - ", "4K: ", "NF| ", "HINDI - "
         repeat(3) {
-            s = s.replace(Regex("^\\s*[|\\-–:]+\\s*"), "")
-                .replace(Regex("^\\s*(?:[A-Z0-9+]{2,4}|[A-Za-z]{3,10})\\s*[|:»]\\s*"), { m -> if (isTagWord(m.value)) "" else m.value })
-                .replace(Regex("^\\s*[A-Z0-9+]{2,4}\\s+[-–]\\s+"), { m -> if (isTagWord(m.value)) "" else m.value })
-                .replace(Regex("^\\s*(4K|UHD|FHD|HD|SD)\\s*[-–]\\s*", RegexOption.IGNORE_CASE), "")
+            s = s.replace(RX6, "")
+                .replace(RX7, { m -> if (isTagWord(m.value)) "" else m.value })
+                .replace(RX8, { m -> if (isTagWord(m.value)) "" else m.value })
+                .replace(RX9, "")
         }
         // Trailing " - Hindi", " Hindi Dubbed", "(Hindi)" already gone
-        s = s.replace(Regex("(?i)\\s[-–]\\s*([\\p{L} ]{3,30})$")) { m -> if (language(m.groupValues[1]).isNotEmpty() || JUNK.containsMatchIn(m.groupValues[1])) " " else m.value }
-        s = s.replace(Regex("(?i)(?<![\\p{L}])([\\p{L}]+)\\s+(dubbed|dub)(?![\\p{L}])")) { m -> if (language(m.groupValues[1]).isNotEmpty()) " " else m.value }
+        s = s.replace(TZ7) { m -> if (language(m.groupValues[1]).isNotEmpty() || JUNK.containsMatchIn(m.groupValues[1])) " " else m.value }
+        s = s.replace(RX10) { m -> if (language(m.groupValues[1]).isNotEmpty()) " " else m.value }
         // Everything after a bare year is usually tags: "Avatar 2009 1080p BluRay"
         YEAR_ANY.findAll(s).lastOrNull()?.let { m ->
             val before = s.substring(0, m.range.first).trim()
@@ -240,12 +265,12 @@ object Tags {
         s = s.replace(SXE, " ").replace(XFORM, " ").replace(SEASON, " ").replace(EPISODE, " ")
             .replace(JUNK, " ")
         // A trailing language word left over: "Pathaan Hindi"
-        val ws = s.trim().split(Regex("\\s+")).toMutableList()
+        val ws = s.trim().split(RX11).toMutableList()
         while (ws.size > 1 && language(ws.last()).isNotEmpty()) ws.removeAt(ws.size - 1)
         s = ws.joinToString(" ")
-            .replace(Regex("\\s*[-–:|,]+\\s*$"), "")
-            .replace(Regex("^\\s*[-–:|,]+\\s*"), "")
-            .replace(Regex("\\s+"), " ").trim()
+            .replace(TZ8, "")
+            .replace(RX12, "")
+            .replace(RX11, " ").trim()
         if (s.length < 2) s = Names.title(raw)
         return Parsed(s, year, language(raw, strict = true), ql, rank, isDub(raw), season, ep)
     }
@@ -258,8 +283,8 @@ object Tags {
 
     /** Lowercase letters / digits only, for comparing titles. */
     fun norm(s: String): String = java.text.Normalizer.normalize(s.lowercase(), java.text.Normalizer.Form.NFD)
-        .replace(Regex("\\p{M}+"), "").replace("&", " and ").replace(Regex("[^\\p{L}\\p{N}]+"), " ").trim()
-        .replace(Regex("^(the|a|an) "), "")
+        .replace(RX13, "").replace("&", " and ").replace(RX14, " ").trim()
+        .replace(RX15, "")
 
     /** 0..1 similarity of two titles (token overlap blended with edit distance). */
     fun similarity(a: String, b: String): Double {
@@ -312,5 +337,5 @@ private object ParsedCache {
 val Item.seriesLike: Boolean get() = isSeries || isEpisode() || (kind == "vod" && Tags.hasEpisodeMarker(name))
 
 val Item.addedMs: Long get() = Tags.parseDate(added)
-val Item.ratingNum: Double get() = rating.replace(',', '.').let { Regex("\\d+(\\.\\d+)?").find(it)?.value?.toDoubleOrNull() } ?: 0.0
+val Item.ratingNum: Double get() = rating.replace(',', '.').let { Tags.RX16.find(it)?.value?.toDoubleOrNull() } ?: 0.0
 val Item.yearNum: Int get() = year.toIntOrNull() ?: parsed.year.toIntOrNull() ?: 0

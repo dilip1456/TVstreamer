@@ -5,6 +5,10 @@ package tv.tvstreamer
  *  "EN| Action Movies" -> "Action Movies" (tag "EN"),  "4K-Avatar" -> "Avatar",  "|NF| Dune [4K]" -> "Dune"
  */
 object Names {
+    // Compiled once (these run for every title and channel)
+    private val RX1 = Regex("\\s{2,}")
+    private val RX2 = Regex("[^\\p{L}\\p{N}]+")
+    private val RX3 = Regex("\\d{1,4}")
     private const val QUALITY = "4K|8K|UHD|FHD|HD|SD|HEVC|H265|H\\.265|HDR|1080P|720P|2160P"
     // A short ALL-CAPS tag (language / provider / quality) followed by a separator: "EN|", "EN -", "[EN]", "NF:", "4K-"
     private val prefix = Regex(
@@ -34,7 +38,7 @@ object Names {
         s = bracketTag.replace(s, "")
         val t2 = trailingTag.replace(s, "")
         if (t2.isNotBlank()) s = t2
-        s = edges.replace(s, "").replace(Regex("\\s{2,}"), " ")
+        s = edges.replace(s, "").replace(RX1, " ")
         if (s.isBlank()) return raw.trim() to ""
         return titleCase(s) to tag
     }
@@ -74,7 +78,7 @@ object Names {
     fun stripShow(raw: String, shows: List<String>): String {
         var s = raw.trim()
         for (show in shows.map { title(it).trim() }.filter { it.length >= 2 }.sortedByDescending { it.length }) {
-            val words = show.split(Regex("[^\\p{L}\\p{N}]+")).filter { it.isNotEmpty() }
+            val words = show.split(RX2).filter { it.isNotEmpty() }
             if (words.isEmpty()) continue
             val re = Regex("^\\W*" + words.joinToString("[^\\p{L}\\p{N}]*") { Regex.escape(it) } + "(?![\\p{L}\\p{N}])", RegexOption.IGNORE_CASE)
             val m = re.find(s) ?: continue
@@ -110,8 +114,8 @@ object Names {
             if (n <= 0) n = m.groupValues[1].toIntOrNull() ?: 0
             s = seps.replace(s.removeRange(m.range), "")
         }
-        s = seps.replace(s, "").replace(Regex("\\s{2,}"), " ")
-        if (s.matches(Regex("\\d{1,4}"))) { if (n <= 0) n = s.toInt(); s = "" }
+        s = seps.replace(s, "").replace(RX1, " ")
+        if (s.matches(RX3)) { if (n <= 0) n = s.toInt(); s = "" }
         // the remaining text is just the show name again -> no real title
         if (s.isNotEmpty() && shows.any { Tags.norm(title(it)) == Tags.norm(s) }) s = ""
         return when {

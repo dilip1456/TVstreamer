@@ -4,7 +4,11 @@ package tv.tvstreamer
  * Live channel classifier (pure logic, unit tested): a type (News, Sports, …) and a language from the portal
  * category name and the channel name. Best guesses from common IPTV naming; anything unknown -> "Other".
  */
+/** Type and language of one channel. */
+data class ChInfo(val type: String, val lang: String)
+
 object LiveKind {
+    private val SPACES = Regex("\\s+")  // first: norm() needs it while the tables below are built
     const val NEWS = "News"
     const val SPORTS = "Sports"
     const val MUSIC = "Music"
@@ -62,12 +66,15 @@ object LiveKind {
             "star pravah", "zee marathi", "colors marathi", "ptc punjabi", "zee punjabi", "big magic", "shemaroo", "ishara"),
         REGIONAL to listOf("regional", "local", "general", "variety", "generalist", "general tv", "public", "national")
     )
-    private val PHRASES = ALIASES.map { (t, al) -> t to al.map { norm(it) } }
+    // Aliases normalized and padded once (" sky news "), so matching is a plain substring test per alias
+    private val PHRASES: List<Pair<String, List<String>>> by lazy {
+        ALIASES.map { (t, al) -> t to al.map { norm(it) }.filter { it.isNotEmpty() }.map { " $it " } }
+    }
 
     /** Type from a name: the first alias (whole words) found, else "". */
     fun typeOf(text: String): String {
         val n = " " + norm(text) + " "
-        for ((t, al) in PHRASES) if (al.any { a -> a.isNotEmpty() && n.contains(" $a ") }) return t
+        for ((t, al) in PHRASES) if (al.any { n.contains(it) }) return t
         return ""
     }
 
@@ -76,13 +83,21 @@ object LiveKind {
      * else a generic category ("ENTERTAINMENT", "REGIONAL"), else Regional / General when only a language / country
      * is known, else Other.
      */
-    fun type(cat: String, name: String): String {
-        val c = typeOf(cat)
-        if (c.isNotEmpty() && c != ENT && c != REGIONAL) return c
-        val n = typeOf(name)
-        if (n.isNotEmpty()) return n
-        if (c.isNotEmpty()) return c
-        return if (language(cat, name).isNotEmpty()) REGIONAL else OTHER
+    fun type(cat: String, name: String): String = classify(facts(cat), name).type
+
+    /** What a category name says (type, language word, country), worked out once per category. */
+    class CatFacts internal constructor(val type: String, val lang: String, val country: String)
+    fun facts(cat: String) = CatFacts(typeOf(cat), Tags.language(cat), country(cat))
+
+    /** Type and language of a channel in a category with [f] (same rules as [type] and [language]). */
+    fun classify(f: CatFacts, name: String): ChInfo {
+        val lang = f.lang.ifEmpty { Tags.language(name.lowercase()) }.ifEmpty { f.country }.ifEmpty { country(name) }
+        val c = f.type
+        val type = when {
+            c.isNotEmpty() && c != ENT && c != REGIONAL -> c
+            else -> typeOf(name).ifEmpty { c.ifEmpty { if (lang.isNotEmpty()) REGIONAL else OTHER } }
+        }
+        return ChInfo(type, lang.ifEmpty { Tags.OTHER })
     }
 
     /** Country words in category names, as a language. India has many languages: Hindi unless the channel says otherwise. */
@@ -118,11 +133,11 @@ object LiveKind {
         "Nepali" to listOf("nepal"),
         "Sinhala" to listOf("sri lanka"),
         "African" to listOf("africa", "nigeria", "ghana", "kenya")
-    ).map { (l, al) -> l to al.map { norm(it) } }
+    ).map { (l, al) -> l to al.map { " " + norm(it) + " " } }
 
     private fun country(text: String): String {
         val n = " " + norm(text) + " "
-        for ((l, al) in COUNTRIES) if (al.any { n.contains(" $it ") }) return l
+        for ((l, al) in COUNTRIES) if (al.any { n.contains(it) }) return l
         return ""
     }
 
@@ -138,5 +153,5 @@ object LiveKind {
         return country(name)
     }
 
-    private fun norm(s: String): String = Tags.norm(s.replace("&", " and ").replace("+", " plus ")).replace(Regex("\\s+"), " ").trim()
+    private fun norm(s: String): String = Tags.norm(s.replace("&", " and ").replace("+", " plus ")).replace(SPACES, " ").trim()
 }

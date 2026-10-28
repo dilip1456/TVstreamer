@@ -369,3 +369,17 @@ fun whenText(t: Long): String {
     val sameDay = d.get(java.util.Calendar.YEAR) == now.get(java.util.Calendar.YEAR) && d.get(java.util.Calendar.DAY_OF_YEAR) == now.get(java.util.Calendar.DAY_OF_YEAR)
     return if (sameDay) "today $hm" else java.text.SimpleDateFormat("d MMM HH:mm", java.util.Locale.getDefault()).format(java.util.Date(t))
 }
+
+/**
+ * A TV menu row: Left on its first item and Right on its last do nothing, instead of letting focus jump out to
+ * whatever happens to be beside it (e.g. a floating button) with no way back. [index] is the focused item (-1: none).
+ */
+fun Modifier.menuRow(index: () -> Int, count: () -> Int): Modifier = onPreviewKeyEvent {
+    if (it.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+    val i = index()
+    when (it.key) {
+        Key.DirectionLeft -> i == 0
+        Key.DirectionRight -> i >= 0 && i == count() - 1
+        else -> false
+    }
+}

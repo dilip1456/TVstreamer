@@ -28,9 +28,6 @@ import kotlinx.coroutines.withContext
 private val DIM2 get() = Pal.Dim
 private val WARN2 get() = Pal.Warn
 
-/** Type and language of one channel. */
-data class ChInfo(val type: String, val lang: String)
-
 /**
  * Live TV with two modes (saved):
  *  - All channels: grouped by type (News, Sports, …) with a language filter, or the portal's original categories.
@@ -38,7 +35,7 @@ data class ChInfo(val type: String, val lang: String)
  * Channel up/down in the player follows the list that was on screen.
  */
 @Composable
-fun Live(repo: Repo, play: (List<Item>, Int) -> Unit) {
+fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, onSearch: () -> Unit = {}) {
     val st = repo.store
     var mode by remember { mutableStateOf(st.sort("live_mode", "all")) }
     var groupBy by remember { mutableStateOf(st.sort("live_group", "type")) }
@@ -56,18 +53,14 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit) {
     val cats = repo.visibleLive()
     val catIds = remember(cats) { cats.map { it.id }.toSet() }
     val catTitle = remember(repo.liveCats) { repo.liveCats.associate { it.id to it.title } }
-    // Classify every channel once per channel list (off the main thread)
-    val info by produceState(emptyMap<String, ChInfo>(), repo.channels, repo.liveCats) {
-        value = withContext(Dispatchers.Default) {
-            repo.channels.associate { c -> c.key to (catTitle[c.cat] ?: "").let { t -> ChInfo(LiveKind.type(t, c.name), LiveKind.language(t, c.name).ifEmpty { Tags.OTHER }) } }
-        }
-    }
+    // Every channel's type and language: worked out once per channel list off the main thread (and saved), see LiveIndex
+    LaunchedEffect(repo.channels, repo.liveCats) { repo.liveIndex.ensure(repo.channels, repo.liveCats) }
+    val info = repo.liveIndex.info
     val visible = remember(repo.channels, catIds, repo.hidden, unlocked) {
         repo.channels.filter { it.cat in catIds && !repo.isChannelHidden(it) && (!it.locked || unlocked) }
     }
-    val langCounts = remember(visible, info) { visible.groupingBy { info[it.key]?.lang ?: Tags.OTHER }.eachCount().toList().sortedByDescending { it.second } }
-    val byLang = remember(visible, info, langs) { if (langs.isNullOrEmpty()) visible else visible.filter { (info[it.key]?.lang ?: Tags.OTHER) in langs!! } }
-    fun ordered(l: List<Item>) = if (sortAz) l.sortedBy { it.name.lowercase() } else l
+    val langCounts = remember(visible, info) { visible.mapNotNull { info[it.key]?.lang }.groupingBy { it }.eachCount().toList().sortedByDescending { it.second } }
+    val byLang = remember(visible, info, langs) { if (langs.isNullOrEmpty()) visible else visible.filter { info[it.key]?.lang?.let { l -> l in langs!! } == true } }
 
     val wide = LocalContext.current.resources.configuration.smallestScreenWidthDp >= 600
     // TV: start on the mode buttons so D-pad has a sensible first focus
@@ -81,6 +74,7 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit) {
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 4.dp)) {
             item { PillButton("All channels", { mode = "all"; save("live_mode", mode) }, Modifier.focusRequester(topFr), selected = mode == "all", size = 14) }
             item { PillButton("★  Favorites", { mode = "fav"; save("live_mode", mode) }, selected = mode == "fav", size = 14) }
+            if (tvLive) item { PillButton("🔍  Search", onSearch, size = 14) }
             item { Spacer(Modifier.width(12.dp)) }
             if (mode == "all" || favView == "grouped") item {
                 PillButton(if (groupBy == "type") "Grouped by type" else "Original categories",
@@ -113,7 +107,7 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit) {
         val chMenu: (Item) -> Unit = { menuTarget = it }
         when {
             mode == "fav" -> FavoritesView(repo, info, catTitle, groupBy, favView, favOrder, asList, sortAz, play, chMenu)
-            groupBy == "type" -> TypeView(repo, byLang, info, asList, ::ordered, play, chMenu)
+            groupBy == "type" -> TypeView(repo, byLang, info, asList, sortAz, play, chMenu, { groupBy = "orig"; save("live_group", groupBy) })
             else -> OriginalView(repo, cats, asList, sortAz, play, chMenu, { menuTarget = it }) { msg = it }
         }
     }
@@ -171,17 +165,36 @@ private fun ChannelGrid(repo: Repo, list: List<Item>, asList: Boolean, play: (Li
 }
 
 @Composable
-private fun TypeView(repo: Repo, chans: List<Item>, info: Map<String, ChInfo>, asList: Boolean, ordered: (List<Item>) -> List<Item>,
-                     play: (List<Item>, Int) -> Unit, menu: (Item) -> Unit) {
-    val byType = remember(chans, info) { chans.groupBy { info[it.key]?.type ?: LiveKind.OTHER } }
+private fun TypeView(repo: Repo, chans: List<Item>, info: Map<String, ChInfo>, asList: Boolean, sortAz: Boolean,
+                     play: (List<Item>, Int) -> Unit, menu: (Item) -> Unit, useOriginal: () -> Unit) {
+    val ix = repo.liveIndex
+    val sorting = ix.state == LiveIndex.State.RUNNING
+    // Progress / problems: never an endless spinner; channels sorted so far are shown below
+    if (ix.state != LiveIndex.State.READY && repo.channels.isNotEmpty()) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(bottom = 6.dp)) {
+            when (ix.state) {
+                LiveIndex.State.RUNNING, LiveIndex.State.IDLE -> {
+                    val pct = if (ix.total > 0) ix.done * 100 / ix.total else 0
+                    Label("Sorting channels… $pct%  (${ix.done} of ${ix.total})", 15, DIM2)
+                    PillButton("Cancel", { ix.cancel() }, size = 13)
+                }
+                else -> {
+                    Label(if (ix.state == LiveIndex.State.CANCELLED) "Sorting stopped" else ix.error.ifEmpty { "Could not sort channels" }, 15, WARN2)
+                    PillButton("Try again", { ix.ensure(repo.channels, repo.liveCats, force = true) }, size = 13)
+                }
+            }
+            PillButton("Original categories", useOriginal, size = 13)
+        }
+    }
+    val byType = remember(chans, info) { LiveIndex.groupByType(chans, info) }
     val types = LiveKind.ORDER.filter { byType.containsKey(it) }
     var type by remember { mutableStateOf(repo.store.sort("live_type", "")) }
     val cur = types.find { it == type } ?: types.firstOrNull()
     var lang by remember(cur) { mutableStateOf("") }
     val inType = byType[cur] ?: emptyList()
     val langsHere = remember(inType, info) { inType.groupingBy { info[it.key]?.lang ?: Tags.OTHER }.eachCount().toList().sortedByDescending { it.second } }
-    if (info.isEmpty() && repo.channels.isNotEmpty()) { Label("Sorting channels…", 16, DIM2); return }
-    if (types.isEmpty()) { Label(if (repo.channels.isEmpty()) "No channels loaded" else "No channels for the chosen languages", 16, DIM2); return }
+    if (info.isEmpty() && sorting) return   // first chunk is on its way (a few hundred channels)
+    if (types.isEmpty()) { Label(if (repo.channels.isEmpty()) "No channels loaded" else if (info.isEmpty()) "Channels are not sorted yet" else "No channels for the chosen languages", 16, DIM2); return }
     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         items(types) { t -> Chip("$t  ${byType[t]?.size ?: 0}", t == cur, { type = t; repo.store.saveSort("live_type", t) }) }
     }
@@ -193,7 +206,10 @@ private fun TypeView(repo: Repo, chans: List<Item>, info: Map<String, ChInfo>, a
         }
     }
     Spacer(Modifier.height(8.dp))
-    val list = remember(inType, lang, ordered) { ordered(if (lang.isEmpty()) inType else inType.filter { (info[it.key]?.lang ?: Tags.OTHER) == lang }) }
+    val list = remember(inType, lang, sortAz, info) {
+        val l = if (lang.isEmpty()) inType else inType.filter { (info[it.key]?.lang ?: Tags.OTHER) == lang }
+        if (sortAz) l.sortedBy { it.name.lowercase() } else l
+    }
     HiddenToggle(repo) { c -> c.let { info[it.key]?.type == cur } }
     ChannelGrid(repo, list, asList, play, menu)
 }

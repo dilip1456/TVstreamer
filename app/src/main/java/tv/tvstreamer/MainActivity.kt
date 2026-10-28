@@ -266,7 +266,7 @@ fun App(repo: Repo) {
                     Screen.Home -> Catalog(repo, "home", go, open, play, tick)
                     Screen.MoviesTab -> Catalog(repo, "movies", go, open, play, tick)
                     Screen.SeriesTab -> Catalog(repo, "series", go, open, play, tick)
-                    Screen.Live -> Live(repo, play)
+                    Screen.Live -> Live(repo, play) { search.open = true }
                     Screen.Search -> Catalog(repo, "home", go, open, play, tick)
                     Screen.Settings -> SettingsScreen(repo, go)
                     Screen.Categories -> CategoriesScreen(repo, go)
@@ -283,13 +283,16 @@ fun App(repo: Repo) {
                 if (cur !is Screen.Play && cur != Screen.Remote) {
                     if (search.open) {
                         BackHandler { search.open = false }
+                        DisposableEffect(Unit) { onDispose { AppUi.searchClosed++ } }
                         SearchOverlay(repo, search, { item ->
                             search.open = false
                             open(item)
                             fromSearch = screen.takeIf { it is Screen.Detail }
                         }, { l, i -> search.open = false; play(l, i) })
-                    } else Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomEnd) {
-                        SearchFab(Modifier.padding(if (rememberIsTv() && !phone) 28.dp else 18.dp)) { search.open = true }
+                    } else if (!(rememberIsTv() && !phone)) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomEnd) {
+                        // Touch screens only: on TV a floating button is a D-pad trap (Right at the end of the top menu
+                        // jumped to it with no way back). TV has Search in the top menu, on Live TV and on the remote's key.
+                        SearchFab(Modifier.padding(18.dp)) { search.open = true }
                     }
                 }
             }

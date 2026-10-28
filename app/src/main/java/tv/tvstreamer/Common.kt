@@ -226,7 +226,7 @@ fun Poster(url: String, title: String, modifier: Modifier = Modifier, fit: Conte
             color = Pal.Text.copy(alpha = 0.8f), fontSize = initialsSize.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center
         )
         if (url.isNotBlank()) {
-            val req = remember(url) { ImageRequest.Builder(ctx).data(url).crossfade(true).build() }
+            val req = remember(url) { ImageRequest.Builder(ctx).data(url).crossfade(150).build() }  // short fade: less work per D-pad step on TV
             AsyncImage(model = req, imageLoader = Images.get(ctx), contentDescription = title,
                 contentScale = fit, modifier = Modifier.fillMaxSize())
         }

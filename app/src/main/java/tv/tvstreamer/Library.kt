@@ -108,7 +108,9 @@ class Library(private val repo: Repo) {
         return catIndex.second[id]
     }
 
-    fun catLang(c: Cat): String = Tags.languageOrOther(c.title)
+    private val catLangMemo = java.util.concurrent.ConcurrentHashMap<String, String>()
+    /** Language of a category name (memoized: it is asked for every title when grouping). */
+    fun catLang(c: Cat): String = catLangMemo.getOrPut(c.title) { Tags.languageOrOther(c.title) }
     /** The title's own tag ("[Hindi]", "|TA|", "Hindi Dubbed") wins; else its category's language; else Other. */
     fun itemLang(i: Item): String = i.parsed.lang.ifEmpty { catOf(i.cat)?.let { catLang(it) } ?: Tags.OTHER }
 

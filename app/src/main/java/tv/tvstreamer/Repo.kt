@@ -57,7 +57,11 @@ class Repo(ctx: Context) {
         val lockedIds = lc.filter { it.locked }.map { it.id }.toSet()
         liveCats = lc
         channels = ch.map { it.copy(locked = it.locked || it.cat in lockedIds) }
+        liveIndex.ensure(channels, lc)   // sort channels by type / language in the background, ready for Live TV
     }
+
+    /** Type and language of every channel (worked out off the main thread, saved on disk). */
+    val liveIndex = LiveIndex(store)
 
     /** When channels and categories were last read from the portal (from live.json). */
     var listsAt by mutableStateOf(0L)
@@ -155,8 +159,14 @@ class Repo(ctx: Context) {
     fun isHidden(kind: String, id: String) = "$kind:$id" in hidden
 
     /** Best guess from the category name: does this VOD category hold series? */
-    fun isSeriesCat(c: Cat) = SERIES_CAT.containsMatchIn(c.title)
-    fun hasSeriesCats() = vodCats.any { isSeriesCat(it) }
+    private val seriesCatMemo = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
+    @Volatile private var seriesCatsAny: Pair<List<Cat>, Boolean> = emptyList<Cat>() to false
+    fun isSeriesCat(c: Cat) = seriesCatMemo.getOrPut(c.title) { SERIES_CAT.containsMatchIn(c.title) }
+    fun hasSeriesCats(): Boolean {
+        val cats = vodCats
+        seriesCatsAny.let { (l, v) -> if (l === cats) return v }
+        return cats.any { isSeriesCat(it) }.also { seriesCatsAny = cats to it }
+    }
 
     /** Load the first page of a VOD category (at most 3 requests at a time). */
     suspend fun loadRow(cat: Cat) {
