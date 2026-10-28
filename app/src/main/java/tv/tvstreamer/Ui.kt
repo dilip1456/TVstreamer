@@ -75,7 +75,7 @@ fun Label(text: String, size: Int = 18, color: Color = Pal.Text, modifier: Modif
 @Composable
 fun Row1(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, onMenu: (() -> Unit)? = null, onFocus: (() -> Unit)? = null) {
     Box(modifier.fillMaxWidth().tv(onClick, onMenu, onFocus).padding(horizontal = 12.dp, vertical = 8.dp)) {
-        Label(text)
+        Label(text, maxLines = 3)
     }
 }
 
@@ -154,7 +154,7 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
     val statusText = note.ifEmpty { repo.status }
 
     LazyColumn(
-        Modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 12.dp),
+        Modifier.fillMaxSize().imePadding().padding(horizontal = if (AppUi.phoneNav) 16.dp else 32.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         item { Label("Settings", 32) }
@@ -219,21 +219,17 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
         item { Label("Movie & series info (optional)", 18) }
         item {
             Label("Posters, plots, cast and release dates come from TMDB when a TMDB API key is set (free at themoviedb.org > Settings > API). " +
-                "An OMDb key (omdbapi.com) adds the IMDb rating. Without keys the portal's own info is used. Keys stay on this device.", 13, DIM, maxLines = 4)
+                "An OMDb key (omdbapi.com) adds the IMDb rating. Without keys the portal's own info is used. With Google sync on, keys also sync to your other devices.", 13, DIM, maxLines = 10)
         }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.weight(1f)) { SettingField("TMDB API key (v3 key or v4 read token)", tmdb, password = true) { tmdb = it } }
-                Row1("Get a TMDB key ↗", { link("TMDB", TMDB_KEY_URL) }, Modifier.width(260.dp))
-            }
+            FieldWithLink({ SettingField("TMDB API key (v3 key or v4 read token)", tmdb, password = true) { tmdb = it } },
+                "Get a TMDB key ↗") { link("TMDB", TMDB_KEY_URL) }
         }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.weight(1f)) { SettingField("OMDb API key (optional, for IMDb ratings)", omdb, password = true) { omdb = it } }
-                Row1("Get an OMDb key ↗", { link("OMDb", OMDB_KEY_URL) }, Modifier.width(260.dp))
-            }
+            FieldWithLink({ SettingField("OMDb API key (optional, for IMDb ratings)", omdb, password = true) { omdb = it } },
+                "Get an OMDb key ↗") { link("OMDb", OMDB_KEY_URL) }
         }
-        if (linkNote.isNotEmpty()) item { Label(linkNote, 15, Pal.GoldText, maxLines = 3) }
+        if (linkNote.isNotEmpty()) item { Label(linkNote, 15, Pal.GoldText, maxLines = 6) }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row1("Save keys and test", {
@@ -254,16 +250,18 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
 }
 
 @Composable
-fun SettingField(label: String, value: String, password: Boolean = false, onChange: (String) -> Unit) {
+fun SettingField(label: String, value: String, password: Boolean = false, multiLine: Boolean = false, onChange: (String) -> Unit) {
     val keyboard = LocalSoftwareKeyboardController.current
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Label(label, 13, DIM)
+    val tv = rememberIsTv()
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Label(label, if (tv) 16 else 14, DIM, maxLines = 3)
         TextField(
             value = value,
             onValueChange = onChange,
-            singleLine = true,
+            singleLine = !multiLine || password,
+            maxLines = if (multiLine && !password) 3 else 1,
             visualTransformation = if (password) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
-            modifier = Modifier.fillMaxWidth().height(52.dp)
+            modifier = Modifier.fillMaxWidth().heightIn(min = if (tv) 64.dp else 56.dp)
                 .onFocusChanged { if (it.isFocused) keyboard?.show() else keyboard?.hide() },
             colors = androidx.compose.material3.TextFieldDefaults.colors(
                 focusedContainerColor = Pal.FieldFocus,
@@ -271,12 +269,22 @@ fun SettingField(label: String, value: String, password: Boolean = false, onChan
                 focusedTextColor = Pal.Text,
                 unfocusedTextColor = Pal.Text
             ),
-            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 16.sp),
-            placeholder = { Text("Tap to enter", color = DIM, fontSize = 14.sp) }
+            textStyle = androidx.compose.ui.text.TextStyle(fontSize = if (tv) 20.sp else 17.sp),
+            placeholder = { Text("Tap to enter", color = DIM, fontSize = if (tv) 18.sp else 15.sp) }
         )
     }
 }
 
+
+/** A text field with a link button: side by side on TV, stacked on a phone so the field keeps its full width. */
+@Composable
+fun FieldWithLink(field: @Composable () -> Unit, button: String, onClick: () -> Unit) {
+    if (AppUi.phoneNav) Column(verticalArrangement = Arrangement.spacedBy(6.dp)) { field(); Row1(button, onClick) }
+    else Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Bottom) {
+        Box(Modifier.weight(1f)) { field() }
+        Row1(button, onClick, Modifier.width(280.dp))
+    }
+}
 
 const val TMDB_KEY_URL = "https://www.themoviedb.org/settings/api"
 const val OMDB_KEY_URL = "https://www.omdbapi.com/apikey.aspx"

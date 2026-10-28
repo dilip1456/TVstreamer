@@ -98,7 +98,8 @@ keys are synced too, so a new device is ready right after sign-in. Turn it off t
 The Google client ID / secret are never synced (they are needed to sign in).
 
 Where it is stored: one file (`tvstreamer-sync.json`) in the hidden app-data folder of *your own* Google Drive. Only
-TVstreamer (your OAuth client) can read it; it does not appear in your Drive file list. Sign-in tokens are stored
+TVstreamer (your OAuth client) can read it; it does not appear in your Drive file list. (If Google refuses the
+app-folder permission, the same file is kept in My Drive instead; see "If sign-in fails" below.) Sign-in tokens are stored
 encrypted on the device and never logged. "Sign out" removes them from the device; "Delete cloud data" removes the file.
 
 How it syncs: on sign-in, when the app starts or comes back, about 10 s after a change, and with "Sync now". Every
@@ -114,18 +115,34 @@ Google sign-in on TVs needs an "OAuth client" that belongs to you (no client ID 
 4. **APIs & Services > OAuth consent screen** (Google Auth Platform > Branding / Audience): User type **External**,
    app name `TVstreamer`, your email as support and developer contact. Save.
 5. **Audience > Test users > Add users**: add your own Gmail address. (Leave the app in "Testing".)
-6. **Data access > Add or remove scopes**: add `.../auth/drive.appdata` (plus openid, email, profile). Save.
+6. **Data access > Add or remove scopes**: add `.../auth/drive.appdata` and `.../auth/drive.file` (plus openid,
+   email, profile). Save.
 7. **APIs & Services > Credentials > Create credentials > OAuth client ID**, Application type
    **TVs and Limited Input devices**, name `TVstreamer TV`, Create.
 8. Copy the **Client ID** and **Client secret** into the app: Profile/Settings > Google account & sync. Enter them
    on the TV and on the phone (or type them on one device and copy them across).
 9. Press **Sign in with Google**. The TV shows a code and a QR code: on your phone open https://www.google.com/device
-   (or scan the QR), enter the code, pick your account, and allow. Google warns "app isn't verified": choose
-   Continue (it is your own app). The app syncs at once.
+   (or scan the QR), enter the code, pick your account. Google warns "app isn't verified": choose Continue (it is
+   your own app). **Then tick the Google Drive box** ("See, create, and delete its own configuration data in your
+   Google Drive", or "…files that you use with this app") and press Continue. The app syncs at once.
 
 Note: while the consent screen is in "Testing", Google may expire the sign-in after 7 days; the app then says
 "Sign in again". Switching the consent screen to "In production" avoids that; Google may then show an
 "unverified app" warning, which is fine for your own personal use.
+
+### If sign-in fails (1.42)
+The Google account & sync screen now shows Google's own error words, what to do, and a link to the page that fixes
+it, plus a Troubleshooting checklist at the bottom. Common causes:
+- **"Google would not offer the Drive … permission" (`invalid_scope`)**: Google's TV sign-in sometimes refuses the
+  hidden app-folder permission (`drive.appdata`) for a client even though it is on Google's allowed list. From 1.42
+  the app then asks for `drive.file` instead and keeps one file, `tvstreamer-sync.json`, in your normal My Drive
+  (the app can only see files it made). If both are refused, check that the client type is "TVs and Limited Input
+  devices", the Drive API is enabled, and both scopes are under Data access.
+- **Drive box left unticked**: Google signs you in but without Drive. The app explains this and shows a new code;
+  sign in again and tick the box.
+- **`access_denied`**: Cancel was pressed, or your Gmail is not on Audience > Test users.
+- **"Google Drive API is turned off"**: open the link shown, press Enable, wait a minute, press Sync now.
+- **`invalid_client`**: Client ID/secret mistyped, or the client is not the TV type.
 
 ## Profile, account menu and theme (1.41)
 

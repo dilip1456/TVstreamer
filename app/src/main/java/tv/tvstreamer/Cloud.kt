@@ -33,6 +33,11 @@ object Cloud {
         private set
     var error by mutableStateOf("")
         private set
+    /** What to do about [error], and a page that helps (may be empty). */
+    var errorHint by mutableStateOf("")
+        private set
+    var errorLink by mutableStateOf("")
+        private set
     var lastSync by mutableLongStateOf(0L)
         private set
     var busy by mutableStateOf(false)
@@ -63,6 +68,8 @@ object Cloud {
     var syncSecrets: Boolean
         get() = acct.getBoolean("sync_secrets", true)
         private set(v) { acct.edit().putBoolean("sync_secrets", v).commit() }
+    /** Where the sync file lives for the signed-in account (app-data folder, or a file in My Drive when Google refused drive.appdata). */
+    val space: DriveSpace get() = DriveSpace.of(acct.getString("drive_space", null))
     /** False when the account prefs could not be encrypted on this device (they are still app-private). */
     var encrypted = true
         private set
@@ -125,6 +132,7 @@ object Cloud {
     private fun fail(e: Exception) {
         val g = e as? GoogleError
         error = g?.message ?: "Sync failed: ${e.javaClass.simpleName}"
+        errorHint = g?.hint ?: ""; errorLink = g?.link ?: ""
         status = if (g?.code == "offline") "Offline: changes are saved and will sync later" else "Sync problem"
         if (g?.authLost == true) { clearTokens(); status = "Signed out" }
     }
@@ -132,8 +140,13 @@ object Cloud {
     // ---------- Sign-in ----------
 
     fun startSignIn(): Google.DeviceCode {
-        require(clientId.isNotEmpty() && clientSecret.isNotEmpty()) { "Enter the Client ID and Client secret first." }
-        return Google.startDevice(clientId)
+        if (clientId.isEmpty() || clientSecret.isEmpty()) throw GoogleError("Enter the Client ID and Client secret first.", "no_client")
+        return try { Google.startDevice(clientId, DriveSpace.APPDATA) } catch (e: GoogleError) {
+            // Google's device flow rejects drive.appdata for some clients (a long-standing Google issue);
+            // drive.file still lets the app keep its own file in the user's Drive.
+            if (e.code != "invalid_scope") throw e
+            try { Google.startDevice(clientId, DriveSpace.FILE) } catch (e2: GoogleError) { throw if (e2.code == "invalid_scope") e else e2 }
+        }
     }
 
     /** Polls until the user approves (true), or throws. Call from a coroutine that is cancelled when the screen closes. */
@@ -147,11 +160,17 @@ object Cloud {
                 else if (e.code == "offline") null
                 else throw e
             } ?: continue
+            if (!GoogleErrors.hasScope(t.scope, dc.space.scope)) {
+                // Granular consent: the Drive box was left unticked. Drop this grant and ask again.
+                Google.revoke(t.refresh ?: t.access)
+                throw GoogleErrors.scopeMissing(dc.space)
+            }
             accessToken = t.access; accessExp = t.expiresAt
+            acct.edit().putString("drive_space", dc.space.name).commit()
             refreshToken = t.refresh ?: throw GoogleError("Google did not return a refresh token. Remove the app's access in your Google account and try again.")
             val mail = t.email ?: Google.userEmail(t.access) ?: ""
             acct.edit().putString("email", mail).putString("name", t.name ?: "").putString("photo", t.photo ?: "").apply()
-            email = mail; name = t.name ?: ""; photo = t.photo ?: ""; error = ""; status = "Signed in"
+            email = mail; name = t.name ?: ""; photo = t.photo ?: ""; error = ""; errorHint = ""; errorLink = ""; status = "Signed in"
             // First sync on this device: cloud copy wins conflicts, this device's extra items are added
             runSync()
             return@withContext true
@@ -161,7 +180,7 @@ object Cloud {
 
     private fun clearTokens() {
         accessToken = ""; accessExp = 0
-        acct.edit().remove("refresh").remove("email").remove("name").remove("photo").remove("last_sync").remove("file_id").commit()
+        acct.edit().remove("refresh").remove("drive_space").remove("email").remove("name").remove("photo").remove("last_sync").remove("file_id").commit()
         email = ""; name = ""; photo = ""; lastSync = 0
         runCatching { journalFile.delete() }   // next sign-in is a "first sync" again
     }
@@ -169,7 +188,7 @@ object Cloud {
     fun signOut() {
         pending?.cancel()
         val r = refreshToken
-        clearTokens(); error = ""; status = "Signed out"
+        clearTokens(); error = ""; errorHint = ""; errorLink = ""; status = "Signed out"
         if (r.isNotEmpty()) scope.launch { Google.revoke(r) }
     }
 
@@ -178,8 +197,8 @@ object Cloud {
         lock.withLock {
             try {
                 val t = token()
-                val ids = Google.findFiles(t)
-                ids.forEach { Google.delete(t, it) }
+                val ids = Google.findFiles(t, space)
+                ids.forEach { Google.delete(t, it, space) }
                 signOut()
                 "Deleted the cloud copy (${ids.size} file${if (ids.size == 1) "" else "s"}) and signed out. Data on this device is unchanged."
             } catch (e: Exception) { (e as? GoogleError)?.message ?: "Delete failed: ${e.javaClass.simpleName}" }
@@ -245,9 +264,10 @@ object Cloud {
             saveJournal(journal)
 
             // 2. Fetch the cloud copy
-            val ids = authed { Google.findFiles(it) }
+            val sp = space
+            val ids = authed { Google.findFiles(it, sp) }
             val fileId = ids.firstOrNull()
-            val remoteText = fileId?.let { id -> authed { Google.download(it, id) } }
+            val remoteText = fileId?.let { id -> authed { Google.download(it, id, sp) } }
             val remote = remoteText?.let { SyncDoc.fromJson(it) }
             if (remote != null && remote.schema > Sync.SCHEMA)
                 throw GoogleError("The cloud copy was written by a newer TVstreamer. Update this app to sync.")
@@ -256,11 +276,11 @@ object Cloud {
             val merged = Sync.prune(Sync.merge(journal, remote?.entries ?: emptyMap()), now)
             if (remote == null || merged != remote.entries) {
                 val doc = SyncDoc(updated = now, device = device, entries = merged)
-                val id = authed { Google.upload(it, fileId, doc.toJson().toString()) }
+                val id = authed { Google.upload(it, fileId, doc.toJson().toString(), sp) }
                 acct.edit().putString("file_id", id).apply()
             }
             // Extra copies (two devices created the file at the same moment): merged into ours above, remove them
-            ids.drop(1).forEach { id -> runCatching { authed { Google.delete(it, id) } } }
+            ids.drop(1).forEach { id -> runCatching { authed { Google.delete(it, id, sp) } } }
 
             // 4. Apply what changed elsewhere
             val wanted = Sync.values(merged).filterKeys { !skip(it) }
@@ -276,7 +296,7 @@ object Cloud {
             saveJournal(applied)
             lastSync = System.currentTimeMillis()
             acct.edit().putLong("last_sync", lastSync).apply()
-            error = ""; status = "Synced"
+            error = ""; errorHint = ""; errorLink = ""; status = "Synced"
             refreshProfile()
         } finally { busy = false }
     }
