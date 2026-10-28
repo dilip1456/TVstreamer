@@ -12,6 +12,8 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -162,6 +164,10 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int, onBack: () -> Unit) {
     var idx by remember { mutableIntStateOf(start.coerceIn(0, (list.size - 1).coerceAtLeast(0))) }
     var attempt by remember { mutableIntStateOf(0) }
     var autoRetries by remember { mutableIntStateOf(0) }
+    // Which link strategy to start from, and which one gave the current URL (see Stalker.link)
+    var linkFrom by remember { mutableIntStateOf(0) }
+    var linkUsed by remember { mutableIntStateOf(0) }
+    var showLog by remember { mutableStateOf(false) }
     var err by remember { mutableStateOf("") }
     var resolving by remember { mutableStateOf(true) }
     var buffering by remember { mutableStateOf(false) }
@@ -217,6 +223,7 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int, onBack: () -> Unit) {
         saveNow()
         idx = (n + list.size) % list.size
         autoRetries = 0
+        linkFrom = 0
         zapTick++
         touch()
     }
@@ -262,13 +269,19 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int, onBack: () -> Unit) {
                 if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
                     exo.seekToDefaultPosition(); exo.prepare(); return
                 }
+                // Movies / episodes: when the link itself does not play, try the next way of asking the portal
+                if (cur.kind == "vod" && error.errorCode in 2000..3999 && linkUsed + 1 < repo.api.linkTries(cur)) {
+                    linkFrom = linkUsed + 1
+                    attempt++
+                    return
+                }
                 // Live links often expire or drop: silently fetch a fresh link once or twice first
                 if (autoRetries < 2 && (cur.kind == "itv" || error.errorCode in 2000..2999)) {
                     autoRetries++
                     attempt++
                     return
                 }
-                err = friendly(error)
+                err = friendly(error) + (if (cur.kind == "vod") "\nLink: ${repo.api.mask(exo.currentMediaItem?.localConfiguration?.uri?.toString() ?: "").take(160)}" else "")
                 controls = true
             }
             override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -313,7 +326,8 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int, onBack: () -> Unit) {
         resolving = true
         exo.stop()
         try {
-            val url = withContext(Dispatchers.IO) { repo.api.link(item) }
+            val (url, used) = withContext(Dispatchers.IO) { repo.api.link(item, linkFrom) }
+            linkUsed = used
             // Headers are read now so a token obtained during link() is included.
             http.setDefaultRequestProperties(repo.api.streamHeaders())
             exo.setMediaItem(mediaItemFor(url))
@@ -516,9 +530,12 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int, onBack: () -> Unit) {
             ) {
                 Text(item.name, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text("Can't play this stream", color = Pal.Error, fontSize = 18.sp)
-                Text(err, color = Pal.Dim, fontSize = 14.sp, maxLines = 6, overflow = TextOverflow.Ellipsis)
+                Text(err, color = Pal.Dim, fontSize = 13.sp, maxLines = 14, overflow = TextOverflow.Ellipsis)
+                if (showLog) Text(repo.api.debugLog(), color = Pal.Dim, fontSize = 11.sp, maxLines = 30, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.heightIn(max = 260.dp).verticalScroll(rememberScrollState()))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    PillButton("Retry", { autoRetries = 0; attempt++ }, Modifier.focusRequester(retryFr), primary = true)
+                    PillButton("Retry", { autoRetries = 0; linkFrom = 0; attempt++ }, Modifier.focusRequester(retryFr), primary = true)
+                    PillButton(if (showLog) "Hide portal replies" else "Portal replies", { showLog = !showLog })
                     if (list.size > 1) PillButton(if (live) "Next channel" else "Next", { go(idx + 1) })
                     PillButton("Back", onBack)
                 }
@@ -564,7 +581,7 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int, onBack: () -> Unit) {
                     add("Subtitles" to { dialog = "subs" })
                     add("Picture: Fit / Fill / Zoom" to { dialog = "aspect" })
                     add("Move control bar (now: $barPos)" to { barPos = when (barPos) { "bottom" -> "left"; "left" -> "right"; else -> "bottom" }; repo.store.barPos = barPos; dialog = null })
-                    add("Reload stream" to { autoRetries = 0; attempt++; dialog = null })
+                    add("Reload stream" to { autoRetries = 0; linkFrom = 0; attempt++; dialog = null })
                 }
             }
             val title = when (d) { "audio" -> "Audio"; "subs" -> "Subtitles"; "aspect" -> "Picture"; else -> item.name }

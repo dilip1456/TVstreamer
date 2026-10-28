@@ -202,11 +202,12 @@ class Stalker(private val store: Store) {
         return items to (page * per < total)
     }
 
-    private fun episodesFromArray(base: Item, cmd: String, season: String, nums: List<Int>, img: String): List<Item> =
+    private fun episodesFromArray(base: Item, cmd: String, season: String, nums: List<Int>, img: String, seasonId: String = ""): List<Item> =
         nums.map { n ->
             Item("vod", "${base.id}:${season.ifEmpty { "s" }}:$n", "Episode $n", cmd, base.cat, n, base.locked,
                 img = img.ifEmpty { base.img }, desc = base.desc, year = base.year, rating = base.rating,
-                genre = base.genre, series = n, season = season)
+                genre = base.genre, series = n, season = season,
+                pcmd = base.cmd.takeIf { it != cmd } ?: "", pid = base.id, sid = seasonId)
         }
 
     /** Dig into a series and return a flat list of all episodes across seasons. */
@@ -244,7 +245,7 @@ class Stalker(private val store: Store) {
                     val img = absUrl(firstOf(o, "screenshot_uri", "cover_big", "cover", "poster"))
                     if (nums.isNotEmpty() && o.optString("cmd").isNotEmpty()) {
                         // Season row with an episode-number array
-                        out += episodesFromArray(series, o.optString("cmd"), if (isSeason || a.length() > 1) sname else "", nums, img)
+                        out += episodesFromArray(series, o.optString("cmd"), if (isSeason || a.length() > 1) sname else "", nums, img, sid)
                     } else if (isSeason && sid.isNotEmpty()) {
                         try {
                             val epResp = call("type=vod&action=get_ordered_list&movie_id=${enc(seriesId)}&season_id=${enc(sid)}&episode_id=0")
@@ -259,13 +260,18 @@ class Stalker(private val store: Store) {
                                 val eid = ep.optString("id").ifEmpty { "$seriesId:$sid:$e" }
                                 val ename = ep.optString("name").ifEmpty { "Episode ${e + 1}" }
                                 val epNums = intList(ep.optJSONArray("series"))
+                                val epNum = epNums.singleOrNull()
+                                    ?: firstOf(ep, "series_number", "episode_number", "episode", "number").toIntOrNull()
+                                    ?: Regex("(?i)(?:episode|ep|e)\\s*(\\d+)").find(ename)?.groupValues?.get(1)?.toIntOrNull()
+                                    ?: (e + 1)
                                 out += Item("vod", eid, ename,
                                     ep.optString("cmd").ifEmpty { "/media/$eid.mpg" },
                                     ep.optString("category_id").ifEmpty { series.cat }, e + 1, series.locked,
                                     img = absUrl(firstOf(ep, "screenshot_uri", "cover_big", "cover")).ifEmpty { img.ifEmpty { series.img } },
                                     desc = firstOf(ep, "description").ifEmpty { series.desc },
                                     year = series.year, rating = series.rating, genre = series.genre,
-                                    series = if (epNums.size == 1) epNums[0] else 0, season = sname)
+                                    series = epNum, season = sname,
+                                    pcmd = o.optString("cmd").ifEmpty { series.cmd }, pid = seriesId, sid = sid)
                             }
                         } catch (_: Exception) {}
                     } else {
@@ -293,48 +299,192 @@ class Stalker(private val store: Store) {
         return raw
     }
 
-    fun link(i: Item): String {
-        // Always go through create_link so the portal returns an authorized stream URL.
-        // Use the item's own cmd first: a movie_id lookup on many portals returns the whole
-        // category (so its first cmd is a *different* film), so it is only a last resort.
-        val candidates = mutableListOf<String>()
-        if (i.cmd.isNotEmpty()) candidates += i.cmd
-        if (i.kind == "vod" && i.id.isNotEmpty() && !i.id.contains(":")) {
-            candidates += "/media/${i.id}.mpg"
-            candidates += "ffmpeg /media/${i.id}.mpg"
-        }
-        val ser = if (i.series > 0) i.series.toString() else ""
+    // ---------- Stream links ----------
 
-        var lastErr = ""
-        for (c in candidates.distinct()) {
-            val variants = listOf(
-                "type=${i.kind}&action=create_link&cmd=${enc(c)}&series=$ser&forced_storage=&disable_ad=0&download=0",
-                "type=${i.kind}&action=create_link&cmd=${enc(c)}&series=${ser.ifEmpty { "0" }}&forced_storage=0&disable_ad=0&download=0",
-                "type=${i.kind}&action=create_link&cmd=${enc(c)}"
-            )
-            for (q in variants.distinct()) {
-                try {
-                    val resp = call(q)
-                    lastErr = resp.toString().take(200)
-                    val js = resp.opt("js")
-                    val raw = clean(when (js) {
-                        is JSONObject -> js.optString("cmd").ifEmpty { js.optString("url") }.ifEmpty { js.optString("link") }
-                        is String -> js
-                        else -> ""
-                    })
-                    if (raw.startsWith("http") || raw.startsWith("rtsp") || raw.startsWith("rtmp") || raw.startsWith("udp")) return raw
-                    if (js is JSONObject) {
-                        val err = js.optString("error").ifEmpty { js.optString("msg") }
-                        if (err.isNotEmpty()) lastErr = err
-                    }
-                } catch (e: Exception) {
-                    lastErr = e.message ?: "request failed"
-                }
+    /** Masked log of the last create_link attempts (shown on the error screen and in Settings). */
+    @Volatile var lastReply: String = ""
+        private set
+    private val log = ArrayDeque<String>()
+
+    /** Hide the token, MAC, serial and passwords before showing portal replies on screen. */
+    fun mask(text: String): String {
+        var t = text
+        if (token.length > 4) t = t.replace(token, "***")
+        val mac = normalizeMac(store.mac)
+        if (mac.length > 4) { t = t.replace(mac, "**:**:**:**:**:**", true); t = t.replace(enc(mac), "**MAC**", true) }
+        if (store.serial.length > 3) t = t.replace(store.serial, "***")
+        t = t.replace(Regex("(?i)([0-9a-f]{2}(:|%3a)){5}[0-9a-f]{2}"), "**:**:**:**:**:**")
+        t = t.replace(Regex("(?i)\\b((?:play_)?token|password|pass|pwd|mac|sn|auth|sig)([\"']?\\s*[=:]\\s*[\"']?)([^&\"'\\s,}]+)"), "$1$2***")
+        return t
+    }
+
+    private fun note(label: String, msg: String) {
+        val line = "$label → ${mask(msg).take(300)}"
+        android.util.Log.d("TVStalker", line)
+        synchronized(log) { log.addLast(line); while (log.size > 12) log.removeFirst() }
+        lastReply = line
+    }
+
+    fun debugLog(): String = synchronized(log) { log.joinToString("\n\n") }.ifEmpty { "No portal replies yet. Play something first." }
+
+    /** One way of asking the portal for a stream. */
+    private class LinkTry(val label: String, val type: String, val cmd: String, val series: String, val lookup: String? = null,
+                          val storage: String = "undefined", val query: String? = null)
+
+    private fun portalOrigin(): String {
+        val portal = store.portal.trim().let { if (it.startsWith("http")) it else "http://$it" }
+        return Regex("^(https?://[^/]+)").find(portal)?.value ?: ""
+    }
+
+    /** Turns a create_link answer into a playable URL, or "" when it is not usable. */
+    private fun usable(rawCmd: String, vod: Boolean = true): String {
+        val raw = clean(rawCmd)
+        if (raw.isEmpty()) return ""
+        val l = raw.lowercase()
+        if (l.startsWith("http://") || l.startsWith("https://") || l.startsWith("rtsp://") || l.startsWith("rtmp://") || l.startsWith("udp://") || l.startsWith("rtp://")) {
+            // Some portals answer with http://localhost/... meaning "the portal's own host"
+            if (!vod) return raw
+            val host = Regex("^[a-z]+://([^/:]+)").find(l)?.groupValues?.get(1) ?: ""
+            if (host == "localhost" || host == "127.0.0.1") {
+                val origin = portalOrigin()
+                if (origin.isEmpty()) return ""
+                return origin + raw.substringAfter("://").let { r -> "/" + r.substringAfter("/", "") }
+            }
+            // An URL that ends with an empty stream id ("...stream=&" or ".../.mpg") cannot play
+            if (Regex("(?i)[?&]stream=(&|$)").containsMatchIn(raw)) return ""
+            return raw
+        }
+        if (raw.startsWith("/") && vod) return portalOrigin().takeIf { it.isNotEmpty() }?.let { it + raw } ?: ""
+        return ""
+    }
+
+    private fun tries(i: Item): List<LinkTry> {
+        val out = mutableListOf<LinkTry>()
+        if (i.kind == "itv") {
+            // Exactly the requests 1.36 used (live works there)
+            if (i.cmd.isNotEmpty()) {
+                val c = enc(i.cmd)
+                out += LinkTry("live cmd", "itv", i.cmd, "", query = "type=itv&action=create_link&cmd=$c&series=&forced_storage=&disable_ad=0&download=0")
+                out += LinkTry("live cmd 2", "itv", i.cmd, "", query = "type=itv&action=create_link&cmd=$c&series=0&forced_storage=0&disable_ad=0&download=0")
+                out += LinkTry("live cmd 3", "itv", i.cmd, "", query = "type=itv&action=create_link&cmd=$c")
+            }
+            return out
+        }
+        val ep = i.series
+        val isEp = ep > 0 || i.pid.isNotEmpty()
+        val n = if (ep > 0) ep.toString() else ""
+        if (isEp) {
+            // Episode: the episode / season cmd with series=<episode number>, then the parent's cmd
+            if (i.cmd.isNotEmpty()) {
+                out += LinkTry("episode cmd, series=$n", "vod", i.cmd, n)
+                out += LinkTry("episode cmd (type=series)", "series", i.cmd, n)
+            }
+            if (i.pcmd.isNotEmpty() && i.pcmd != i.cmd) {
+                out += LinkTry("parent cmd, series=$n", "vod", i.pcmd, n)
+                out += LinkTry("parent cmd (type=series)", "series", i.pcmd, n)
+            }
+            if (i.pid.isNotEmpty()) {
+                val sidQ = if (i.sid.isNotEmpty()) "&season_id=${enc(i.sid)}" else ""
+                out += LinkTry("lookup episode by id", "vod", "", n,
+                    "type=vod&action=get_ordered_list&movie_id=${enc(i.pid)}$sidQ&episode_id=${enc(i.id)}")
+                out += LinkTry("lookup episode (type=series)", "series", "", n,
+                    "type=series&action=get_ordered_list&movie_id=${enc(i.pid)}$sidQ&episode_id=${enc(i.id)}")
+            }
+        } else {
+            // Movie: the movie's own cmd exactly as the portal listed it, the way a MAG box asks for it
+            if (i.cmd.isNotEmpty()) {
+                out += LinkTry("movie cmd", "vod", i.cmd, "")
+                out += LinkTry("movie cmd (1.35 style)", "vod", i.cmd, "", storage = "")
+                out += LinkTry("movie cmd, series=0", "vod", i.cmd, "0")
+            }
+            if (i.id.isNotEmpty() && !i.id.contains(":")) {
+                // Old behaviour (≤1.35): ask the portal for the movie by id and use the cmd it returns
+                out += LinkTry("lookup movie by id", "vod", "", "", "type=vod&action=get_ordered_list&movie_id=${enc(i.id)}")
+                out += LinkTry("/media/<id>.mpg", "vod", "/media/${i.id}.mpg", "")
+                out += LinkTry("ffmpeg /media/<id>.mpg", "vod", "ffmpeg /media/${i.id}.mpg", "")
             }
         }
-        // Some channels carry a direct stream URL; use it if create_link gave nothing usable
-        val direct = clean(i.cmd)
-        if (direct.startsWith("http") && !direct.contains("localhost") && !direct.contains("127.0.0.1")) return direct
-        throw IllegalStateException("No stream link. Portal: $lastErr")
+        return out
+    }
+
+    /** Find the cmd of [id] in a get_ordered_list answer (never blindly the first row of a category). */
+    private fun cmdFromLookup(resp: JSONObject, id: String): String {
+        val js = resp.opt("js")
+        val a = when (js) {
+            is JSONObject -> js.optJSONArray("data") ?: return js.optString("cmd")
+            is JSONArray -> js
+            else -> return ""
+        }
+        val rows = (0 until a.length()).mapNotNull { a.optJSONObject(it) }
+        rows.firstOrNull { it.optString("id") == id }?.optString("cmd")?.takeIf { it.isNotEmpty() }?.let { return it }
+        return if (rows.size == 1) rows[0].optString("cmd") else ""
+    }
+
+    /** Number of strategies for an item (the player moves on to the next one when a link does not play). */
+    fun linkTries(i: Item): Int = tries(i).size +
+        (if (clean(i.cmd).let { (it.startsWith("http://") || it.startsWith("https://")) && !it.contains("localhost") && !it.contains("127.0.0.1") }) 1 else 0)
+
+    /**
+     * Ask the portal for a playable URL. Strategies are tried in order starting at [from];
+     * returns the URL and the index of the strategy that produced it.
+     */
+    fun link(i: Item, from: Int = 0): Pair<String, Int> {
+        val list = tries(i)
+        val fails = mutableListOf<String>()
+        var lastRaw = ""
+        for ((idx, t) in list.withIndex()) {
+            if (idx < from) continue
+            try {
+                var cmd = t.cmd
+                if (t.lookup != null) {
+                    val r = call(t.lookup)
+                    note(t.label, r.toString())
+                    cmd = cmdFromLookup(r, i.id)
+                    if (cmd.isEmpty()) { fails += "${t.label}: no cmd"; continue }
+                    // A lookup may already give a real stream URL (not a localhost / relative placeholder)
+                    val c = clean(cmd)
+                    if ((c.startsWith("http://") || c.startsWith("https://")) && !c.contains("://localhost") && !c.contains("://127.0.0.1"))
+                        usable(cmd).takeIf { it.isNotEmpty() }?.let { note("${t.label} (direct)", it); return it to idx }
+                }
+                val q = t.query ?: ("type=${t.type}&action=create_link&cmd=${enc(cmd)}&series=${enc(t.series)}" +
+                    "&forced_storage=${t.storage}&disable_ad=0&download=0")
+                val resp = call(q)
+                lastRaw = resp.toString()
+                note(t.label, lastRaw)
+                val js = resp.opt("js")
+                val got = when (js) {
+                    is JSONObject -> js.optString("cmd").ifEmpty { js.optString("url") }.ifEmpty { js.optString("link") }
+                    is String -> js
+                    else -> ""
+                }
+                val url = usable(got, i.kind != "itv")
+                if (url.isNotEmpty()) return url to idx
+                val err = (js as? JSONObject)?.let { o -> o.optString("error").ifEmpty { o.optString("msg") } }.orEmpty()
+                fails += "${t.label}: " + when {
+                    err.isNotEmpty() -> err
+                    got.isEmpty() -> "empty cmd"
+                    else -> "unusable \"${mask(got).take(60)}\""
+                }
+            } catch (e: Exception) {
+                note(t.label, "request failed: ${e.message}")
+                fails += "${t.label}: ${e.message?.take(60)}"
+            }
+        }
+        // Some items carry a direct stream URL; use it when the portal gave nothing usable
+        if (from <= list.size) {
+            val c = clean(i.cmd)
+            val direct = if (c.startsWith("http://") || c.startsWith("https://")) usable(i.cmd, i.kind != "itv") else ""
+            if (direct.isNotEmpty() && !c.contains("localhost") && !c.contains("127.0.0.1")) {
+                note("direct cmd", direct)
+                return direct to list.size
+            }
+        }
+        throw NoLinkException(
+            "The portal gave no playable link (${fails.size} tries).\n" +
+            fails.takeLast(4).joinToString("\n") +
+            (if (lastRaw.isNotEmpty()) "\nLast reply: ${mask(lastRaw).take(300)}" else "")
+        )
     }
 }
+
+class NoLinkException(msg: String) : Exception(msg)

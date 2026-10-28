@@ -378,7 +378,7 @@ fun Movies(repo: Repo, play: (List<Item>, Int) -> Unit) {
                             scope.launch {
                                 busy = true
                                 try {
-                                    val eps = withContext(Dispatchers.IO) { repo.api.seasons(m.id) }
+                                    val eps = withContext(Dispatchers.IO) { repo.api.episodes(m).map { e -> if (e.season.isNotEmpty() && !e.name.startsWith(e.season)) e.copy(name = "${e.season} - ${e.name}") else e } }
                                     if (eps.isNotEmpty()) { movies = eps; sel = Cat(m.id, m.name, false); msg = "Episodes of ${m.name}" }
                                     else msg = "No episodes"
                                 } catch (e: Exception) { msg = e.message ?: "Failed" }
@@ -437,7 +437,7 @@ fun Movies(repo: Repo, play: (List<Item>, Int) -> Unit) {
                             scope.launch {
                                 busy = true
                                 try {
-                                    val eps = withContext(Dispatchers.IO) { repo.api.seasons(m.id) }
+                                    val eps = withContext(Dispatchers.IO) { repo.api.episodes(m).map { e -> if (e.season.isNotEmpty() && !e.name.startsWith(e.season)) e.copy(name = "${e.season} - ${e.name}") else e } }
                                     if (eps.isNotEmpty()) { movies = eps; sel = Cat(m.id, m.name, false); msg = "Episodes" }
                                     else msg = "No episodes"
                                 } catch (e: Exception) { msg = e.message ?: "Failed" }
@@ -463,7 +463,7 @@ fun Movies(repo: Repo, play: (List<Item>, Int) -> Unit) {
                             scope.launch {
                                 busy = true
                                 try {
-                                    val eps = withContext(Dispatchers.IO) { repo.api.seasons(m.id) }
+                                    val eps = withContext(Dispatchers.IO) { repo.api.episodes(m).map { e -> if (e.season.isNotEmpty() && !e.name.startsWith(e.season)) e.copy(name = "${e.season} - ${e.name}") else e } }
                                     if (eps.isNotEmpty()) { movies = eps; sel = Cat(m.id, m.name, false); msg = "Episodes of ${m.name}" }
                                     else msg = "No episodes"
                                 } catch (e: Exception) { msg = e.message ?: "Failed" }
@@ -582,6 +582,15 @@ fun SettingsScreen(repo: Repo) {
                         .padding(16.dp)
                 ) {
                     Label(statusText, 18, WARN, maxLines = 8)
+                }
+            }
+        }
+        item {
+            var showLog by remember { mutableStateOf(false) }
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row1(if (showLog) "Hide last portal replies" else "Show last portal replies (for stream problems)", { showLog = !showLog })
+                if (showLog) Box(Modifier.fillMaxWidth().background(Color(0xFF1A1A22), RoundedCornerShape(8.dp)).padding(12.dp)) {
+                    Label(repo.api.debugLog(), 13, DIM, maxLines = 60)
                 }
             }
         }
