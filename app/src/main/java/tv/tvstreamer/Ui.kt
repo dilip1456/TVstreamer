@@ -4,6 +4,7 @@ package tv.tvstreamer
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -58,7 +59,8 @@ fun Modifier.tv(onClick: () -> Unit, onMenu: (() -> Unit)? = null, onFocus: (() 
     var f by remember { mutableStateOf(false) }
     this
         .onFocusChanged { f = it.isFocused; if (it.isFocused) onFocus?.invoke() }
-        .background(if (f) Color(0xFF3A6BFF) else Color(0xFF1E1E26), RoundedCornerShape(8.dp))
+        .background(if (f) Color(0xFF2E2710) else Color(0xFF1E1E26), RoundedCornerShape(8.dp))
+        .then(if (f) Modifier.border(2.dp, Pal.Gold, RoundedCornerShape(8.dp)) else Modifier)
         .onKeyEvent { e ->
             if (onMenu != null && e.type == KeyEventType.KeyUp && e.key == Key.Menu) { onMenu(); true } else false
         }

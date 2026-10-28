@@ -229,7 +229,7 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                 )
                 Column(Modifier.padding(horizontal = hPad, vertical = if (isTv) 18.dp else 10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("TVSTREAMER", color = Pal.Accent, fontSize = if (isTv) 28.sp else 22.sp, fontWeight = FontWeight.Black)
+                        Text("TVSTREAMER", color = Pal.Gold, fontSize = if (isTv) 28.sp else 22.sp, fontWeight = FontWeight.Black)
                         Spacer(Modifier.width(14.dp))
                         val ver = remember { try { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName } catch (e: Exception) { "?" } }
                         Text("v$ver", color = Pal.Dim, fontSize = 12.sp)

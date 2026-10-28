@@ -56,7 +56,9 @@ object Pal {
     val Surface = Color(0xFF1A1A22)
     val Card = Color(0xFF22222C)
     val Accent = Color(0xFFE50914)
-    val Focus = Color.White
+    /** Brand gold (logo #D4AF37): focus borders and highlights. */
+    val Gold = Color(0xFFD4AF37)
+    val Focus = Gold
     val Dim = Color(0xFF9AA0B5)
     val Warn = Color(0xFFFFB74D)
     val Error = Color(0xFFFF8A80)
@@ -114,7 +116,7 @@ fun PillButton(
 ) {
     var f by remember { mutableStateOf(false) }
     val bg = when {
-        f -> Color.White
+        f -> Pal.Gold
         primary -> Pal.Accent
         selected -> Color(0xFF3A3A48)
         else -> Color(0x33FFFFFF)
