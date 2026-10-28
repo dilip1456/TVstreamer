@@ -29,6 +29,7 @@ sealed interface Screen {
     object Settings : Screen
     object Categories : Screen
     object Remote : Screen
+    object Account : Screen
     /** Language checklist for a tab ("movies" / "series"). */
     class Languages(val tab: String, val back: Screen) : Screen
     /** focusEp: episode key to open on (its season, focused) — from Continue watching. */
@@ -50,12 +51,16 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         repo = Repo(applicationContext)
         Keys.init(repo.store)
+        Cloud.init(applicationContext, repo)
         setContent {
             MaterialTheme(
                 colorScheme = darkColorScheme(primary = Pal.Accent, background = Pal.Bg, surface = Pal.Surface, onPrimary = Color.White)
             ) { App(repo) }
         }
     }
+
+    override fun onStart() { super.onStart(); Cloud.syncSoon() }
+    override fun onStop() { Cloud.flush(); super.onStop() }
 
     /** Re-send a key to the normal (Compose) handling, as a fresh down + up. */
     private fun replay(up: KeyEvent) {
@@ -139,6 +144,7 @@ fun App(repo: Repo) {
             is Screen.Pool -> s.back
             is Screen.Languages -> s.back
             Screen.Remote -> Screen.Settings
+            Screen.Account -> Screen.Settings
             else -> Screen.Home
         }
         if (s === fromSearch) { search.open = true; fromSearch = null }
@@ -201,6 +207,7 @@ fun App(repo: Repo) {
             Screen.Settings -> SettingsScreen(repo, go)
             Screen.Categories -> CategoriesScreen(repo, go)
             Screen.Remote -> RemoteScreen { back() }
+            Screen.Account -> AccountScreen(repo) { screen = Screen.Home; tick++ }
             is Screen.Languages -> LanguagesScreen(repo, s.tab) { back() }
             is Screen.Detail -> DetailScreen(repo, s.item, play, { back() }, tick, s.focusEp, go)
             is Screen.Grid -> GridScreen(repo, s.cat, open, play)

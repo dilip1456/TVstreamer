@@ -316,6 +316,7 @@ class Stalker(private val store: Store) {
         if (store.serial.length > 3) t = t.replace(store.serial, "***")
         t = t.replace(Regex("(?i)([0-9a-f]{2}(:|%3a)){5}[0-9a-f]{2}"), "**:**:**:**:**:**")
         t = t.replace(Regex("(?i)\\b((?:play_)?token|password|pass|pwd|mac|sn|auth|sig)([\"']?\\s*[=:]\\s*[\"']?)([^&\"'\\s,}]+)"), "$1$2***")
+        t = maskGoogle(t)
         return t
     }
 
@@ -489,3 +490,10 @@ class Stalker(private val store: Store) {
 }
 
 class NoLinkException(msg: String) : Exception(msg)
+
+/** Hides Google OAuth tokens, codes and secrets (access "ya29.", refresh "1//", and key=value forms). */
+fun maskGoogle(text: String): String = text
+    .replace(Regex("ya29\\.[A-Za-z0-9_\\-.]+"), "ya29.***")
+    .replace(Regex("\\b1//[A-Za-z0-9_\\-]{10,}"), "1//***")
+    .replace(Regex("GOCSPX-[A-Za-z0-9_\\-]+"), "GOCSPX-***")
+    .replace(Regex("(?i)\\b(access_token|refresh_token|id_token|client_secret|device_code|Bearer)([\"']?\\s*[=: ]\\s*[\"']?)([^&\"'\\s,}]+)"), "$1$2***")

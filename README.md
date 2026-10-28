@@ -89,6 +89,44 @@ Settings > Movie & series info has "Get a TMDB key" and "Get an OMDb key" button
 https://www.themoviedb.org/settings/api and https://www.omdbapi.com/apikey.aspx in the browser. If the device has no
 browser (common on Fire TV), the address is shown on screen so you can open it on a phone or computer.
 
+## Google sign-in and sync (1.40)
+Settings > Google account & sync. Sign in once on the TV and once on the phone with the same Google account; favourites,
+hidden categories and channels, category order, languages, sorting, Live TV mode settings, remote buttons, Continue
+watching / last played episodes, TMDB "Fix match" choices and player settings stay the same on both.
+"Also sync portal login and API keys" is ON by default: portal URL, MAC, serial, locked-section password and TMDB/OMDb
+keys are synced too, so a new device is ready right after sign-in. Turn it off to keep them on each device only.
+The Google client ID / secret are never synced (they are needed to sign in).
+
+Where it is stored: one file (`tvstreamer-sync.json`) in the hidden app-data folder of *your own* Google Drive. Only
+TVstreamer (your OAuth client) can read it; it does not appear in your Drive file list. Sign-in tokens are stored
+encrypted on the device and never logged. "Sign out" removes them from the device; "Delete cloud data" removes the file.
+
+How it syncs: on sign-in, when the app starts or comes back, about 10 s after a change, and with "Sync now". Every
+item has its own change time, so the TV and phone can both make changes; the newest change of each item wins and
+removals are remembered. Offline changes are kept and sent later. On a device's first sign-in, the cloud copy wins
+any conflict and that device's extra items are added.
+
+### One-time Google Cloud setup (free, about 5 minutes)
+Google sign-in on TVs needs an "OAuth client" that belongs to you (no client ID is built into the app).
+1. On a computer open https://console.cloud.google.com/ and sign in with the Google account you will use.
+2. Top bar > project picker > **New project**, name it e.g. `TVstreamer`, Create, and select it.
+3. **APIs & Services > Library**, search **Google Drive API**, open it, click **Enable**.
+4. **APIs & Services > OAuth consent screen** (Google Auth Platform > Branding / Audience): User type **External**,
+   app name `TVstreamer`, your email as support and developer contact. Save.
+5. **Audience > Test users > Add users**: add your own Gmail address. (Leave the app in "Testing".)
+6. **Data access > Add or remove scopes**: add `.../auth/drive.appdata` (plus openid, email, profile). Save.
+7. **APIs & Services > Credentials > Create credentials > OAuth client ID**, Application type
+   **TVs and Limited Input devices**, name `TVstreamer TV`, Create.
+8. Copy the **Client ID** and **Client secret** into the app: Profile/Settings > Google account & sync. Enter them
+   on the TV and on the phone (or type them on one device and copy them across).
+9. Press **Sign in with Google**. The TV shows a code and a QR code: on your phone open https://www.google.com/device
+   (or scan the QR), enter the code, pick your account, and allow. Google warns "app isn't verified": choose
+   Continue (it is your own app). The app syncs at once.
+
+Note: while the consent screen is in "Testing", Google may expire the sign-in after 7 days; the app then says
+"Sign in again". Publishing the app to "In production" in the consent screen (no review is needed for these scopes
+for personal use) avoids that.
+
 ## Updating from inside the app
 Home > Update downloads the newest release and opens the Android installer. The first time,
 Android asks you to allow "Install unknown apps" for TVStreamer: turn it on, go back and press Update again.

@@ -241,6 +241,82 @@ class Store(ctx: Context) {
 
     fun clearHistory() { p.edit().remove("recent").remove("resume").apply() }
 
+    // ---------- Cloud sync ----------
+
+    /** Called (on the writing thread) whenever synced data changes; muted while sync itself writes. */
+    @Volatile var onChange: (() -> Unit)? = null
+    @Volatile private var muted = false
+    private val watcher = SharedPreferences.OnSharedPreferenceChangeListener { _, k ->
+        if (!muted && k != null && k !in LOCAL_ONLY) onChange?.invoke()
+    }
+    init { p.registerOnSharedPreferenceChangeListener(watcher); sec.registerOnSharedPreferenceChangeListener(watcher) }
+
+    private fun prefStrings(): Map<String, String> = p.all.filter { (k, v) ->
+        v is String && k !in STRUCTURED && !k.startsWith("order_") && !k.startsWith("langs_") && k !in LOCAL_ONLY
+    }.mapValues { it.value as String }
+
+    /** This device's synced data as raw values. Fixes (TMDB overrides) are added by the caller. */
+    fun syncRead(withSecrets: Boolean): SyncLocal {
+        val favs = runCatching { JSONArray(p.getString("fav", "[]")).let { a -> (0 until a.length()).map { a.getJSONObject(it).toString() } } }.getOrDefault(emptyList())
+        val custom = runCatching {
+            val o = JSONObject(p.getString("custom_cats", "{}") ?: "{}")
+            o.keys().asSequence().associateWith { k -> o.getJSONArray(k).let { a -> (0 until a.length()).map { a.getJSONObject(it).toString() } } }
+        }.getOrDefault(emptyMap())
+        val orders = p.all.keys.filter { it.startsWith("order_") }.associate { it.removePrefix("order_") to catOrder(it.removePrefix("order_")) }
+        val langs = p.all.keys.filter { it.startsWith("langs_") }.mapNotNull { k -> langs(k.removePrefix("langs_"))?.let { k.removePrefix("langs_") to it } }.toMap()
+        val resume = resumeArray().let { a -> (0 until a.length()).map { a.getJSONObject(it).toString() } }
+        val last = runCatching { JSONObject(p.getString("lastep", "{}") ?: "{}").let { o -> o.keys().asSequence().associateWith { o.getJSONObject(it).toString() } } }.getOrDefault(emptyMap())
+        val secrets = if (!withSecrets) emptyMap() else mapOf(
+            "portal" to portal, "mac" to mac, "serial" to serial, "pw" to password, "tmdb" to tmdbKey, "omdb" to omdbKey
+        ).filterValues { it.isNotEmpty() }
+        return SyncLocal(
+            favs = favs, hidden = hidden, custom = custom, orders = orders, langs = langs, prefs = prefStrings(),
+            recent = p.getString("recent", "") ?: "", resume = resume, lastEp = last, secrets = secrets
+        )
+    }
+
+    /** Replaces this device's synced data. Secrets are only written when [withSecrets]; they are never cleared by sync. */
+    fun syncWrite(l: SyncLocal, withSecrets: Boolean): Boolean {
+        muted = true
+        var secretsChanged = false
+        try {
+            val e = p.edit()
+            e.putString("fav", JSONArray().also { a -> l.favs.forEach { a.put(JSONObject(it)) } }.toString())
+            e.putStringSet("hidden", l.hidden.toSet())
+            e.putString("custom_cats", JSONObject().also { o -> l.custom.forEach { (k, v) -> o.put(k, JSONArray().also { a -> v.forEach { a.put(JSONObject(it)) } }) } }.toString())
+            p.all.keys.filter { it.startsWith("order_") && it.removePrefix("order_") !in l.orders }.forEach { e.remove(it) }
+            l.orders.forEach { (k, v) -> e.putString("order_$k", JSONArray(v).toString()) }
+            p.all.keys.filter { it.startsWith("langs_") && it.removePrefix("langs_") !in l.langs }.forEach { e.remove(it) }
+            l.langs.forEach { (k, v) -> e.putStringSet("langs_$k", v.toSet()) }
+            prefStrings().keys.filter { it !in l.prefs }.forEach { e.remove(it) }
+            l.prefs.forEach { (k, v) -> if (k !in STRUCTURED && k !in LOCAL_ONLY) e.putString(k, v) }
+            if (l.recent.isEmpty()) e.remove("recent") else e.putString("recent", l.recent)
+            e.putString("resume", JSONArray().also { a -> l.resume.forEach { a.put(JSONObject(it)) } }.toString())
+            e.putString("lastep", JSONObject().also { o -> l.lastEp.forEach { (k, v) -> o.put(k, JSONObject(v)) } }.toString())
+            e.commit()
+            if (withSecrets) {
+                fun put(name: String, cur: String, set: (String) -> Unit) {
+                    val v = l.secrets[name]
+                    if (!v.isNullOrEmpty() && v != cur) { set(v); if (name != "tmdb" && name != "omdb") secretsChanged = true }
+                }
+                put("portal", portal) { portal = it }
+                put("mac", mac) { mac = it }
+                put("serial", serial) { serial = it }
+                put("pw", password) { password = it }
+                put("tmdb", tmdbKey) { tmdbKey = it }
+                put("omdb", omdbKey) { omdbKey = it }
+            }
+        } finally { muted = false }
+        return secretsChanged
+    }
+
+    companion object {
+        /** Prefs stored in their own sync entries. */
+        val STRUCTURED = setOf("fav", "hidden", "custom_cats", "recent", "resume", "lastep")
+        /** Never synced. */
+        val LOCAL_ONLY = emptySet<String>()
+    }
+
     fun cacheWrite(name: String, text: String) { runCatching { File(dir, name).writeText(text) } }
     fun cacheRead(name: String): String? =
         runCatching { File(dir, name).takeIf { it.exists() }?.readText() }.getOrNull()

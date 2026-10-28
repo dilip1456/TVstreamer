@@ -202,6 +202,7 @@ object Tmdb {
         val m = runCatching { lookup(item, v) }.getOrNull()
         if (m != null) { mem[k] = m; writeDisk(k, m, true) }
         version++
+        onChange?.invoke()
         m
     }
 
@@ -213,6 +214,21 @@ object Tmdb {
     }
 
     fun hasOverride(item: Item) = overrides.containsKey(cacheKey(item))
+
+    /** Called after a Fix match change (cloud sync). */
+    @Volatile var onChange: (() -> Unit)? = null
+
+    fun overridesSnapshot(): Map<String, String> = HashMap(overrides)
+
+    /** Replaces all Fix match choices (from cloud sync); changed titles are looked up again. */
+    fun replaceOverrides(m: Map<String, String>) {
+        if (m == overridesSnapshot()) return
+        val changed = (overrides.keys + m.keys).filter { overrides[it] != m[it] }
+        overrides.clear(); overrides.putAll(m)
+        runCatching { File(dir, "overrides.json").writeText(JSONObject(overrides as Map<*, *>).toString()) }
+        changed.forEach { k -> mem.remove(k); file(k)?.delete() }
+        version++
+    }
 
     // ---- Series: TMDB episode names / stills / overviews by season + episode number ----
 

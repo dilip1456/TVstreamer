@@ -106,6 +106,12 @@ object Keys {
         }
     }
 
+    /** Re-reads the mapping (after cloud sync); an empty mapping means the defaults. */
+    fun reload(s: Store) {
+        short = defaultShort; long = defaultLong
+        init(s)
+    }
+
     private fun save() {
         val o = JSONObject()
             .put("s", JSONObject(short.mapKeys { it.key.toString() }.mapValues { it.value.name }))

@@ -178,6 +178,9 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
                 }
             }
         }
+        item {
+            Row1("Google account & sync: " + (if (Cloud.signedIn) Cloud.email.ifEmpty { "signed in" } else "not signed in"), { go(Screen.Account) })
+        }
         item { SettingField("Portal URL", portal) { portal = it } }
         item { SettingField("MAC address", mac) { mac = it } }
         item { SettingField("Serial number", serial) { serial = it } }

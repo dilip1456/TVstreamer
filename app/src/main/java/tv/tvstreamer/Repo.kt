@@ -170,6 +170,18 @@ class Repo(ctx: Context) {
         store.hidden = hidden
     }
 
+    /** Re-reads everything cloud sync may have changed. */
+    fun reloadSynced() {
+        hidden = store.hidden
+        favs = store.list("fav")
+        customCats = store.customCats()
+        vodOrder = store.catOrder("vod")
+        liveOrder = store.catOrder("itv")
+        syncTick++
+    }
+    /** Bumped after a cloud sync changed local data. */
+    var syncTick by mutableStateOf(0)
+
     fun isFav(i: Item) = favs.any { it.key == i.key }
     fun moveToCustom(i: Item, catName: String) {
         store.addToCustom(catName, i)
