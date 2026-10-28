@@ -594,7 +594,7 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int, onBack: () -> Unit) {
                     buffered = buffered, canSeek = canSeek, isFav = repo.isFav(item), aspect = aspect, barPos = barPos, isTv = isTv,
                     hasAudio = choices(tracks, C.TRACK_TYPE_AUDIO).size > 1, hasSubs = choices(tracks, C.TRACK_TYPE_TEXT).isNotEmpty(),
                     playFr = playFr, seekFr = seekFr,
-                    onBack = onBack, onPlay = { togglePlay() }, onSeekBy = { seekBy(it); touch() },
+                    onPlay = { togglePlay() }, onSeekBy = { seekBy(it); touch() },
                     onSeekTo = { exo.seekTo(it); pos = it; touch() },
                     onPrev = { go(idx - 1) }, onNext = { go(idx + 1) },
                     onFav = { repo.toggleFav(item); favTick++; touch() },
@@ -621,7 +621,6 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int, onBack: () -> Unit) {
                     PillButton("Retry", { autoRetries = 0; linkFrom = 0; attempt++ }, Modifier.focusRequester(retryFr), primary = true)
                     PillButton(if (showLog) "Close portal replies" else "Portal replies", { showLog = !showLog })
                     if (list.size > 1) PillButton(if (live) "Next channel" else "Next", { go(idx + 1) })
-                    PillButton("Back", onBack)
                 }
             }
         }
@@ -761,13 +760,13 @@ private fun Controls(
     item: Item, live: Boolean, list: List<Item>, idx: Int, playing: Boolean, pos: Long, dur: Long, buffered: Long,
     canSeek: Boolean, isFav: Boolean, aspect: String, barPos: String, isTv: Boolean, hasAudio: Boolean, hasSubs: Boolean,
     playFr: FocusRequester, seekFr: FocusRequester,
-    onBack: () -> Unit, onPlay: () -> Unit, onSeekBy: (Long) -> Unit, onSeekTo: (Long) -> Unit,
+    onPlay: () -> Unit, onSeekBy: (Long) -> Unit, onSeekTo: (Long) -> Unit,
     onPrev: () -> Unit, onNext: () -> Unit, onFav: () -> Unit, onDialog: (String) -> Unit, onAspect: () -> Unit,
     onMove: () -> Unit, onTouch: () -> Unit
 ) {
     val pad = if (isTv) 40.dp else 16.dp
     Box(Modifier.fillMaxSize()) {
-        // Top: back, title, favourite
+        // Top: title, favourite, options (Back = system / remote Back)
         Row(
             Modifier.align(Alignment.TopStart).fillMaxWidth()
                 .background(Brush.verticalGradient(listOf(Color(0xCC000000), Color.Transparent)))
@@ -775,7 +774,6 @@ private fun Controls(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            CtrlButton(Ic.Back, "Back", onBack)
             Column(Modifier.weight(1f)) {
                 Text((if (live && item.num > 0) "${item.num}  " else "") + item.name, color = Color.White,
                     fontSize = if (isTv) 24.sp else 18.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)

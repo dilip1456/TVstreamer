@@ -134,7 +134,7 @@ fun Modifier.focusCard(
         .combinedClickable(onClick = onClick, onLongClick = onMenu)
 }
 
-/** Pill / text button with a filled focus state (white with black text when focused). */
+/** Compact pill / text button (the "Fix match" style) with a filled gold focus state. Used for every action button in the app. */
 @Composable
 fun PillButton(
     text: String,
@@ -142,7 +142,7 @@ fun PillButton(
     modifier: Modifier = Modifier,
     primary: Boolean = false,
     selected: Boolean = false,
-    size: Int = 16,
+    size: Int = 14,
     onMenu: (() -> Unit)? = null
 ) {
     var f by remember { mutableStateOf(false) }
@@ -159,7 +159,7 @@ fun PillButton(
             .background(bg)
             .onKeyEvent { e -> if (onMenu != null && e.type == KeyEventType.KeyUp && e.key == Key.Menu) { onMenu(); true } else false }
             .combinedClickable(onClick = onClick, onLongClick = onMenu)
-            .padding(horizontal = 18.dp, vertical = 10.dp),
+            .padding(horizontal = 14.dp, vertical = 8.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(text, color = if (f) Color.Black else if (primary) Color.White else Pal.Text, fontSize = size.sp,
@@ -168,6 +168,24 @@ fun PillButton(
     }
 }
 
+/** Wrapping row of compact buttons (side by side, wraps onto the next line when narrow). */
+@Composable
+fun ButtonFlow(gapDp: Int = 8, content: @Composable () -> Unit) {
+    androidx.compose.ui.layout.Layout(content) { measurables, constraints ->
+        val gap = gapDp.dp.roundToPx()
+        val loose = constraints.copy(minWidth = 0, minHeight = 0)
+        val placeables = measurables.map { it.measure(loose) }
+        var x = 0; var y = 0; var rowH = 0
+        val pos = placeables.map { p ->
+            if (x > 0 && x + p.width > constraints.maxWidth) { x = 0; y += rowH + gap; rowH = 0 }
+            val at = x to y
+            x += p.width + gap
+            rowH = maxOf(rowH, p.height)
+            at
+        }
+        layout(constraints.maxWidth, y + rowH) { placeables.forEachIndexed { i, p -> p.place(pos[i].first, pos[i].second) } }
+    }
+}
 
 /** One shared Coil image loader: memory + 200 MB disk cache, MAG user agent. */
 object Images {

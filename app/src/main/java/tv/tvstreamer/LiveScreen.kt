@@ -70,12 +70,16 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit) {
     fun ordered(l: List<Item>) = if (sortAz) l.sortedBy { it.name.lowercase() } else l
 
     val wide = LocalContext.current.resources.configuration.smallestScreenWidthDp >= 600
+    // TV: start on the mode buttons so D-pad has a sensible first focus
+    val topFr = remember { FocusRequester() }
+    val tvLive = rememberIsTv()
+    LaunchedEffect(Unit) { if (tvLive) { delay(150); runCatching { topFr.requestFocus() } } }
     Column(Modifier.fillMaxSize().padding(horizontal = if (wide) 32.dp else 12.dp, vertical = 12.dp)) {
         Label("Live TV", 28)
         Spacer(Modifier.height(6.dp))
         // Mode and view options
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 4.dp)) {
-            item { PillButton("All channels", { mode = "all"; save("live_mode", mode) }, selected = mode == "all", size = 14) }
+            item { PillButton("All channels", { mode = "all"; save("live_mode", mode) }, Modifier.focusRequester(topFr), selected = mode == "all", size = 14) }
             item { PillButton("★  Favorites", { mode = "fav"; save("live_mode", mode) }, selected = mode == "fav", size = 14) }
             item { Spacer(Modifier.width(12.dp)) }
             if (mode == "all" || favView == "grouped") item {
@@ -198,7 +202,7 @@ private fun TypeView(repo: Repo, chans: List<Item>, info: Map<String, ChInfo>, a
 @Composable
 private fun HiddenToggle(repo: Repo, inGroup: (Item) -> Boolean) {
     var show by remember { mutableStateOf(false) }
-    Row1(if (show) "Hide hidden" else "Show hidden in this group", { show = !show }, Modifier.width(240.dp))
+    PillButton(if (show) "Hide hidden" else "Show hidden in this group", { show = !show }, selected = show)
     if (show) {
         val hiddenHere = repo.channels.filter { repo.isChannelHidden(it) && inGroup(it) }
         if (hiddenHere.isEmpty()) Label("No hidden channels here", 14, DIM2)

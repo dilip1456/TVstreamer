@@ -667,7 +667,6 @@ fun DetailScreen(repo: Repo, item: Item, play: (List<Item>, Int) -> Unit, onBack
                             }
                             PillButton(if (fav) "★  In My List" else "☆  Add to My List", { repo.toggleFav(cur); fav = repo.isFav(cur) }, onMenu = { more = true })
                             if (Tmdb.key.isNotBlank()) PillButton("✎  Fix match", { fix = true })
-                            PillButton("Back", onBack)
                         }
                     }
                 }
@@ -746,6 +745,8 @@ private fun FixMatchDialog(item: Item, onClose: () -> Unit) {
     val fr = remember { FocusRequester() }
     fun run() { busy = true; scope.launch { results = Tmdb.search(q, type); busy = false } }
     LaunchedEffect(Unit) { run(); delay(150); runCatching { fr.requestFocus() } }
+    // System / remote Back closes the dialog (not the details page behind it)
+    androidx.activity.compose.BackHandler { onClose() }
     Box(Modifier.fillMaxSize().background(Color(0xCC000000)), contentAlignment = Alignment.Center) {
         Column(Modifier.widthIn(max = 640.dp).fillMaxWidth(0.9f).heightIn(max = 560.dp).background(Pal.Surface, RoundedCornerShape(14.dp)).padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)) {

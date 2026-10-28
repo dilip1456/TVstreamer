@@ -200,6 +200,9 @@ fun ProfileScreen(repo: Repo, go: (Screen) -> Unit) {
     var msg by remember { mutableStateOf("") }
     val ver = remember { try { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName } catch (e: Exception) { "?" } }
     var aspect by remember { mutableStateOf(repo.store.aspect) }
+    val firstFr = remember { FocusRequester() }
+    val tv = rememberIsTv()
+    LaunchedEffect(Unit) { if (tv) { delay(150); runCatching { firstFr.requestFocus() } } }
     LazyColumn(Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.padding(vertical = 8.dp)) {
@@ -213,11 +216,12 @@ fun ProfileScreen(repo: Repo, go: (Screen) -> Unit) {
             }
         }
         if (Cloud.signedIn) item {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row1("Sync now", { Cloud.syncNow() }, Modifier.weight(1f))
-                Row1("Account & sync", { go(Screen.Account) }, Modifier.weight(1f))
+            ButtonFlow {
+                PillButton("Sync now", { Cloud.syncNow() }, Modifier.focusRequester(firstFr), primary = true)
+                PillButton("Account & sync", { go(Screen.Account) })
+                PillButton("Sign out", { Cloud.signOut() })
             }
-        } else item { Row1("Sign in with Google (sync TV and phone)", { go(Screen.Account) }) }
+        } else item { PillButton("Sign in with Google (sync TV and phone)", { go(Screen.Account) }, Modifier.focusRequester(firstFr), primary = true) }
         item { Label("Preferences", 18, Pal.Text, Modifier.padding(top = 8.dp)) }
         item { Row1("Theme: ${Theme.label}", { Theme.mode = Theme.next(Theme.mode); repo.store.theme = Theme.mode }) }
         item { Row1("Languages for Movies", { go(Screen.Languages("movies", Screen.Profile)) }) }
@@ -232,7 +236,7 @@ fun ProfileScreen(repo: Repo, go: (Screen) -> Unit) {
         item { Row1("Movie & series info (TMDB / OMDb keys)", { go(Screen.Settings) }) }
         item { Row1("Settings (portal, MAC, more)", { go(Screen.Settings) }) }
         item {
-            Row1("Check for update", {
+            PillButton("Check for update", {
                 msg = "Checking for updates..."
                 scope.launch {
                     val code = try { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionCode } catch (e: Exception) { 1 }
@@ -243,7 +247,6 @@ fun ProfileScreen(repo: Repo, go: (Screen) -> Unit) {
         if (msg.isNotEmpty()) item { Label(msg, 14, Pal.Warn, maxLines = 4) }
         item { Label("About", 18, Pal.Text, Modifier.padding(top = 8.dp)) }
         item { Label("TVstreamer v$ver · Stalker portal player for Fire TV and Android phones", 14, Pal.Dim, maxLines = 2) }
-        if (Cloud.signedIn) item { Row1("Sign out", { Cloud.signOut() }) }
         item { Spacer(Modifier.height(24.dp)) }
     }
 }

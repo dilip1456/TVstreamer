@@ -152,6 +152,10 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
         pw = s.password
     }
     val statusText = note.ifEmpty { repo.status }
+    // TV: start on the first row (there is no on-screen Back button; remote Back leaves)
+    val firstFr = remember { FocusRequester() }
+    val isTvS = rememberIsTv()
+    LaunchedEffect(Unit) { if (isTvS) { delay(150); runCatching { firstFr.requestFocus() } } }
 
     LazyColumn(
         Modifier.fillMaxSize().imePadding().padding(horizontal = if (AppUi.phoneNav) 16.dp else 32.dp, vertical = 12.dp),
@@ -172,22 +176,23 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
         item {
             var showLog by remember { mutableStateOf(false) }
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Row1(if (showLog) "Hide last portal replies" else "Show last portal replies (for stream problems)", { showLog = !showLog })
+                PillButton(if (showLog) "Hide last portal replies" else "Show last portal replies (for stream problems)", { showLog = !showLog }, selected = showLog)
                 if (showLog) Box(Modifier.fillMaxWidth().background(Pal.Field, RoundedCornerShape(8.dp)).padding(12.dp)) {
                     Label(repo.api.debugLog(), 13, DIM, maxLines = 60)
                 }
             }
         }
         item {
-            Row1("Google account & sync: " + (if (Cloud.signedIn) Cloud.email.ifEmpty { "signed in" } else "not signed in"), { go(Screen.Account) })
+            Row1("Google account & sync: " + (if (Cloud.signedIn) Cloud.email.ifEmpty { "signed in" } else "not signed in"), { go(Screen.Account) },
+                Modifier.focusRequester(firstFr))
         }
         item { SettingField("Portal URL", portal) { portal = it } }
         item { SettingField("MAC address", mac) { mac = it } }
         item { SettingField("Serial number", serial) { serial = it } }
         item { SettingField("Locked section password", pw, password = true) { pw = it } }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row1("Save and reload", {
+            ButtonFlow {
+                PillButton("Save and reload", {
                     keyboard?.hide()
                     s.portal = portal
                     s.mac = mac.trim().uppercase()
@@ -199,19 +204,15 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
                         repo.load()
                         note = repo.status.ifEmpty { "Loaded" }
                     }
-                }, Modifier.weight(1f))
-            }
-        }
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row1("Clear password", { s.password = ""; pw = ""; note = "Password cleared" }, Modifier.weight(1f))
-                Row1("Clear history", { s.clearHistory(); note = "History cleared" }, Modifier.weight(1f))
+                }, primary = true)
+                PillButton("Clear password", { s.password = ""; pw = ""; note = "Password cleared" })
+                PillButton("Clear history", { s.clearHistory(); note = "History cleared" })
             }
         }
         item { Row1("Browse, arrange and hide categories", { go(Screen.Categories) }) }
         item { Row1("Languages for Movies", { go(Screen.Languages("movies", Screen.Settings)) }) }
         item { Row1("Languages for Series", { go(Screen.Languages("series", Screen.Settings)) }) }
-        item { Row1("Refresh movie / series library (re-load the language categories)", {
+        item { PillButton("↻  Refresh movie / series library", {
             repo.lib.clear(); for (t in listOf("movies", "series")) repo.lib.selected(t)?.let { repo.lib.ensure(t, it, true) }; note = "Library cleared; it reloads in the background"
         }) }
         item { Row1("Remote buttons (assign actions to remote keys)", { go(Screen.Remote) }) }
@@ -230,20 +231,20 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
         }
         if (linkNote.isNotEmpty()) item { Label(linkNote, 15, Pal.GoldText, maxLines = 6) }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row1("Save keys and test", {
+            ButtonFlow {
+                PillButton("Save keys and test", {
                     keyboard?.hide()
                     s.tmdbKey = tmdb; s.omdbKey = omdb
                     Tmdb.setKeys(tmdb, omdb)
                     note = "Testing keys..."
                     scope.launch { note = withContext(Dispatchers.IO) { Tmdb.test(tmdb, omdb) } }
-                }, Modifier.weight(1f))
-                Row1("Clear movie info cache", { Tmdb.clearCache(); note = "Movie info cache cleared" }, Modifier.weight(1f))
+                }, primary = true)
+                PillButton("Clear movie info cache", { Tmdb.clearCache(); note = "Movie info cache cleared" })
             }
         }
         item {
             val n = repo.hiddenChannelCount()
-            Row1(if (n > 0) "Unhide all hidden channels ($n)" else "No hidden channels", { if (n > 0) { repo.unhideAllChannels(); note = "All channels shown again" } })
+            PillButton(if (n > 0) "Unhide all hidden channels ($n)" else "No hidden channels", { if (n > 0) { repo.unhideAllChannels(); note = "All channels shown again" } })
         }
     }
 }
@@ -284,10 +285,10 @@ fun SettingField(label: String, value: String, password: Boolean = false, multiL
 /** A text field with a link button: side by side on TV, stacked on a phone so the field keeps its full width. */
 @Composable
 fun FieldWithLink(field: @Composable () -> Unit, button: String, onClick: () -> Unit) {
-    if (AppUi.phoneNav) Column(verticalArrangement = Arrangement.spacedBy(6.dp)) { field(); Row1(button, onClick) }
-    else Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Bottom) {
+    if (AppUi.phoneNav) Column(verticalArrangement = Arrangement.spacedBy(6.dp)) { field(); PillButton(button, onClick) }
+    else Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.weight(1f)) { field() }
-        Row1(button, onClick, Modifier.width(280.dp))
+        PillButton(button, onClick)
     }
 }
 

@@ -11,6 +11,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -47,6 +48,9 @@ fun AccountScreen(repo: Repo, onReady: () -> Unit) {
     var noteErr by remember { mutableStateOf<GoogleError?>(null) }
     val tv = rememberIsTv()
     val body = if (tv) 17 else 15
+    // TV: start on the main action (Sync now / Sign in), there is no on-screen Back button
+    val firstFr = remember { androidx.compose.ui.focus.FocusRequester() }
+    LaunchedEffect(Cloud.signedIn) { if (tv) { kotlinx.coroutines.delay(150); runCatching { firstFr.requestFocus() } } }
 
     fun link(url: String) {
         note = if (openUrl(ctx, url)) "Opened in the browser." else "No web browser on this device. On a phone or computer, open:  $url"
@@ -106,7 +110,7 @@ fun AccountScreen(repo: Repo, onReady: () -> Unit) {
             }
             if (Cloud.error.isNotEmpty()) ErrorBox(Cloud.error, Cloud.errorHint, Cloud.errorLink, body) { u -> link(u) }
             Buttons(listOf("Sync now" to { Cloud.syncNow(); note = ""; noteErr = null },
-                "Sign out" to { Cloud.signOut(); note = "Signed out. Data on this device is kept." }))
+                "Sign out" to { Cloud.signOut(); note = "Signed out. Data on this device is kept." }), Modifier.focusRequester(firstFr))
             Row1((if (secrets) "☑" else "☐") + "  Also sync portal login and API keys", {
                 secrets = !secrets; Cloud.changeSyncSecrets(secrets)
                 note = if (secrets) "Portal login and API keys will sync." else "Portal login and API keys will be removed from the cloud copy."
@@ -114,7 +118,7 @@ fun AccountScreen(repo: Repo, onReady: () -> Unit) {
             Label("Portal URL, MAC, serial, locked-section password and TMDB/OMDb keys are kept in your own Google Drive " +
                 "(private to your account), so a new device is ready right after sign-in. " +
                 "The Google client ID and secret below are never synced.", body - 2, ADIM, maxLines = 20)
-            if (!confirmDelete) Row1("Delete cloud data…", { confirmDelete = true })
+            if (!confirmDelete) PillButton("Delete cloud data…", { confirmDelete = true })
             else Column(Modifier.fillMaxWidth().background(Pal.WarnBox, RoundedCornerShape(8.dp)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Label("Delete the synced copy from your Google Drive and sign this device out? Data on this device stays. " +
                     "Sign your other devices out first, or they will upload their copy again.", body, AWARN, maxLines = 20)
@@ -125,9 +129,9 @@ fun AccountScreen(repo: Repo, onReady: () -> Unit) {
             val c = code
             if (c != null) {
                 SignInCode(c, tv) { link(c.url) }
-                Row1("Cancel sign-in", { signing = false })
+                PillButton("Cancel sign-in", { signing = false })
             } else {
-                Row1(if (signing) "Starting..." else "Sign in with Google", { if (!signing) signing = true })
+                PillButton(if (signing) "Starting..." else "Sign in with Google", { if (!signing) signing = true }, Modifier.focusRequester(firstFr), primary = true)
                 if (Cloud.error.isNotEmpty() && noteErr == null) ErrorBox(Cloud.error, Cloud.errorHint, Cloud.errorLink, body) { u -> link(u) }
             }
         }
@@ -139,7 +143,7 @@ fun AccountScreen(repo: Repo, onReady: () -> Unit) {
         FieldWithLink({ SettingField("Google OAuth Client ID (…apps.googleusercontent.com)", cid, multiLine = true) { cid = it } },
             "Open Google Cloud ↗") { link(Google.CONSOLE_URL) }
         SettingField("Google OAuth Client secret (starts with GOCSPX-)", secret, password = true) { secret = it }
-        Row1("Save client", { keyboard?.hide(); Cloud.clientId = cid; Cloud.clientSecret = secret; note = "Saved" })
+        PillButton("Save client", { keyboard?.hide(); Cloud.clientId = cid; Cloud.clientSecret = secret; note = "Saved" })
         if (!Cloud.encrypted) Label("Note: this device could not encrypt the sign-in data; it is still private to the app.", body - 2, AWARN, maxLines = 4)
 
         Troubleshooting(body) { u -> link(u) }
@@ -147,11 +151,10 @@ fun AccountScreen(repo: Repo, onReady: () -> Unit) {
     }
 }
 
-/** Two or more buttons: side by side on TV, stacked on a narrow phone. */
+/** Two or more compact buttons side by side (wrapping when narrow). The first one can take the initial focus. */
 @Composable
-private fun Buttons(items: List<Pair<String, () -> Unit>>) {
-    if (AppUi.phoneNav) Column(verticalArrangement = Arrangement.spacedBy(6.dp)) { items.forEach { (t, a) -> Row1(t, a) } }
-    else Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { items.forEach { (t, a) -> Row1(t, a, Modifier.weight(1f)) } }
+private fun Buttons(items: List<Pair<String, () -> Unit>>, first: Modifier = Modifier) {
+    ButtonFlow { items.forEachIndexed { i, (t, a) -> PillButton(t, a, if (i == 0) first else Modifier) } }
 }
 
 /** Error with Google's own words, what to do, and the page that fixes it. The text can be selected and copied. */
@@ -165,7 +168,7 @@ private fun ErrorBox(msg: String, hint: String, link: String, body: Int, open: (
                 if (link.isNotEmpty()) Text(link, color = Pal.GoldText, fontSize = (body - 1).sp)
             }
         }
-        if (link.isNotEmpty()) Row1("Open this page ↗", { open(link) })
+        if (link.isNotEmpty()) PillButton("Open this page ↗", { open(link) })
     }
 }
 
@@ -184,7 +187,7 @@ private fun Troubleshooting(body: Int, open: (String) -> Unit) {
         Label("Troubleshooting checklist", body + 3, Pal.GoldText, maxLines = 2)
         steps.forEach { (t, u) ->
             Text(t, color = Pal.Text, fontSize = body.sp, lineHeight = (body + 5).sp)
-            if (u.isNotEmpty()) Row1("Open ↗  ${u.removePrefix("https://")}", { open(u) })
+            if (u.isNotEmpty()) PillButton("Open ↗  ${u.removePrefix("https://")}", { open(u) })
         }
     }
 }
@@ -200,7 +203,7 @@ private fun SignInCode(c: Google.DeviceCode, tv: Boolean, openLink: () -> Unit) 
             Text(c.userCode, color = Pal.GoldText, fontSize = if (tv) 40.sp else 32.sp, fontWeight = FontWeight.Bold, letterSpacing = 4.sp)
             Label("Choose your Google account, press Continue, and tick the Google Drive box before pressing Continue again. " +
                 "This page updates by itself.", if (tv) 16 else 14, ADIM, maxLines = 6)
-            Row1("Open the page on this device ↗", openLink)
+            PillButton("Open the page on this device ↗", openLink)
         }
     }
     val qrBox: @Composable () -> Unit = {

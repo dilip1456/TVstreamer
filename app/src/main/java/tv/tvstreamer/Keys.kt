@@ -187,7 +187,6 @@ fun RemoteScreen(onBack: () -> Unit) {
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         PillButton(if (learning) "Press a button on the remote…" else "＋  Learn a button", { learnMsg = ""; learning = true }, Modifier.focusRequester(firstFr), primary = true)
                         PillButton("Reset to defaults", { Keys.reset(); learnMsg = "Defaults restored" })
-                        PillButton("Back", onBack)
                     }
                     if (learnMsg.isNotEmpty()) Text(learnMsg, color = Pal.Warn, fontSize = 14.sp)
                 }
