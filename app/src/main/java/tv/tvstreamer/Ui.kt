@@ -218,11 +218,21 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Label("Library", 18)
                 Label(libraryStatus(repo), 13, DIM, maxLines = 4)
+                var confirm by remember { mutableStateOf(false) }
                 ButtonFlow {
-                    PillButton(if (lib.loading) "Refreshing…" else "↻  Refresh library", {
-                        if (!lib.loading) { repo.refreshAll(); note = "Refreshing channels, movies and series in the background" }
+                    if (lib.loading) PillButton("■  Stop loading", { lib.stop(); note = "Loading stopped" })
+                    else if (confirm) {
+                        PillButton("Yes, check for new titles", { confirm = false; note = lib.requestManual() }, primary = true)
+                        PillButton("Cancel", { confirm = false })
+                    } else PillButton("↻  Refresh library", {
+                        val w = lib.manualWait()
+                        if (w > 0) note = "Refreshed a moment ago. The next refresh is possible in ${(w + 59_999) / 60_000} min (keeps your provider happy)."
+                        else confirm = true
                     })
+                    if (lib.stopped && !lib.loading) PillButton("▶  Resume loading", { lib.resume(); note = "Loading resumed" })
                 }
+                if (confirm) Label("This asks the portal for the newest page of each category in your languages, one request at a time. " +
+                    "It is limited to once every 10 minutes so the provider does not see unusual traffic.", 13, DIM, maxLines = 4)
             }
         }
         item { Row1("Remote buttons (assign actions to remote keys)", { go(Screen.Remote) }) }
@@ -342,11 +352,12 @@ fun libraryStatus(repo: Repo): String {
     val lib = repo.lib
     lib.version
     val parts = mutableListOf<String>()
-    if (lib.hasData) parts += "%,d movies and series saved on this device".format(lib.size)
+    if (lib.hasData) parts += "%,d titles saved on this device (only your languages)".format(lib.size)
     val t = lib.refreshedAt
     parts += if (t > 0) "last refreshed " + whenText(t) else if (lib.hasData) "not fully refreshed yet" else "not loaded yet"
-    if (lib.loading) parts += if (lib.total > 0) "refreshing ${lib.done} of ${lib.total} pages" else "refreshing…"
-    else if (t > 0) parts += "refreshes automatically once a day"
+    if (lib.loading) parts += if (lib.total > 0) "loading ${lib.done} of ${lib.total} pages" else "refreshing…"
+    else if (t > 0) parts += "checks for new titles once a day; older pages load as you scroll"
+    if (lib.stopped) parts += "loading stopped"
     if (lib.note.isNotEmpty()) parts += lib.note
     return parts.joinToString(" · ")
 }

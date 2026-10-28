@@ -189,6 +189,13 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
     val langShelves by produceState(emptyList<Shelf>(), mode, langs, sort, lib.version, Tmdb.version, repo.vodCats.size) {
         value = if (tabbed && !langs.isNullOrEmpty()) languageShelves(repo, mode, langs, sort) else emptyList()
     }
+    // Few titles for the picked languages: fetch a few more pages (limited; never for unselected languages)
+    LaunchedEffect(mode, langs, lib.version, lib.loading) {
+        if (!tabbed || langs.isNullOrEmpty() || lib.loading) return@LaunchedEffect
+        delay(1500)
+        val n = withContext(Dispatchers.Default) { lib.cards(lib.pool(mode, langs)).size }
+        lib.fewResults(mode, langs, n)
+    }
 
     fun wantItem(i: Item): Boolean = lib.wantItem(i, mode)
 
@@ -223,10 +230,10 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
         } else {
             val catLangs = if (tabbed) null else homeLangs
             repo.visibleVod().filter { (!it.locked || unlocked) && lib.catForTab(it, mode) && (catLangs == null || lib.catLang(it) in catLangs) }.forEach { cat ->
-                val raw = if (lib.hasData) lib.inCat(cat.id).takeIf { it.isNotEmpty() || !lib.loading }?.take(ROW_LIMIT * 2) else repo.rows[cat.id]
+                val raw = lib.inCat(cat.id).takeIf { it.isNotEmpty() || !lib.catHasMore(cat.id) }?.take(ROW_LIMIT * 2)
                 // Each item is classified on its own, so categories that mix movies and series work
                 val items = raw?.filter { wantItem(it) }
-                if ((items == null && !(lib.hasData && lib.complete)) || items?.isNotEmpty() == true || repo.rowErrors[cat.id] != null) {
+                if (items == null || items.isNotEmpty() || repo.rowErrors[cat.id] != null) {
                     add(Shelf("vod:${cat.id}", Names.cat(cat.title), items ?: emptyList(), "vod", cat,
                         loading = raw == null && repo.rowErrors[cat.id] == null, error = repo.rowErrors[cat.id] ?: ""))
                 }
@@ -305,13 +312,17 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                             }
                             if (!langs.isNullOrEmpty()) {
                                 item(key = "sort") { PillButton("⇅  " + Sorts.label(sort), { sortMenu = true }, size = 14) }
-                                item(key = "refresh") { PillButton(if (lib.loading) "↻  Refreshing…" else "↻  Refresh", { if (!lib.loading) repo.refreshAll() }, size = 14) }
+                                when {
+                                    lib.loading -> item(key = "stop") { PillButton("■  Stop loading", { lib.stop() }, size = 14) }
+                                    lib.stopped -> item(key = "resume") { PillButton("▶  Resume loading", { lib.resume() }, size = 14) }
+                                    else -> item(key = "more") { PillButton("＋  Load more", { lib.more(mode, langs) }, size = 14) }
+                                }
                             }
                         }
-                        if (lib.loading && (!lib.hasData || !lib.complete)) {
-                            // First load only; later daily refreshes run quietly with the saved copy on screen
+                        if (lib.loading) {
+                            // Small and non-blocking: saved titles stay usable while pages arrive one by one
                             Spacer(Modifier.height(4.dp))
-                            Text("Loading the library… " + (if (lib.total > 0) "${lib.done} of ${lib.total} pages · " else "") + "%,d titles so far".format(lib.size),
+                            Text("Loading more… " + (if (lib.total > 0) "${lib.done} of ${lib.total} pages · " else "") + "%,d titles saved".format(lib.size),
                                 color = Pal.Dim, fontSize = 13.sp)
                             if (lib.total > 0) {
                                 Spacer(Modifier.height(4.dp))
@@ -399,7 +410,7 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
         }
         if (sortMenu) {
             ChoiceDialog("Sort genre rows", Sorts.all.map { s ->
-                ((if (s == sort) "✓  " else "") + Sorts.label(s)) to { sort = s; repo.store.saveSort("tab:$mode", s); sortMenu = false }
+                ((if (s == sort) "✓  " else "") + Sorts.label(s)) to { sort = s; repo.store.saveSort("tab:$mode", s); sortMenu = false; if (s != Sorts.ADDED) lib.more(mode, langs) }
             }, focusKey = "sort") { sortMenu = false }
         }
     }
@@ -452,6 +463,10 @@ fun MetaLine(item: Item, meta: Meta? = null) {
 
 @Composable
 private fun ShelfRow(repo: Repo, screen: String, shelf: Shelf, isTv: Boolean, hPad: Dp, onOpen: (Item) -> Unit, onMenu: (Item?) -> Unit, onSeeAll: (() -> Unit)?) {
+    // Reaching the end of a row fetches a little more (that row's category, or the row's language)
+    val onEnd: () -> Unit = {
+        shelf.cat?.let { repo.lib.moreInCat(it.id) } ?: shelf.pool?.let { p -> repo.lib.more(p.tab, setOf(p.lang)) }
+    }
     val state = remember(shelf.key) { repo.listStates.getOrPut("$screen|${shelf.key}") { LazyListState() } }
     val posterW = posterWidth(isTv)
     val tileW = if (isTv) 200.dp else 150.dp
@@ -506,6 +521,7 @@ private fun ShelfRow(repo: Repo, screen: String, shelf: Shelf, isTv: Boolean, hP
             }
             if (onSeeAll != null && shelf.items.isNotEmpty()) {
                 item(key = "seeall") {
+                    LaunchedEffect(shelf.key) { onEnd() }
                     Box(
                         Modifier.width(posterW).aspectRatio(2f / 3f).focusCard(onSeeAll).background(Pal.Card),
                         contentAlignment = Alignment.Center
@@ -860,40 +876,23 @@ private fun FlowRowCompat(content: @Composable () -> Unit) {
 fun GridScreen(repo: Repo, cat: Cat, open: (Item) -> Unit, play: (List<Item>, Int) -> Unit) {
     val isTv = rememberIsTv()
     val scope = rememberCoroutineScope()
-    var items by remember(cat.id) { mutableStateOf(repo.rows[cat.id] ?: emptyList()) }
-    var page by remember(cat.id) { mutableIntStateOf(if (repo.rows.containsKey(cat.id)) 1 else 0) }
-    var more by remember(cat.id) { mutableStateOf(repo.rowMore[cat.id] ?: true) }
-    var busy by remember { mutableStateOf(false) }
+    // The category's saved titles; its next page is fetched (gently, queued) when the grid's end comes into view
+    val lib = repo.lib
+    val items = remember(cat.id, lib.version) { lib.inCat(cat.id) }
+    val more = remember(cat.id, lib.version) { lib.catHasMore(cat.id) }
+    val busy = lib.loading
     var msg by remember { mutableStateOf("") }
     var menu by remember { mutableStateOf<Item?>(null) }
     var sort by remember { mutableStateOf(repo.store.sort("grid", Sorts.ADDED)) }
     var sortMenu by remember { mutableStateOf(false) }
     val screenKey = "grid:${cat.id}"
-    // The local catalog has every title of the category: no paging through the portal
-    val local = remember(cat.id, repo.lib.version) { repo.lib.inCat(cat.id).takeIf { it.isNotEmpty() || (repo.lib.hasData && repo.lib.complete) } }
-    LaunchedEffect(local) { if (local != null) { items = local; more = false; page = 1; msg = "" } }
     // Same title in several qualities shows once (best version first); sorted on what is loaded so far
     val cards = remember(items, sort, Tmdb.version) { repo.lib.sort(repo.lib.cards(items), sort) }
     val vcount = remember(cards) { cards.associate { it.best.key to it.items.size } }
     val shownItems = remember(cards) { cards.map { it.best } }
 
-    fun next() {
-        if (busy || !more || local != null) return
-        busy = true
-        scope.launch {
-            try {
-                val r = withContext(Dispatchers.IO) { repo.api.vod(cat.id, page + 1) }
-                val seen = items.map { it.key }.toHashSet()
-                items = items + r.first.filter { it.key !in seen }
-                page += 1
-                more = r.second && r.first.isNotEmpty()
-                msg = ""
-            } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { msg = e.message ?: "Load failed"; more = false }
-            busy = false
-        }
-    }
-    LaunchedEffect(cat.id) { if (page == 0 && local == null) next() }
+    fun next() { if (more && !busy) lib.moreInCat(cat.id) }
+    LaunchedEffect(cat.id) { if (items.isEmpty()) next() }
 
     val posterW = posterWidth(isTv)
     val hPad = if (isTv) 48.dp else 14.dp
@@ -919,7 +918,7 @@ fun GridScreen(repo: Repo, cat: Cat, open: (Item) -> Unit, play: (List<Item>, In
                     if (msg.isNotEmpty()) Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(msg, color = Pal.Warn, fontSize = 13.sp, maxLines = 2, modifier = Modifier.weight(1f, fill = false))
                         Spacer(Modifier.width(8.dp))
-                        PillButton("Retry", { more = true; next() }, size = 13)
+                        PillButton("Retry", { next() }, size = 13)
                     }
                 }
             }
@@ -932,7 +931,7 @@ fun GridScreen(repo: Repo, cat: Cat, open: (Item) -> Unit, play: (List<Item>, In
                 // Paging: ask for the next page when the last few posters come into view
                 if (i >= shownItems.size - 6 && more && !busy) LaunchedEffect(items.size) { next() }
             }
-            if (busy || (page == 0 && more)) items(if (items.isEmpty()) 12 else 6) { _ ->
+            if (busy && more) items(if (items.isEmpty()) 12 else 6) { _ ->
                 Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(8.dp)).shimmer())
             }
         }
@@ -980,17 +979,18 @@ fun PoolScreen(repo: Repo, tab: String, lang: String, genre: String, title: Stri
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(title, color = Pal.Text, fontSize = if (isTv) 28.sp else 22.sp, fontWeight = FontWeight.Bold)
-                    Text("${cards.size} titles" + (if (lib.loading) " (still loading…)" else ""), color = Pal.Dim, fontSize = 13.sp)
+                    Text("${cards.size} titles" + (if (lib.loading) " · loading more…" else ""), color = Pal.Dim, fontSize = 13.sp)
                     PillButton("⇅  Sort: " + Sorts.label(sort), { sortMenu = true }, Modifier.focusRequester(firstFr), size = 14)
                 }
             }
-            gridItemsIndexed(cards, key = { i, g -> "$i|${g.key}" }) { _, g ->
+            gridItemsIndexed(cards, key = { i, g -> "$i|${g.key}" }) { i, g ->
                 val it = g.best
                 val k = g.key
                 val fr = remember { FocusRequester() }
                 RestoreFocus(repo, screenKey, k, fr)
                 PosterCard(it, posterW, null, Modifier.focusRequester(fr), { open(it) }, { menu = it }, fav = repo.isFav(it),
                     versions = g.items.size) { repo.lastFocus[screenKey] = k; Keys.focused = it }
+                if (i >= cards.size - 6) LaunchedEffect(cards.size) { lib.more(tab, setOf(lang)) }
             }
         }
         menu?.let { m ->
@@ -999,7 +999,7 @@ fun PoolScreen(repo: Repo, tab: String, lang: String, genre: String, title: Stri
                 (if (repo.isFav(m)) "★  Remove from My List" else "☆  Add to My List") to { repo.toggleFav(m); menu = null }
             ), onClose = { menu = null })
         }
-        if (sortMenu) SortDialog(sort, { sort = it; repo.store.saveSort("pool:$title", it); sortMenu = false }) { sortMenu = false }
+        if (sortMenu) SortDialog(sort, { sort = it; repo.store.saveSort("pool:$title", it); sortMenu = false; if (it != Sorts.ADDED) lib.more(tab, setOf(lang)) }) { sortMenu = false }
     }
 }
 
@@ -1016,7 +1016,7 @@ fun LanguagesScreen(repo: Repo, tab: String, onBack: () -> Unit) {
     fun save(v: Set<String>) {
         sel = v
         repo.store.saveLangs(tab, v.ifEmpty { null })
-        if (v.isNotEmpty()) lib.start()
+        if (v.isNotEmpty()) lib.ensure(tab, v)    // only the newly picked languages are fetched
     }
     val hPad = if (isTv) 48.dp else 16.dp
     Box(Modifier.fillMaxSize().background(Pal.Bg)) {

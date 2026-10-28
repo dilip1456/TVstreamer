@@ -81,7 +81,7 @@ private const val SEEK_MS = 10_000L
 private const val HIDE_AFTER_MS = 5_000L
 
 private val streamHttp: OkHttpClient by lazy {
-    OkHttpClient.Builder()
+    Net.portal.newBuilder()      // shares the portal client's small connection pool
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .followRedirects(true)

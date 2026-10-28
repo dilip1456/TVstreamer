@@ -203,6 +203,11 @@ class Store(ctx: Context) {
     /** Everything played (newest first, up to 40), finished or not: watch history for suggestions. */
     fun history(): List<Item> = resumeArray().let { a -> (0 until a.length()).mapNotNull { runCatching { Item.from(a.getJSONObject(it)) }.getOrNull() } }
 
+    /** When the library last asked the portal for new titles (see RefreshPolicy). Device-only, not synced. */
+    var refreshPolicy: String
+        get() = p.getString("refresh_policy", "") ?: ""
+        set(v) { p.edit().putString("refresh_policy", v).apply() }
+
     /** Remote button mapping (JSON, see Keys). */
     var keymap: String
         get() = p.getString("keymap", "") ?: ""

@@ -194,6 +194,8 @@ object Images {
         loader ?: ImageLoader.Builder(ctx.applicationContext)
             .okHttpClient {
                 OkHttpClient.Builder()
+                    // Posters often come from the portal's own server: a few at a time, not a burst per screen
+                    .dispatcher(okhttp3.Dispatcher().apply { maxRequestsPerHost = 3 })
                     .connectTimeout(10, TimeUnit.SECONDS)
                     .readTimeout(20, TimeUnit.SECONDS)
                     .addInterceptor { chain -> chain.proceed(chain.request().newBuilder().header("User-Agent", UA).build()) }

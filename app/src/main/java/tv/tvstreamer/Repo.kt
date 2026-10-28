@@ -97,7 +97,7 @@ class Repo(ctx: Context) {
             store.cacheWrite("live.json", JSONObject().put("t", listsAt).put("cats", catsJson(lc)).put("items", itemsJson(ch)).toString())
             store.cacheWrite("vod.json", catsJson(vc).toString())
             status = ""
-            lib.start(force)
+            lib.start()
         } catch (e: Exception) {
             status = if (channels.isEmpty()) "Portal error: ${e.message}" else ""
             // Portal refresh failed but we have cached data; stay quiet instead of saying Offline
@@ -108,6 +108,9 @@ class Repo(ctx: Context) {
 
     /** Pull channels, categories and the whole movie / series catalog again (in the background). */
     fun refreshAll() { bg.launch { load(force = true) } }
+
+    /** Re-read channels and categories (one request each), then run [then] (the library's gentle refresh). */
+    fun refreshLists(then: () -> Unit) { bg.launch { runCatching { load(force = true) }; then() } }
 
     /** Categories in the user's order; categories never arranged keep the portal order after them. */
     fun ordered(kind: String): List<Cat> {
@@ -158,8 +161,10 @@ class Repo(ctx: Context) {
     /** Load the first page of a VOD category (at most 3 requests at a time). */
     suspend fun loadRow(cat: Cat) {
         if (rows.containsKey(cat.id)) return
-        // The local catalog has (or is loading) every category: no portal request per row
-        if (lib.hasData || lib.loading) return
+        // Rows come from the saved catalog; a category with nothing saved yet asks for its newest page (gently, queued)
+        if (lib.inCat(cat.id).isEmpty()) lib.moreInCat(cat.id)
+        return
+        @Suppress("UNREACHABLE_CODE")
         withContext(Dispatchers.IO) {
             rowGate.withPermit {
                 if (rows.containsKey(cat.id)) return@withPermit
@@ -271,7 +276,9 @@ class Repo(ctx: Context) {
             val hard = core.filter { it !in soft }
             val sq = (if (hard.isEmpty()) core else hard).joinToString(" ")
             // With the whole catalog saved locally the search is local only (searchAll adds the local matches)
-            val res = if (lib.complete) emptyList() else runCatching { api.vod("*", 1, sq).first }.getOrDefault(emptyList())
+            // One portal search request (only when the user searches); results are kept in the saved catalog
+            val res = runCatching { api.vod("*", 1, sq).first }.getOrDefault(emptyList())
+            lib.merge(res)
             val titles = vodCats.associate { it.id to it.title }
             val f = res.filter { m ->
                 val h = squash(m.name + " " + (titles[m.cat] ?: ""))

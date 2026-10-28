@@ -5,7 +5,6 @@ import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLEncoder
-import java.util.concurrent.TimeUnit
 
 /** Page size asked for in full-catalog loads (most Stalker portals ignore it and use their own, usually 14). */
 const val BIG_PAGE = 500
@@ -13,10 +12,13 @@ const val BIG_PAGE = 500
 const val UA = "Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3 (KHTML, like Gecko) MAG200 stbapp ver: 2 rev: 250 Safari/533.3"
 
 class Stalker(private val store: Store) {
-    private val http = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(40, TimeUnit.SECONDS)
-        .build()
+    private val http: OkHttpClient get() = Net.portal
+    /** Every portal request (handshake, lists, links) waits its turn here: one at a time, about 2 a second at most. */
+    val limiter = RateLimiter(500)
+    /** Pause after a "slow down" reply: 1 min, 2, 4 ... up to 30 min; reset by the next good reply. */
+    private val slowDown = Backoff(60_000, 30 * 60_000)
+    /** Only one portal request is in flight at a time, whoever asks (library, rows, details, player). */
+    private val oneAtATime = Any()
     private var api = ""
     var token = ""
     fun cookie(): String {
@@ -37,18 +39,34 @@ class Stalker(private val store: Store) {
 
     private fun fetch(url: String, auth: Boolean = true): JSONObject {
         val mac = normalizeMac(store.mac)
+        // The same headers a MAG250 set-top box sends, on every request
         val b = Request.Builder().url(url)
             .header("User-Agent", UA)
             .header("X-User-Agent", "Model: MAG250; Link: WiFi")
+            .header("Referer", referer())
             .header("Accept", "*/*")
             .header("Connection", "keep-alive")
             .header("Cookie", "mac=$mac; stb_lang=en; timezone=Europe/London")
         val sn = store.serial.trim()
         if (sn.isNotEmpty()) b.header("SN", sn)
         if (auth && token.isNotEmpty()) b.header("Authorization", "Bearer $token")
+        synchronized(oneAtATime) {
+        limiter.acquire()
         http.newCall(b.build()).execute().use { r ->
             val t = r.body?.string().orEmpty()
-            if (!r.isSuccessful) throw IllegalStateException("HTTP ${r.code}: $t")
+            if (!r.isSuccessful) {
+                val e = PortalHttpException(r.code, "HTTP ${r.code}: ${t.take(200)}")
+                if (e.slowDown) {
+                    // Retry-After (seconds) when the portal gives one, else the growing backoff
+                    val ra = r.header("Retry-After")?.trim()?.toLongOrNull()?.times(1000)
+                    val wait = maxOf(ra ?: 0L, slowDown.next())
+                    limiter.pause(wait)
+                    note("portal", "HTTP ${r.code}: pausing ${wait / 1000}s")
+                    throw PortalBusyException(wait)
+                }
+                throw e
+            }
+            slowDown.reset()
             val body = t.ifEmpty { "{}" }.trim()
             return if (body.startsWith("[")) {
                 // Some portals return a bare array; wrap it
@@ -57,6 +75,15 @@ class Stalker(private val store: Store) {
                 JSONObject(body)
             }
         }
+        }
+    }
+
+    /** "http://host/c/": what the MAG portal page itself sends as Referer. */
+    private fun referer(): String {
+        var u = store.portal.trim().trimEnd('/')
+        if (!u.startsWith("http")) u = "http://$u"
+        u = u.removeSuffix("/portal.php").removeSuffix("/server/load.php").removeSuffix("/stalker_portal/server/load.php")
+        return if (u.endsWith("/c")) "$u/" else "$u/c/"
     }
 
     private fun candidates(): List<String> {
@@ -77,7 +104,9 @@ class Stalker(private val store: Store) {
 
     fun connect() {
         var err: Exception? = null
-        for (c in candidates()) {
+        // The address that worked last time first, so a reconnect is one handshake, not one per possible path
+        val known = api
+        for (c in (listOfNotNull(known.ifEmpty { null }) + candidates()).distinct()) {
             try {
                 api = c
                 token = ""
@@ -90,6 +119,8 @@ class Stalker(private val store: Store) {
                     parentPassword = prof.optJSONObject("js")?.optString("parent_password")?.ifEmpty { null }
                 }
                 return
+            } catch (e: PortalBusyException) {
+                token = ""; throw e                     // the portal is there but wants us to wait: stop trying paths
             } catch (e: Exception) {
                 err = e
                 token = ""
@@ -104,7 +135,10 @@ class Stalker(private val store: Store) {
         ensureConnected()
         return try {
             fetch("$api?$q&JsHttpRequest=1-xml")
+        } catch (e: PortalBusyException) {
+            throw e                                     // never retry straight away after "slow down"
         } catch (e: Exception) {
+            // Expired token / dropped connection: one new handshake, one retry
             synchronized(this) { token = ""; connect() }
             fetch("$api?$q&JsHttpRequest=1-xml")
         }

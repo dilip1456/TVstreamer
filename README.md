@@ -55,15 +55,20 @@ The next episode plays automatically.
 - See "Library and refresh" below for how the catalog is loaded.
 - Continue watching: Menu / long-press on an episode gives Resume, Start over, See all episodes and Remove.
 
-## Library and refresh (1.44)
-- The whole movie / series catalog is pulled from the portal once (several pages at a time, with progress on the
-  Movies / Series tabs during the first load) and saved on the device. After that the app opens instantly from the
-  saved copy: rows, language filters, sorting, See all, Categories and Search all work locally, with no portal request
-  per category. Channels and categories are saved the same way.
-- It refreshes by itself in the background once a day, and sooner when several titles fail to play within a few
-  minutes (a sign the portal has moved them).
-- Settings > Library shows how many titles are saved and when they were last refreshed, with a "Refresh library" button.
-- Stream links are still requested from the portal only when you press Play.
+## Library loading, gentle on your provider (1.45)
+The app loads titles the way a person browsing would, so the IPTV provider does not see unusual traffic:
+- Only the categories of the languages you picked on Movies / Series are loaded (the language comes from the category
+  name and the titles found in it). Unselected languages are never loaded; "Other" only when you pick it.
+- First the newest page of each of those categories. Older pages load only when you need them: reaching the end of a
+  row or grid, sorting by year or rating, opening a category, or when a language shows few titles.
+- One request at a time, a short random pause between pages, at most about 2 portal requests a second, and at most
+  150 pages per app session. If the portal answers "too many requests", "forbidden" or a server error, the app stops
+  and waits (1 min, then longer each time) and tells you; saved titles keep working.
+- Everything loaded is saved on the device and never downloaded again. Once a day the app checks only the newest page
+  of each category for new titles. After several failed streams it checks early, at most twice a day.
+- "■ Stop loading" on the Movies / Series tabs and in Settings stops all background loading ("▶ Resume" continues).
+- Settings > Library: titles saved, last refresh, and "Refresh library" (asks to confirm; once every 10 minutes at most).
+- The app sends the same headers as a MAG250 box on every request. Stream links are only requested when you press Play.
 
 ## AI suggestions and voice assistant (1.44, optional)
 Settings > AI suggestions & voice assistant: paste a Google Gemini API key (free at aistudio.google.com/apikey) and press "Save Gemini key and test".
