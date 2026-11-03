@@ -278,12 +278,22 @@ class Stalker(private val store: Store) {
         )
         for (q in queries) {
             try {
-                val resp = call(q)
-                val js = resp.opt("js")
-                val a = when (js) {
-                    is JSONObject -> js.optJSONArray("data") ?: js.optJSONArray("seasons") ?: JSONArray()
-                    is JSONArray -> js
-                    else -> JSONArray()
+                // Paginate to get all seasons
+                val a = JSONArray()
+                var page = 1
+                while (page <= 15) {
+                    val resp = call("$q&p=$page")
+                    val js = resp.opt("js")
+                    val pageArr = when (js) {
+                        is JSONObject -> js.optJSONArray("data") ?: js.optJSONArray("seasons") ?: JSONArray()
+                        is JSONArray -> js
+                        else -> JSONArray()
+                    }
+                    if (pageArr.length() == 0) break
+                    for (i in 0 until pageArr.length()) a.put(pageArr.get(i))
+                    val total = when (js) { is JSONObject -> js.optInt("total_items", 0); else -> 0 }
+                    if (a.length() >= total && total > 0) break
+                    page++
                 }
                 if (a.length() == 0) continue
                 for (i in 0 until a.length()) {

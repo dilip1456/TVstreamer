@@ -83,11 +83,12 @@ fun Row1(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, onMen
 fun liveGroupOf(c: Cat): String = groupCategories(listOf(c)).keys.firstOrNull() ?: ""
 
 fun groupCategories(cats: List<Cat>): Map<String, List<Cat>> {
-    val order = listOf("English", "Indian", "Spanish", "Portuguese", "French", "Arabic", "Asian", "European", "African", "Other")
+    val order = listOf("English", "Indian", "Spanish", "Portuguese", "French", "Arabic", "Asian", "European", "African", "Adult", "Other")
     val map = mutableMapOf<String, MutableList<Cat>>()
     for (c in cats) {
         val t = c.title.uppercase()
         val g = when {
+            "ADULT" in t || "XXX" in t || "18+" in t || "PORN" in t || "EROTIC" in t || "SEXY" in t -> "Adult"
             "ENGLISH" in t || "UK" in t || "USA" in t || "US " in t || "CANADA" in t || "AUSTRALIA" in t -> "English"
             "HINDI" in t || "KANNADA" in t || "TAMIL" in t || "TELUGU" in t || "MALAYALAM" in t ||
             "PUNJABI" in t || "BENGALI" in t || "MARATHI" in t || "GUJARATI" in t || "INDIAN" in t || "INDIA" in t -> "Indian"
