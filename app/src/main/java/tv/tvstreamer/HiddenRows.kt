@@ -29,14 +29,16 @@ object HomeHide {
     fun tabLabel(tab: String) = when (tab) { "home" -> "Home"; "movies" -> "Movies"; "series" -> "Series"; else -> tab.replaceFirstChar { it.uppercase() } }
 }
 
-/** Settings / Categories: hidden Home rows and hidden categories, each with "Show again" (D-pad: OK). */
+/** Settings > Hidden: hidden Home rows, categories and channels, each with "Show again" (D-pad: OK). The only place to restore them. */
 @Composable
 fun HiddenRowsPanel(repo: Repo, modifier: Modifier = Modifier) {
     val rows = HomeHide.entries(repo.hidden)
     val cats = repo.hidden.filter { it.startsWith("vod:") }.mapNotNull { k -> repo.vodCats.find { "vod:${it.id}" == k } }
+    val liveCats = repo.hidden.filter { it.startsWith("itv:") }.mapNotNull { k -> repo.liveCats.find { "itv:${it.id}" == k } }
+    val channels = repo.hiddenChannelCount()
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Label("Hidden on Home  ·  ${rows.size + cats.size}", 16, Pal.Gold)
-        if (rows.isEmpty() && cats.isEmpty()) Label("Nothing hidden. On Home, a row's ⋮ (TV: Menu on the row) > Hide this category.", 13, Pal.Dim, maxLines = 2)
+        Label("Hidden", 18)
+        if (rows.isEmpty() && cats.isEmpty() && liveCats.isEmpty() && channels == 0) Label("Nothing hidden", 13, Pal.Dim)
         rows.forEach { e ->
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Label("${HomeHide.title(e)}  ·  ${HomeHide.tabLabel(HomeHide.tab(e))}", 14, Pal.Text, Modifier.weight(1f))
@@ -49,6 +51,16 @@ fun HiddenRowsPanel(repo: Repo, modifier: Modifier = Modifier) {
                 PillButton("Show again", { repo.toggleHide("vod", c.id) }, size = 13)
             }
         }
-        if (rows.size + cats.size > 1) PillButton("Show all again", { repo.unhideAllRows() }, size = 13)
+        liveCats.forEach { c ->
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Label("${Names.cat(c.title)}  ·  Live TV", 14, Pal.Text, Modifier.weight(1f))
+                PillButton("Show again", { repo.toggleHide("itv", c.id) }, size = 13)
+            }
+        }
+        if (channels > 0) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Label("$channels hidden channel" + (if (channels > 1) "s" else ""), 14, Pal.Text, Modifier.weight(1f))
+            PillButton("Show again", { repo.unhideAllChannels() }, size = 13)
+        }
+        if (rows.size + cats.size > 1) PillButton("Show all rows again", { repo.unhideAllRows() }, size = 13)
     }
 }

@@ -50,8 +50,6 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, onSearch: () -> Unit = {})
     var group by remember { mutableStateOf(st.sort("live_g", "")) }
     var asList by remember { mutableStateOf(st.sort("live_view", "icons") == "list") }
     var sortAz by remember { mutableStateOf(st.sort("live_az", "default") == "az") }
-    var langs by remember { mutableStateOf(st.langs("live")) }
-    var pickLangs by remember { mutableStateOf(false) }
     var menuTarget by remember { mutableStateOf<Any?>(null) }
     var menuFolder by remember { mutableStateOf<String?>(null) }   // My Channels folder the channel menu was opened from
     var folderMenu by remember { mutableStateOf<String?>(null) }
@@ -73,8 +71,7 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, onSearch: () -> Unit = {})
     val visible = remember(repo.channels, catIds, repo.hidden, unlocked) {
         repo.channels.filter { it.cat in catIds && !repo.isChannelHidden(it) && (!it.locked || unlocked) }
     }
-    val langCounts = remember(visible, info) { visible.mapNotNull { info[it.key]?.lang }.groupingBy { it }.eachCount().toList().sortedByDescending { it.second } }
-    val byLang = remember(visible, info, langs) { if (langs.isNullOrEmpty()) visible else visible.filter { info[it.key]?.lang?.let { l -> l in langs!! } == true } }
+    val byLang = visible
     val folders = repo.folders
     val recent = remember(repo.nowPlaying, repo.channels) { st.list("recent").filter { it.kind == "itv" }.map(repo::fresh) }
     val types = remember(byLang, info) { LiveGroups.typeCounts(byLang, info) }
@@ -98,10 +95,15 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, onSearch: () -> Unit = {})
             else -> emptyList()
         }
     }
-    var lang by remember(cur?.key) { mutableStateOf("") }
-    var country by remember(cur?.key) { mutableStateOf("") }
+    // The language / country picked is remembered and used in every group that has it
+    var langPref by remember { mutableStateOf(st.sort("live_lang", "")) }
+    var countryPref by remember { mutableStateOf(st.sort("live_country", "")) }
     val langChips = remember(inGroup, info) { LiveGroups.langCounts(inGroup, info) }
     val countryChips = remember(inGroup, catTitle) { LiveGroups.countryCounts(inGroup, catTitle) }
+    val lang = langPref.takeIf { p -> langChips.any { it.first == p } } ?: ""
+    val country = countryPref.takeIf { p -> countryChips.any { it.first == p } } ?: ""
+    fun setLang(v: String) { langPref = v; save("live_lang", v) }
+    fun setCountry(v: String) { countryPref = v; save("live_country", v) }
     val shown = remember(inGroup, lang, country, info) { LiveGroups.filter(inGroup, info, catTitle, lang, country) }
     // Folders and Recently watched keep their own order unless A-Z; types are split by language when not filtered
     val sections = remember(shown, sortAz, lang, cur?.key) {
@@ -125,23 +127,22 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, onSearch: () -> Unit = {})
     @Composable
     fun Toolbar() {
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 4.dp)) {
-            if (tvLive) item { PillButton("🔍  Search", onSearch, size = 13) }
-            item { PillButton(if (sel != null) "☑  Selecting" else "☐  Select", { picked = if (sel != null) null else emptyMap() }, selected = sel != null, size = 13) }
-            item { PillButton(if (sortAz) "A-Z" else if (cur?.folder != null) "Folder order" else "Portal order", { sortAz = !sortAz; save("live_az", if (sortAz) "az" else "default") }, size = 13) }
-            item { PillButton(if (asList) "☰  List" else "▦  Grid", { asList = !asList; save("live_view", if (asList) "list" else "icons") }, size = 13) }
-            item { PillButton("🌐  " + (langs?.let { if (it.size <= 2) it.joinToString(", ") else "${it.size} languages" } ?: "All languages"), { pickLangs = true }, size = 13) }
+            if (tvLive) item { PillButton("🔍", onSearch, size = 13) }
+            item { PillButton("☑  Select", { picked = if (sel != null) null else emptyMap() }, selected = sel != null, size = 13) }
+            item { PillButton("A-Z", { sortAz = !sortAz; save("live_az", if (sortAz) "az" else "default") }, selected = sortAz, size = 13) }
+            item { PillButton(if (asList) "▦" else "☰", { asList = !asList; save("live_view", if (asList) "list" else "icons") }, size = 13) }
         }
     }
 
     @Composable
     fun Filters() {
         if (langChips.size > 1) LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp), contentPadding = PaddingValues(vertical = 2.dp)) {
-            item { FilterChip("All languages", inGroup.size, lang.isEmpty()) { lang = "" } }
-            items(langChips, key = { "l" + it.first }) { (l, n) -> FilterChip(l, n, l == lang) { lang = if (lang == l) "" else l } }
+            item { FilterChip("All languages", inGroup.size, lang.isEmpty()) { setLang("") } }
+            items(langChips, key = { "l" + it.first }) { (l, n) -> FilterChip(l, n, l == lang) { setLang(if (lang == l) "" else l) } }
         }
         if (countryChips.size > 1) LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp), contentPadding = PaddingValues(vertical = 2.dp)) {
-            item { FilterChip("All countries", inGroup.size, country.isEmpty()) { country = "" } }
-            items(countryChips, key = { "c" + it.first }) { (c, n) -> FilterChip(c, n, c == country) { country = if (country == c) "" else c } }
+            item { FilterChip("All countries", inGroup.size, country.isEmpty()) { setCountry("") } }
+            items(countryChips, key = { "c" + it.first }) { (c, n) -> FilterChip(c, n, c == country) { setCountry(if (country == c) "" else c) } }
         }
     }
 
@@ -154,7 +155,6 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, onSearch: () -> Unit = {})
                     if (sel.isNotEmpty()) {
                         PillButton("📁  Add to folders…", { pickFolders = true }, primary = true, size = 13)
                         if (sel.values.any { repo.isFav(it) }) PillButton("Remove from favorites", { repo.removeFromFavorites(sel.values.toList()); picked = emptyMap() }, size = 13)
-                        PillButton("Clear", { picked = emptyMap() }, size = 13)
                     }
                     PillButton("Done", { picked = null }, size = 13)
                 }
@@ -170,7 +170,7 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, onSearch: () -> Unit = {})
                             LiveSkeleton(rail)
                         }
                         cur.folder != null && inGroup.isEmpty() ->
-                            Label("\"${cur.folder}\" is empty. Menu (or long-press) on a channel > Add to favorites, or ☐ Select several channels.", 15, DIM2, maxLines = 3)
+                            Label(if (tvLive) "Empty folder. Menu on a channel to add it here." else "Empty folder. Long-press a channel to add it here.", 15, DIM2, maxLines = 2)
                         else -> {
                             if (gk?.startsWith("t:") == true) IndexStatus(repo, ix)
                             Filters()
@@ -185,9 +185,11 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, onSearch: () -> Unit = {})
 
     val header: @Composable () -> Unit = {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Label("Live TV", if (rail) 26 else 22, Pal.GoldText)
-            Spacer(Modifier.width(12.dp))
-            cur?.let { Label("${it.icon}  ${it.title}  ·  ${if (it.key == LiveGroups.ORIG) "${it.count} categories" else "${shown.size} channels"}", 15, DIM2, Modifier.weight(1f)) }
+            cur?.let {
+                Label("${it.icon}  ${it.title}", if (rail) 24 else 20, Pal.GoldText)
+                Spacer(Modifier.width(10.dp))
+                if (it.key != LiveGroups.ORIG) Label("${shown.size}", 14, DIM2)
+            }
         }
     }
 
@@ -230,7 +232,6 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, onSearch: () -> Unit = {})
     }
     androidx.activity.compose.BackHandler(picked != null && menuTarget == null && !pickFolders) { picked = null }
     if (pickFolders) picked?.let { p -> FolderPicker(repo, p.values.toList()) { pickFolders = false; picked = null } }
-    if (pickLangs) LiveLanguages(langCounts, langs, { langs = it; st.saveLangs("live", it) }) { pickLangs = false }
     folderMenu?.let { n -> FolderMenu(repo, n, { group = LiveGroups.folderKey(it); save("live_g", group) }) { folderMenu = null } }
     if (naming) NameDialog("New folder", "", "Create folder", { n ->
         repo.createFolder(n)?.let { group = LiveGroups.folderKey(it); save("live_g", group) }; naming = false
@@ -462,21 +463,6 @@ private fun ChannelGrid(repo: Repo, list: List<Item>, asList: Boolean, play: (Li
     }
 }
 
-/** "Show hidden" for the current group, so hidden channels can still be brought back. */
-@Composable
-private fun HiddenToggle(repo: Repo, inGroup: (Item) -> Boolean) {
-    var show by remember { mutableStateOf(false) }
-    PillButton(if (show) "Hide hidden" else "Show hidden in this group", { show = !show }, selected = show)
-    if (show) {
-        val hiddenHere = repo.channels.filter { repo.isChannelHidden(it) && inGroup(it) }
-        if (hiddenHere.isEmpty()) Label("No hidden channels here", 14, DIM2)
-        else LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.heightIn(max = 140.dp)) {
-            items(hiddenHere) { ch -> Row1("Hidden: ${ch.name}  (select to unhide)", { repo.toggleHideChannel(ch) }) }
-        }
-    }
-    Spacer(Modifier.height(6.dp))
-}
-
 /** The portal's own groups and categories (as before 1.40). */
 @Composable
 private fun OriginalView(repo: Repo, cats: List<Cat>, asList: Boolean, sortAz: Boolean, play: (List<Item>, Int) -> Unit,
@@ -502,36 +488,7 @@ private fun OriginalView(repo: Repo, cats: List<Cat>, asList: Boolean, sortAz: B
     val channels = remember(selCat, repo.channels, sortAz, repo.hidden) {
         selCat?.let { c -> repo.channels.filter { it.cat == c.id && !repo.isChannelHidden(it) }.let { if (sortAz) it.sortedBy { ch -> ch.name.lowercase() } else it } } ?: emptyList()
     }
-    if (selCat != null) HiddenToggle(repo) { it.cat == selCat?.id }
     if (channels.isEmpty()) Label("Select a category", 16, DIM2) else ChannelGrid(repo, channels, asList, play, menu)
-}
-
-/** Language checklist for Live TV. Nothing ticked = all languages. */
-@Composable
-private fun LiveLanguages(counts: List<Pair<String, Int>>, cur: Set<String>?, save: (Set<String>?) -> Unit, onClose: () -> Unit) {
-    var sel by remember { mutableStateOf(cur ?: emptySet()) }
-    fun set(v: Set<String>) { sel = v; save(v.ifEmpty { null }) }
-    val fr = remember { FocusRequester() }
-    LaunchedEffect(Unit) { delay(80); runCatching { fr.requestFocus() } }
-    androidx.activity.compose.BackHandler { onClose() }
-    Box(Modifier.fillMaxSize().background(Color(0xE6000000)), contentAlignment = Alignment.Center) {
-        Column(Modifier.widthIn(max = 560.dp).fillMaxHeight(0.9f).background(Pal.Surface, RoundedCornerShape(12.dp)).padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Label("Live TV languages", 20)
-            Label("Tick the languages to show (from category and channel names). Nothing ticked = all.", 13, DIM2, maxLines = 2)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PillButton("Done", onClose, Modifier.focusRequester(fr), primary = true, size = 14)
-                PillButton("Select all", { set(counts.map { it.first }.toSet()) }, size = 14)
-                PillButton("Select none", { set(emptySet()) }, size = 14)
-            }
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                items(counts, key = { it.first }) { (l, n) ->
-                    val on = l in sel
-                    Row1((if (on) "☑  " else "☐  ") + "$l   ($n channels)", { set(if (on) sel - l else sel + l) })
-                }
-            }
-        }
-    }
 }
 
 @Composable

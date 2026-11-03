@@ -352,9 +352,6 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                 Column(Modifier.padding(horizontal = hPad, vertical = if (isTv) 18.dp else 10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("TVSTREAMER", color = Pal.GoldText, fontSize = if (isTv) 28.sp else 22.sp, fontWeight = FontWeight.Black)
-                        Spacer(Modifier.width(14.dp))
-                        val ver = remember { try { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName } catch (e: Exception) { "?" } }
-                        Text("v$ver", color = Pal.Dim, fontSize = 12.sp)
                     }
                     Spacer(Modifier.height(10.dp))
                     // TV menu: Left / Right stay inside the menu (no jumping out of either end), Down goes to the page
@@ -382,14 +379,8 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                                 }
                                 PillButton(label, { go(Screen.Languages(mode, Screen.Home)) }, size = 14, primary = langs.isNullOrEmpty())
                             }
-                            if (!langs.isNullOrEmpty()) {
-                                item(key = "sort") { PillButton("⇅  " + Sorts.label(sort), { sortMenu = true }, size = 14) }
-                                when {
-                                    lib.loading -> item(key = "stop") { PillButton("■  Stop loading", { lib.stop() }, size = 14) }
-                                    lib.stopped -> item(key = "resume") { PillButton("▶  Resume loading", { lib.resume() }, size = 14) }
-                                    else -> item(key = "more") { PillButton("＋  Load more", { lib.more(mode, langs) }, size = 14) }
-                                }
-                            }
+                            // Older pages load as you scroll and new titles once a day; stop / resume / refresh live in Settings > Library
+                            if (!langs.isNullOrEmpty()) item(key = "sort") { PillButton("⇅  " + Sorts.label(sort), { sortMenu = true }, size = 14) }
                         }
                         if (lib.loading) {
                             // Small and non-blocking: saved titles stay usable while pages arrive one by one
@@ -523,9 +514,6 @@ private fun Hero(repo: Repo, raw: Item, isTv: Boolean, hPad: Dp, playLabel: Stri
                     PillButton(if (fav) "✓  My List" else "+  My List", { repo.toggleFav(raw); fav = repo.isFav(raw) })
                     PillButton("ⓘ  Info", onInfo)
                     if (slides > 1) {
-                        // Previous / next slide (also a D-pad stop, so the rotation can be driven by hand)
-                        PillButton("‹", { onStep(-1) }, size = 15)
-                        PillButton("›", { onStep(1) }, size = 15)
                         Spacer(Modifier.width(6.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                             repeat(slides) { i ->
@@ -839,7 +827,6 @@ fun DetailScreen(repo: Repo, item: Item, play: (List<Item>, Int) -> Unit, onBack
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(name, color = Pal.Text, fontSize = if (isTv) 34.sp else 22.sp, fontWeight = FontWeight.Bold, maxLines = 3, overflow = TextOverflow.Ellipsis)
                         MetaLine(shownItem, meta)
-                        meta?.released?.takeIf { it.length >= 10 }?.let { Text("Released $it", color = Pal.Dim, fontSize = 13.sp) }
                         if (shownItem.desc.isNotEmpty()) Text(shownItem.desc, color = Pal.Desc, fontSize = if (isTv) 16.sp else 14.sp,
                             maxLines = if (isTv) 6 else 8, overflow = TextOverflow.Ellipsis)
                         meta?.cast?.takeIf { it.isNotEmpty() }?.let { Text("Cast: $it", color = Pal.Dim, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis) }
@@ -864,7 +851,6 @@ fun DetailScreen(repo: Repo, item: Item, play: (List<Item>, Int) -> Unit, onBack
                                 else -> PillButton("▶  Play", { start(listOf(cur), 0) }, pm, primary = true, onMenu = { more = true })
                             }
                             PillButton(if (fav) "★  In My List" else "☆  Add to My List", { repo.toggleFav(cur); fav = repo.isFav(cur) }, onMenu = { more = true })
-                            if (Tmdb.key.isNotBlank()) PillButton("✎  Fix match", { fix = true })
                         }
                     }
                 }
@@ -872,7 +858,7 @@ fun DetailScreen(repo: Repo, item: Item, play: (List<Item>, Int) -> Unit, onBack
             if (versions.size > 1) item {
                 val labels = remember(versions) { VersionPick.labels(versions.map { versionLabel(repo, it) }) }
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Versions · ${versions.size}", color = Pal.Text, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Text("Versions", color = Pal.Text, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 4.dp), modifier = Modifier.focusRestorer()) {
                         itemsIndexed(versions, key = { _, v -> v.key }) { i, v ->
                             val sel = v.key == cur.key
@@ -883,7 +869,6 @@ fun DetailScreen(repo: Repo, item: Item, play: (List<Item>, Int) -> Unit, onBack
                                 selected = sel, primary = sel, size = 14, onMenu = { more = true })
                         }
                     }
-                    if (!isTv) Label("Tap a version to play it. ✓ = the one used by Play.", 12, Pal.Dim)
                 }
             }
             if (cur.isSeries && listLoading && refs.isEmpty()) item {
@@ -901,7 +886,6 @@ fun DetailScreen(repo: Repo, item: Item, play: (List<Item>, Int) -> Unit, onBack
                 }
             }
             if (cur.isSeries && seasonLoading && !listLoading) {
-                item { Label("Loading ${seasonName(curSeason)}…", 14, Pal.Dim, Modifier.padding(top = 6.dp)) }
                 items(4) {
                     Row(Modifier.fillMaxWidth().background(Pal.Soft).padding(8.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                         Box(Modifier.width(epW).aspectRatio(16f / 9f).clip(RoundedCornerShape(6.dp)).shimmer())
@@ -1211,7 +1195,6 @@ fun LanguagesScreen(repo: Repo, tab: String, onBack: () -> Unit) {
 fun CategoriesScreen(repo: Repo, go: (Screen) -> Unit) {
     val isTv = rememberIsTv()
     var kind by remember { mutableStateOf("vod") }
-    var showHidden by remember { mutableStateOf(false) }
     var showAll by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf<Cat?>(null) }
     val unlocked = repo.gate(true) == null
@@ -1220,7 +1203,7 @@ fun CategoriesScreen(repo: Repo, go: (Screen) -> Unit) {
     // Languages picked on the Movies / Series tabs; "Show all" lists every language
     val picked = remember { (repo.lib.selected("movies") ?: emptySet()) + (repo.lib.selected("series") ?: emptySet()) }
     val cats = all.filter { c ->
-        (showHidden || !repo.isHidden(kind, c.id)) &&
+        !repo.isHidden(kind, c.id) &&
             (kind != "vod" || showAll || picked.isEmpty() || repo.lib.catLang(c) in picked) &&
             (q.isEmpty() || Names.cat(c.title).contains(q, true) || c.title.contains(q, true))
     }
@@ -1250,13 +1233,10 @@ fun CategoriesScreen(repo: Repo, go: (Screen) -> Unit) {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("All categories", color = Pal.Text, fontSize = if (isTv) 28.sp else 22.sp, fontWeight = FontWeight.Bold)
-                    Text(if (isTv) "OK opens a category. Menu (or long-press OK) moves it up / down or hides it. The order is used on Home, Movies, Series and Live TV."
-                        else "Tap to open. Long-press to move up / down or hide. The order is used on Home, Movies, Series and Live TV.",
-                        color = Pal.Dim, fontSize = 13.sp)
+                    Text(if (isTv) "Menu on a category to move or hide it." else "Long-press a category to move or hide it.", color = Pal.Dim, fontSize = 13.sp)
                     FlowRowCompat {
                         PillButton("Movies & Series", { kind = "vod" }, Modifier.focusRequester(firstFr), selected = kind == "vod", size = 14)
                         PillButton("Live TV", { kind = "itv" }, selected = kind == "itv", size = 14)
-                        PillButton(if (showHidden) "Showing hidden" else "Show hidden", { showHidden = !showHidden }, selected = showHidden, size = 14)
                         if (kind == "vod" && picked.isNotEmpty()) PillButton(if (showAll) "All languages" else "Show all languages", { showAll = !showAll }, selected = showAll, size = 14)
                         PillButton("Reset order", { repo.resetOrder(kind) }, size = 14)
                     }
@@ -1273,7 +1253,6 @@ fun CategoriesScreen(repo: Repo, go: (Screen) -> Unit) {
                             focusedTextColor = Pal.Text, unfocusedTextColor = Pal.Text
                         )
                     )
-                    if (showHidden) HiddenRowsPanel(repo, Modifier.fillMaxWidth(if (isTv) 0.6f else 1f))
                     Text("${cats.size} of ${all.size}" + (if (q.isNotEmpty()) " match \"$q\"" else ""), color = Pal.Dim, fontSize = 12.sp)
                 }
             }

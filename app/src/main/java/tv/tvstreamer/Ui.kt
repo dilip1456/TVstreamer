@@ -164,49 +164,38 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
             }
         }
         item {
-            var showLog by remember { mutableStateOf(false) }
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                PillButton(if (showLog) "Hide last portal replies" else "Show last portal replies (for stream problems)", { showLog = !showLog }, selected = showLog)
-                if (showLog) Box(Modifier.fillMaxWidth().background(Pal.Field, RoundedCornerShape(8.dp)).padding(12.dp)) {
-                    Label(repo.api.debugLog(), 13, DIM, maxLines = 60)
-                }
-            }
-        }
-        item {
             Row1("Google account & sync: " + (if (Cloud.signedIn) Cloud.email.ifEmpty { "signed in" } else "not signed in"), { go(Screen.Account) },
                 Modifier.focusRequester(firstFr))
         }
+        item { Section("Portal") }
         item { SettingField("Portal URL", portal) { portal = it } }
         item { SettingField("MAC address", mac) { mac = it } }
         item { SettingField("Serial number", serial) { serial = it } }
-        item { SettingField("Locked section password", pw, password = true) { pw = it } }
+        item { SettingField("Locked section password (empty = no lock)", pw, password = true) { pw = it } }
         item {
-            ButtonFlow {
-                PillButton("Save and reload", {
-                    keyboard?.hide()
-                    s.portal = portal
-                    s.mac = mac.trim().uppercase()
-                    s.serial = serial.trim()
-                    s.password = pw
-                    note = "Saved. Reloading..."
-                    scope.launch {
-                        repo.api.reset()
-                        repo.load(force = true)
-                        note = repo.status.ifEmpty { "Loaded" }
-                    }
-                }, primary = true)
-                PillButton("Clear password", { s.password = ""; pw = ""; note = "Password cleared" })
-                PillButton("Clear history", { s.clearHistory(); note = "History cleared" })
-            }
+            PillButton("Save and reload", {
+                keyboard?.hide()
+                s.portal = portal
+                s.mac = mac.trim().uppercase()
+                s.serial = serial.trim()
+                s.password = pw
+                note = "Saved. Reloading..."
+                scope.launch {
+                    repo.api.reset()
+                    repo.load(force = true)
+                    note = repo.status.ifEmpty { "Loaded" }
+                }
+            }, primary = true)
         }
-        item { Row1("Browse, arrange and hide categories", { go(Screen.Categories) }) }
+        item { Section("Content") }
+        item { Row1("Categories: order and hide", { go(Screen.Categories) }) }
         item { Row1("Languages for Movies", { go(Screen.Languages("movies", Screen.Settings)) }) }
         item { Row1("Languages for Series", { go(Screen.Languages("series", Screen.Settings)) }) }
+        item { Row1("Remote buttons", { go(Screen.Remote) }) }
         item {
             val lib = repo.lib
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Label("Library", 18)
-                Label(libraryStatus(repo), 13, DIM, maxLines = 4)
+                Label("Library: " + libraryStatus(repo), 13, DIM, maxLines = 3)
                 var confirm by remember { mutableStateOf(false) }
                 ButtonFlow {
                     if (lib.loading) PillButton("■  Stop loading", { lib.stop(); note = "Loading stopped" })
@@ -220,12 +209,10 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
                     })
                     if (lib.stopped && !lib.loading) PillButton("▶  Resume loading", { lib.resume(); note = "Loading resumed" })
                 }
-                if (confirm) Label("This asks the portal for the newest page of each category in your languages, one request at a time. " +
-                    "It is limited to once every 10 minutes so the provider does not see unusual traffic.", 13, DIM, maxLines = 4)
+                if (confirm) Label("Asks the portal for the newest page of each category in your languages, one request at a time (at most every 10 min).", 13, DIM, maxLines = 3)
             }
         }
-        item { Row1("Remote buttons (assign actions to remote keys)", { go(Screen.Remote) }) }
-        item { Label("Player", 18) }
+        item { Section("Player") }
         item {
             ButtonFlow {
                 PillButton((if (autoNext) "✓ " else "    ") + "Play next episode automatically", {
@@ -244,80 +231,58 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
                 })
             }
         }
+        item { Section("API keys (optional)") }
         item {
-            Label("Audio and subtitle choices made in the player are remembered (for all titles, and per show for series) and used next time. " +
-                "To download subtitles, open Subtitles in the player and pick \"Download subtitles\"; this needs a free OpenSubtitles.com API key " +
-                "(about 5 downloads a day per device without an account).", 13, DIM, maxLines = 8)
+            Label("TMDB adds posters, plots and cast; OMDb adds IMDb ratings; OpenSubtitles downloads subtitles; Gemini powers " +
+                "\"Suggested for you\" and 🎤 / ✨ search (titles from your history are sent to Google). Keys sync with Google sync.", 13, DIM, maxLines = 5)
         }
-        item {
-            FieldWithLink({ SettingField("OpenSubtitles API key (optional, for downloading subtitles)", osk, password = true) { osk = it } },
-                "Get an OpenSubtitles key ↗") { link("OpenSubtitles", OpenSubs.KEY_URL) }
-        }
-        item {
-            PillButton("Save OpenSubtitles key", {
-                keyboard?.hide()
-                s.osKey = osk
-                note = if (osk.isBlank()) "OpenSubtitles key removed" else "OpenSubtitles key saved"
-            }, primary = true)
-        }
-        item { Label("Movie & series info (optional)", 18) }
-        item {
-            Label("Posters, plots, cast and release dates come from TMDB when a TMDB API key is set (free at themoviedb.org > Settings > API). " +
-                "An OMDb key (omdbapi.com) adds the IMDb rating. Without keys the portal's own info is used. With Google sync on, keys also sync to your other devices.", 13, DIM, maxLines = 10)
-        }
-        item {
-            FieldWithLink({ SettingField("TMDB API key (v3 key or v4 read token)", tmdb, password = true) { tmdb = it } },
-                "Get a TMDB key ↗") { link("TMDB", TMDB_KEY_URL) }
-        }
-        item {
-            FieldWithLink({ SettingField("OMDb API key (optional, for IMDb ratings)", omdb, password = true) { omdb = it } },
-                "Get an OMDb key ↗") { link("OMDb", OMDB_KEY_URL) }
-        }
+        item { FieldWithLink({ SettingField("TMDB API key (v3 key or v4 read token)", tmdb, password = true) { tmdb = it } }, "Get key ↗") { link("TMDB", TMDB_KEY_URL) } }
+        item { FieldWithLink({ SettingField("OMDb API key", omdb, password = true) { omdb = it } }, "Get key ↗") { link("OMDb", OMDB_KEY_URL) } }
+        item { FieldWithLink({ SettingField("OpenSubtitles API key", osk, password = true) { osk = it } }, "Get key ↗") { link("OpenSubtitles", OpenSubs.KEY_URL) } }
+        item { FieldWithLink({ SettingField("Gemini API key", gem, password = true) { gem = it } }, "Get key ↗") { link("Google AI Studio", Gemini.KEY_URL) } }
         if (linkNote.isNotEmpty()) item { Label(linkNote, 15, Pal.GoldText, maxLines = 6) }
         item {
-            ButtonFlow {
-                PillButton("Save keys and test", {
-                    keyboard?.hide()
-                    s.tmdbKey = tmdb; s.omdbKey = omdb
-                    Tmdb.setKeys(tmdb, omdb)
-                    note = "Testing keys..."
-                    scope.launch { note = withContext(Dispatchers.IO) { Tmdb.test(tmdb, omdb) } }
-                }, primary = true)
-                PillButton("Clear movie info cache", { Tmdb.clearCache(); note = "Movie info cache cleared" })
-            }
-        }
-        item { Label("AI suggestions & voice assistant (optional)", 18) }
-        item {
-            Label("With your own Google Gemini API key (free at Google AI Studio), Home shows \"Suggested for you\" picked from your library, " +
-                "and the 🎤 / ✨ buttons in Search understand requests like \"funny movies for tonight\". Titles from your history, favourites and library " +
-                "are sent to Google Gemini. With Google sync on, the key also syncs to your other devices.", 13, DIM, maxLines = 10)
-        }
-        item {
-            FieldWithLink({ SettingField("Gemini API key", gem, password = true) { gem = it } },
-                "Get a Gemini key ↗") { link("Google AI Studio", Gemini.KEY_URL) }
-        }
-        item {
-            PillButton("Save Gemini key and test", {
+            // One button for all keys: saves them and tests the ones that can be tested
+            PillButton("Save keys and test", {
                 keyboard?.hide()
+                s.tmdbKey = tmdb; s.omdbKey = omdb; s.osKey = osk
+                Tmdb.setKeys(tmdb, omdb)
+                val gemChanged = gem != s.geminiKey
                 s.geminiKey = gem
                 Gemini.useKey(gem)
-                if (gem.isBlank()) { note = "Gemini key removed; AI features are off" }
-                else {
-                    note = "Testing Gemini key..."
-                    scope.launch {
-                        note = withContext(Dispatchers.IO) { Gemini.test(gem) }
-                        launch { Ai.refreshSuggested(repo, force = true) }
-                    }
+                note = "Testing keys..."
+                scope.launch {
+                    val parts = mutableListOf<String>()
+                    if (tmdb.isNotBlank() || omdb.isNotBlank()) parts += withContext(Dispatchers.IO) { Tmdb.test(tmdb, omdb) }
+                    if (gem.isNotBlank()) parts += withContext(Dispatchers.IO) { Gemini.test(gem) } else if (gemChanged) parts += "Gemini key removed; AI features are off"
+                    parts += if (osk.isBlank()) "No OpenSubtitles key" else "OpenSubtitles key saved"
+                    note = parts.joinToString("\n")
+                    if (gem.isNotBlank()) launch { Ai.refreshSuggested(repo, force = true) }
                 }
             }, primary = true)
         }
-        item { HiddenRowsPanel(repo) }
+        item { Spacer(Modifier.height(4.dp)); HiddenRowsPanel(repo) }
+        item { Section("Troubleshooting") }
         item {
-            val n = repo.hiddenChannelCount()
-            PillButton(if (n > 0) "Unhide all hidden channels ($n)" else "No hidden channels", { if (n > 0) { repo.unhideAllChannels(); note = "All channels shown again" } })
+            var showLog by remember { mutableStateOf(false) }
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                ButtonFlow {
+                    PillButton(if (showLog) "Hide portal replies" else "Last portal replies", { showLog = !showLog }, selected = showLog)
+                    PillButton("Clear movie info cache", { Tmdb.clearCache(); note = "Movie info cache cleared" })
+                    PillButton("Clear watch history", { s.clearHistory(); note = "History cleared" })
+                }
+                if (showLog) Box(Modifier.fillMaxWidth().background(Pal.Field, RoundedCornerShape(8.dp)).padding(12.dp)) {
+                    Label(repo.api.debugLog(), 13, DIM, maxLines = 60)
+                }
+                val ver = remember { try { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName } catch (e: Exception) { "?" } }
+                Label("TVstreamer v$ver", 12, DIM)
+            }
         }
     }
 }
+
+@Composable
+private fun Section(title: String) = Label(title, 18, Pal.GoldText, Modifier.padding(top = 10.dp))
 
 @Composable
 fun SettingField(label: String, value: String, password: Boolean = false, multiLine: Boolean = false, onChange: (String) -> Unit) {

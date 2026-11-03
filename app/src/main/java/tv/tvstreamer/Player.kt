@@ -721,7 +721,7 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
                     modifier = Modifier.heightIn(max = 260.dp).verticalScroll(rememberScrollState()))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     PillButton("Retry", { autoRetries = 0; linkFrom = 0; attempt++ }, Modifier.focusRequester(retryFr), primary = true)
-                    PillButton(if (showLog) "Close portal replies" else "Portal replies", { showLog = !showLog })
+                    PillButton(if (showLog) "Hide details" else "Details", { showLog = !showLog })
                     if (list.size > 1) PillButton(if (live) "Next channel" else "Next", { go(idx + 1) })
                 }
             }
@@ -926,8 +926,7 @@ private fun Controls(
                     fontSize = if (isTv) 24.sp else 18.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 val sub = listOfNotNull(
                     item.season.ifEmpty { null },
-                    if (list.size > 1) (if (live) "Channel" else "Item") + " ${idx + 1} of ${list.size}" else null,
-                    if (live) "LIVE" else null
+                    if (list.size > 1) "${idx + 1} / ${list.size}" else null
                 ).joinToString("  ·  ")
                 if (sub.isNotEmpty()) Text(sub, color = Pal.Dim, fontSize = 14.sp, maxLines = 1)
             }
@@ -951,9 +950,8 @@ private fun Controls(
         // Option buttons (movable: bottom / left / right, as before)
         val opts: @Composable () -> Unit = {
             if (hasAudio || !live) PillButton("Audio", { onDialog("audio") }, size = 14)
-            PillButton(if (hasSubs) "Subtitles" else "Subs (none)", { onDialog("subs") }, size = 14)
+            PillButton("Subtitles", { onDialog("subs") }, size = 14)
             PillButton(when (aspect) { "fill" -> "Fill"; "zoom" -> "Zoom"; else -> "Fit" }, onAspect, size = 14)
-            PillButton("Move", onMove, size = 14)
         }
 
         // Bottom: seek bar / live badge (+ options when bar is at the bottom)
@@ -1023,7 +1021,7 @@ private fun TvControls(
                 fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             val sub = listOfNotNull(
                 item.season.ifEmpty { null },
-                if (list.size > 1) (if (live) "Channel" else "Item") + " ${idx + 1} of ${list.size}" else null
+                if (list.size > 1) "${idx + 1} / ${list.size}" else null
             ).joinToString("  ·  ")
             if (sub.isNotEmpty()) Text(sub, color = Pal.Dim, fontSize = 14.sp, maxLines = 1)
             if (!live) {

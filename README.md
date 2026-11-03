@@ -15,6 +15,16 @@ previous/next channel or episode, audio track, subtitles, Fit / Fill / Zoom, fav
 Controls hide after 5 seconds. If a stream fails you get the reason on screen with Retry / Next / Back.
 The next episode plays automatically.
 
+## 1.51: cleaner screens
+
+- Hidden rows, categories and channels are restored only in Settings > Hidden (no "Show hidden" buttons elsewhere).
+- Live TV: compact toolbar (🔍 · Select · A-Z · grid/list); the language / country chips are remembered across groups
+  (the separate language dialog is gone).
+- Home: no slide arrows, version label or load buttons (titles load as you scroll; Stop / Resume / Refresh in Settings).
+- Details: Fix match moved to the Menu / ⋮ options; fewer hint lines.
+- Player: shorter titles ("3 / 120"), no duplicate LIVE, "Move" is in ⋮ options.
+- Settings: grouped sections (Portal, Content, Player, API keys, Hidden, Troubleshooting) and one "Save keys and test".
+
 ## 1.50: gentler portal, faster series, new Live TV
 
 - **Portal requests**: only a real rate limit (HTTP 429, or 503 with Retry-After) makes the app wait. An expired
