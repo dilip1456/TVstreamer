@@ -31,14 +31,22 @@ class Repo(ctx: Context) {
 
     var liveCats by mutableStateOf(emptyList<Cat>())
     var vodCats by mutableStateOf(emptyList<Cat>())
+    /** Channels with the user's display names (what every screen shows); [rawChannels] has the portal's names. */
     var channels by mutableStateOf(emptyList<Item>())
+    var rawChannels by mutableStateOf(emptyList<Item>())
+        private set
+    private var rawByKey: Map<String, Item> = emptyMap()
+    var chNames by mutableStateOf(store.chNames())
+        private set
     var status by mutableStateOf("")
     var hidden by mutableStateOf(store.hidden)
+    /** Favourites: movies / series from the saved list, channels from the My Channels folders (see FolderSet). */
     var favs by mutableStateOf(store.list("fav"))
     var lastLiveCat by mutableStateOf("")
     var lastLiveIndex by mutableStateOf(0)
     var lastLiveCatId by mutableStateOf("")
-    var customCats by mutableStateOf(store.customCats())
+    var folders by mutableStateOf(FolderSet())
+        private set
     var vodOrder by mutableStateOf(store.catOrder("vod"))
     var liveOrder by mutableStateOf(store.catOrder("itv"))
 
@@ -56,8 +64,10 @@ class Repo(ctx: Context) {
     private fun setLive(lc: List<Cat>, ch: List<Item>) {
         val lockedIds = lc.filter { it.locked }.map { it.id }.toSet()
         liveCats = lc
-        channels = ch.map { it.copy(locked = it.locked || it.cat in lockedIds) }
-        liveIndex.ensure(channels, lc)   // sort channels by type / language in the background, ready for Live TV
+        rawChannels = ch.map { it.copy(locked = it.locked || it.cat in lockedIds) }
+        rawByKey = rawChannels.associateBy { it.key }
+        applyNames()
+        liveIndex.ensure(rawChannels, lc)   // sort channels by type / language in the background, ready for Live TV
     }
 
     /** Type and language of every channel (worked out off the main thread, saved on disk). */
@@ -210,8 +220,9 @@ class Repo(ctx: Context) {
     /** Re-reads everything cloud sync may have changed. */
     fun reloadSynced() {
         hidden = store.hidden
-        favs = store.list("fav")
-        customCats = store.customCats()
+        chNames = store.chNames()
+        loadFavs()
+        applyNames()
         vodOrder = store.catOrder("vod")
         liveOrder = store.catOrder("itv")
         Theme.mode = store.theme
@@ -220,27 +231,76 @@ class Repo(ctx: Context) {
     /** Bumped after a cloud sync changed local data. */
     var syncTick by mutableStateOf(0)
 
-    fun isFav(i: Item) = favs.any { it.key == i.key }
-    fun moveToCustom(i: Item, catName: String) {
-        store.addToCustom(catName, i)
-        customCats = store.customCats()
-    }
-    fun toggleFav(i: Item) {
-        favs = if (isFav(i)) favs.filter { it.key != i.key } else favs + i
-        store.saveList("fav", favs)
+    init { loadFavs() }
+
+    /** Reads folders + the saved list; old-style favourite channels move into a "Favorites" folder. */
+    private fun loadFavs() {
+        var f = store.folders()
+        val saved = store.list("fav")
+        // Also catches channel favourites synced from an older app version
+        if (!store.favChannelsMigrated || saved.any { it.kind == "itv" }) {
+            f = FolderSet.migrate(f, saved.filter { it.kind == "itv" })
+            store.saveFolders(f)
+            store.saveList("fav", saved.filter { it.kind != "itv" })
+            store.favChannelsMigrated = true
+        }
+        folders = f
+        favs = saved.filter { it.kind != "itv" } + f.all()
     }
 
-    /** Moves a favourite channel one place up (-1) or down (+1) among the favourite channels (My order). */
-    fun moveFav(i: Item, step: Int) {
-        val l = favs.toMutableList()
-        val idx = l.indexOfFirst { it.key == i.key }
-        if (idx < 0) return
-        var j = idx + step
-        while (j in l.indices && l[j].kind != i.kind) j += step
-        if (j !in l.indices) return
-        l[idx] = l[j]; l[j] = i
-        favs = l
-        store.saveList("fav", favs)
+    private fun applyFolders(f: FolderSet) {
+        val named = f.mapItems(::named)
+        folders = named
+        store.saveFolders(named)
+        favs = favs.filter { it.kind != "itv" } + named.all()
+    }
+
+    fun isFav(i: Item) = if (i.kind == "itv") folders.contains(i.key) else favs.any { it.key == i.key }
+    /** Quick toggle (remote Favourite key, search): a channel goes into the last used folder, or out of every folder. */
+    fun toggleFav(i: Item) {
+        if (i.kind == "itv") {
+            if (isFav(i)) removeFromFavorites(listOf(i))
+            else addToFolder(store.sort("last_folder", "").takeIf { it in folders.folders } ?: folders.names.firstOrNull() ?: FolderSet.DEFAULT, listOf(i))
+            return
+        }
+        favs = if (isFav(i)) favs.filter { it.key != i.key } else favs + i
+        store.saveList("fav", favs.filter { it.kind != "itv" })
+    }
+
+    // ---- My Channels folders ----
+    fun createFolder(name: String): String? {
+        val n = FolderSet.clean(name)
+        if (n.isEmpty()) return null
+        applyFolders(folders.create(n)); return n
+    }
+    fun renameFolder(old: String, new: String) = applyFolders(folders.rename(old, new))
+    fun deleteFolder(name: String) = applyFolders(folders.delete(name))
+    fun moveFolder(name: String, step: Int) = applyFolders(folders.move(name, step))
+    fun addToFolder(name: String, chans: List<Item>) {
+        applyFolders(folders.add(name, chans.map { c -> named(rawByKey[c.key] ?: c) }))
+        store.saveSort("last_folder", FolderSet.clean(name))
+    }
+    fun removeFromFolder(name: String, chans: List<Item>) = applyFolders(folders.remove(name, chans.map { it.key }.toSet()))
+    fun removeFromFavorites(chans: List<Item>) = applyFolders(folders.removeEverywhere(chans.map { it.key }.toSet()))
+    fun moveInFolder(name: String, ch: Item, step: Int) = applyFolders(folders.moveItem(name, ch.key, step))
+
+    // ---- Channel names ----
+    /** [i] with the user's name for it (channels only). */
+    fun named(i: Item): Item = ChannelNames.apply(i, chNames, rawByKey)
+    fun isRenamed(i: Item) = i.key in chNames
+    fun portalName(i: Item): String = rawByKey[i.key]?.name ?: i.name
+    /** Sets (or with null / blank, resets) a channel's display name; used in lists, folders, the player and search. */
+    fun renameChannel(i: Item, name: String?) {
+        chNames = ChannelNames.set(chNames, i.key, name)
+        store.saveChNames(chNames)
+        applyNames()
+        store.saveList("recent", store.list("recent").map(::named))
+    }
+    private fun applyNames() {
+        channels = rawChannels.map(::named)
+        val f = folders.mapItems(::named)
+        if (f != folders) { folders = f; store.saveFolders(f) }
+        favs = favs.filter { it.kind != "itv" } + folders.all()
     }
 
     fun markPlayed(i: Item) { if (i.kind == "itv") store.addRecent(i) }
@@ -272,7 +332,7 @@ class Repo(ctx: Context) {
                 .filter { c ->
                     if (core.size == 1 && core[0].all { ch -> ch.isDigit() }) c.num.toString() == core[0]
                     else {
-                        val h = squash(c.name + " " + (titles[c.cat] ?: ""))
+                        val h = squash(c.name + " " + (if (c.key in chNames) portalName(c) + " " else "") + (titles[c.cat] ?: ""))
                         core.all { t -> h.contains(squash(t)) }
                     }
                 }

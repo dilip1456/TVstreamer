@@ -140,6 +140,9 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
     var tmdb by remember { mutableStateOf(s.tmdbKey) }
     var omdb by remember { mutableStateOf(s.omdbKey) }
     var gem by remember { mutableStateOf(s.geminiKey) }
+    var osk by remember { mutableStateOf(s.osKey) }
+    var autoNext by remember { mutableStateOf(s.autoNext) }
+    var subSize by remember { mutableStateOf(s.subSize) }
     var note by remember { mutableStateOf("") }
     var linkNote by remember { mutableStateOf("") }
     val ctx = LocalContext.current
@@ -237,6 +240,41 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
             }
         }
         item { Row1("Remote buttons (assign actions to remote keys)", { go(Screen.Remote) }) }
+        item { Label("Player", 18) }
+        item {
+            ButtonFlow {
+                PillButton((if (autoNext) "✓ " else "    ") + "Play next episode automatically", {
+                    autoNext = !autoNext; s.autoNext = autoNext
+                    note = if (autoNext) "Next episode starts automatically (10 s countdown)" else "Next episode autoplay is off"
+                }, selected = autoNext)
+                PillButton("Subtitle size: " + subSize.replaceFirstChar { it.uppercase() }, {
+                    subSize = TrackPrefs.SIZES[(TrackPrefs.SIZES.indexOf(subSize) + 1) % TrackPrefs.SIZES.size]; s.subSize = subSize
+                })
+                val remembered = listOfNotNull(
+                    s.audioLang.takeIf { it.isNotEmpty() }?.let { "audio ${OpenSubs.langName(TrackPrefs.norm(it))}" },
+                    s.subLang.takeIf { it.isNotEmpty() }?.let { if (it == "off") "subtitles off" else "subtitles ${OpenSubs.langName(TrackPrefs.norm(it))}" }
+                )
+                if (remembered.isNotEmpty()) PillButton("Forget audio/subtitle choices (${remembered.joinToString(", ")})", {
+                    s.audioLang = ""; s.subLang = ""; s.seriesTracks = ""; note = "Audio and subtitle choices forgotten"
+                })
+            }
+        }
+        item {
+            Label("Audio and subtitle choices made in the player are remembered (for all titles, and per show for series) and used next time. " +
+                "To download subtitles, open Subtitles in the player and pick \"Download subtitles\"; this needs a free OpenSubtitles.com API key " +
+                "(about 5 downloads a day per device without an account).", 13, DIM, maxLines = 8)
+        }
+        item {
+            FieldWithLink({ SettingField("OpenSubtitles API key (optional, for downloading subtitles)", osk, password = true) { osk = it } },
+                "Get an OpenSubtitles key ↗") { link("OpenSubtitles", OpenSubs.KEY_URL) }
+        }
+        item {
+            PillButton("Save OpenSubtitles key", {
+                keyboard?.hide()
+                s.osKey = osk
+                note = if (osk.isBlank()) "OpenSubtitles key removed" else "OpenSubtitles key saved"
+            }, primary = true)
+        }
         item { Label("Movie & series info (optional)", 18) }
         item {
             Label("Posters, plots, cast and release dates come from TMDB when a TMDB API key is set (free at themoviedb.org > Settings > API). " +

@@ -124,15 +124,31 @@ class Store(ctx: Context) {
             o.keys().asSequence().associateWith { k -> o.getJSONArray(k).toItems() }
         } catch (_: Exception) { emptyMap() }
     }
-    fun addToCustom(name: String, item: Item) {
-        val m = customCats().toMutableMap()
-        val list = m.getOrPut(name) { emptyList() }.toMutableList()
-        if (list.none { it.key == item.key }) list += item
-        m[name] = list
-        val o = org.json.JSONObject()
-        m.forEach { (k, v) -> o.put(k, itemsJson(v)) }
-        p.edit().putString("custom_cats", o.toString()).apply()
+    /** My Channels folders (the source of truth for favourite channels) with the user's folder order. */
+    fun folders(): FolderSet {
+        val order = runCatching { JSONArray(p.getString("folder_order", "[]")).let { a -> (0 until a.length()).map { a.getString(it) } } }
+            .getOrDefault(emptyList())
+        return FolderSet(customCats(), order)
     }
+    fun saveFolders(f: FolderSet) {
+        val o = org.json.JSONObject()
+        f.names.forEach { n -> o.put(n, itemsJson(f.items(n))) }
+        p.edit().putString("custom_cats", o.toString()).putString("folder_order", JSONArray(f.names).toString()).apply()
+    }
+    /** Old favourite channels were moved into folders once (local flag, see Repo). */
+    var favChannelsMigrated: Boolean
+        get() = p.getString("fav_ch_migrated", "") == "1"
+        set(v) { p.edit().putString("fav_ch_migrated", if (v) "1" else "").apply() }
+
+    /** Custom channel display names: channel key -> name. */
+    fun chNames(): Map<String, String> = runCatching {
+        val o = JSONObject(p.getString("ch_names", "{}") ?: "{}")
+        o.keys().asSequence().associateWith { o.getString(it) }
+    }.getOrDefault(emptyMap())
+    fun saveChNames(m: Map<String, String>) {
+        p.edit().putString("ch_names", JSONObject().also { o -> m.forEach { (k, v) -> o.put(k, v) } }.toString()).apply()
+    }
+
     /** User arranged order of categories by kind ("itv" or "vod"). Ids not listed keep the portal order after these. */
     fun catOrder(kind: String): List<String> =
         runCatching { JSONArray(p.getString("order_$kind", "[]")).let { a -> (0 until a.length()).map { a.getString(it) } } }
@@ -175,6 +191,36 @@ class Store(ctx: Context) {
     var barPos: String
         get() = p.getString("bar_pos", "bottom") ?: "bottom"
         set(v) { p.edit().putString("bar_pos", v).apply() }
+
+    /** Play the next episode automatically at the end of an episode (Settings > Player). Synced; default on. */
+    var autoNext: Boolean
+        get() = (p.getString("auto_next", "1") ?: "1") != "0"
+        set(v) { p.edit().putString("auto_next", if (v) "1" else "0").apply() }
+
+    /** Preferred audio language ("" = the stream's default). Synced. */
+    var audioLang: String
+        get() = p.getString("audio_lang", "") ?: ""
+        set(v) { p.edit().putString("audio_lang", v).apply() }
+
+    /** Preferred subtitles: "" = the stream's default, "off", or a language code. Synced. */
+    var subLang: String
+        get() = p.getString("sub_lang", "") ?: ""
+        set(v) { p.edit().putString("sub_lang", v).apply() }
+
+    /** Per-series audio / subtitle choices (JSON, see TrackPrefs). Synced. */
+    var seriesTracks: String
+        get() = p.getString("series_tracks", "") ?: ""
+        set(v) { p.edit().putString("series_tracks", v).apply() }
+
+    /** Subtitle text size: small, normal, large or huge. Synced. */
+    var subSize: String
+        get() = p.getString("sub_size", "normal") ?: "normal"
+        set(v) { p.edit().putString("sub_size", v).apply() }
+
+    /** OpenSubtitles.com API key (the user's own, optional). Private prefs only, never in the repo; synced with the other keys. */
+    var osKey: String
+        get() = sec.getString("os_key", "") ?: ""
+        set(v) { sec.edit().putString("os_key", v.trim()).apply() }
 
     /** TMDB v3 API key (or v4 read token) and optional OMDb key. Stored only in the private "secure" prefs, never in the repo. */
     var tmdbKey: String
@@ -297,11 +343,11 @@ class Store(ctx: Context) {
         val last = runCatching { JSONObject(p.getString("lastep", "{}") ?: "{}").let { o -> o.keys().asSequence().associateWith { o.getJSONObject(it).toString() } } }.getOrDefault(emptyMap())
         val secrets = if (!withSecrets) emptyMap() else mapOf(
             "portal" to portal, "mac" to mac, "serial" to serial, "pw" to password, "tmdb" to tmdbKey, "omdb" to omdbKey,
-            "gemini" to geminiKey
+            "gemini" to geminiKey, "osub" to osKey
         ).filterValues { it.isNotEmpty() }
         return SyncLocal(
             favs = favs, hidden = hidden, custom = custom, orders = orders, langs = langs, prefs = prefStrings(),
-            recent = p.getString("recent", "") ?: "", resume = resume, lastEp = last, secrets = secrets
+            recent = p.getString("recent", "") ?: "", resume = resume, lastEp = last, secrets = secrets, names = chNames()
         )
     }
 
@@ -323,11 +369,12 @@ class Store(ctx: Context) {
             if (l.recent.isEmpty()) e.remove("recent") else e.putString("recent", l.recent)
             e.putString("resume", JSONArray().also { a -> l.resume.forEach { a.put(JSONObject(it)) } }.toString())
             e.putString("lastep", JSONObject().also { o -> l.lastEp.forEach { (k, v) -> o.put(k, JSONObject(v)) } }.toString())
+            e.putString("ch_names", JSONObject().also { o -> l.names.forEach { (k, v) -> o.put(k, v) } }.toString())
             e.commit()
             if (withSecrets) {
                 fun put(name: String, cur: String, set: (String) -> Unit) {
                     val v = l.secrets[name]
-                    if (!v.isNullOrEmpty() && v != cur) { set(v); if (name != "tmdb" && name != "omdb" && name != "gemini") secretsChanged = true }
+                    if (!v.isNullOrEmpty() && v != cur) { set(v); if (name != "tmdb" && name != "omdb" && name != "gemini" && name != "osub") secretsChanged = true }
                 }
                 put("portal", portal) { portal = it }
                 put("mac", mac) { mac = it }
@@ -336,6 +383,7 @@ class Store(ctx: Context) {
                 put("tmdb", tmdbKey) { tmdbKey = it }
                 put("omdb", omdbKey) { omdbKey = it }
                 put("gemini", geminiKey) { geminiKey = it }
+                put("osub", osKey) { osKey = it }
             }
         } finally { muted = false }
         return secretsChanged
@@ -343,9 +391,9 @@ class Store(ctx: Context) {
 
     companion object {
         /** Prefs stored in their own sync entries. */
-        val STRUCTURED = setOf("fav", "hidden", "custom_cats", "recent", "resume", "lastep")
+        val STRUCTURED = setOf("fav", "hidden", "custom_cats", "recent", "resume", "lastep", "ch_names")
         /** Never synced. */
-        val LOCAL_ONLY = emptySet<String>()
+        val LOCAL_ONLY = setOf("fav_ch_migrated")
     }
 
     fun cacheWrite(name: String, text: String) { runCatching { File(dir, name).writeText(text) } }

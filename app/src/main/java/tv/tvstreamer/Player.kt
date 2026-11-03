@@ -158,11 +158,13 @@ private fun choices(tracks: Tracks, type: Int): List<TrackChoice> {
 }
 
 @Composable
-fun PlayerScreen(repo: Repo, list: List<Item>, start: Int, onBack: () -> Unit) {
+fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit) {
     val ctx = LocalContext.current
     DisposableEffect(Unit) { Theme.forceDark = true; onDispose { Theme.forceDark = false } }
     val isTv = rememberIsTv()
-    var idx by remember { mutableIntStateOf(start.coerceIn(0, (list.size - 1).coerceAtLeast(0))) }
+    // The play list can grow: the next season's first episode is appended when an episode ends
+    var list by remember { mutableStateOf(initial) }
+    var idx by remember { mutableIntStateOf(start.coerceIn(0, (initial.size - 1).coerceAtLeast(0))) }
     var attempt by remember { mutableIntStateOf(0) }
     var autoRetries by remember { mutableIntStateOf(0) }
     // Which link strategy to start from, and which one gave the current URL (see Stalker.link)
@@ -193,8 +195,14 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int, onBack: () -> Unit) {
     var seekTick by remember { mutableIntStateOf(0) }
     var fastHold by remember { mutableStateOf(false) }    // press-and-hold 2x speed
     var prevIdx by remember { mutableIntStateOf(-1) }      // for "Back to previous channel"
+    var nextEp by remember { mutableStateOf<Item?>(null) } // the episode after the current one (series only)
+    var upNextCancelled by remember { mutableStateOf("") }  // item key whose "Next episode" countdown was cancelled
+    var seriesKey by remember { mutableStateOf("") }       // show the current episode belongs to (per-series track choices)
+    var subSize by remember { mutableStateOf(repo.store.subSize) }
+    val autoNext = remember { repo.store.autoNext }
+    val scope = rememberCoroutineScope()
 
-    val item = list[idx]
+    val item = list[idx].let { if (it.kind == "itv") repo.named(it) else it }   // custom channel name
     val cur by rememberUpdatedState(item)
     val live = item.kind == "itv"
     val canSeek = !live && dur > 0
@@ -203,6 +211,7 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int, onBack: () -> Unit) {
     val playFr = remember { FocusRequester() }
     val seekFr = remember { FocusRequester() }
     val retryFr = remember { FocusRequester() }
+    val upNextFr = remember { FocusRequester() }
 
     val http = remember { OkHttpDataSource.Factory(streamHttp).setUserAgent(UA) }
     val exo = remember {
@@ -227,8 +236,24 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int, onBack: () -> Unit) {
     // Remember the last episode played for each show (opens the show there next time)
     LaunchedEffect(cur.key) {
         val ep = cur
+        nextEp = null
         if (ep.kind == "vod" && ep.isEpisode()) withContext(Dispatchers.IO) {
             repo.store.parentOf(ep)?.let { repo.store.saveLastEp(it.key, ep.key, false) }
+        }
+        // Next episode: the next one in the list when it is the same show, else the show's next (also next season's first)
+        if (ep.kind == "vod" && ep.isEpisodeLike()) {
+            val at = list.indexOfFirst { it.key == ep.key }
+            nextEp = withContext(Dispatchers.IO) {
+                runCatching {
+                    val parent = repo.store.parentOf(ep)
+                    val after = list.getOrNull(at + 1)?.takeIf { it.kind == "vod" && it.isEpisodeLike() }
+                    if (after != null && (if (parent != null) repo.store.parentOf(after)?.key == parent.key
+                            else Tags.norm(after.parsed.title) == Tags.norm(ep.parsed.title))) return@runCatching after
+                    if (parent == null) return@runCatching null
+                    val eps = if (parent.id.startsWith("grp:")) repo.lib.syntheticEpisodes(parent) else repo.api.episodes(parent)
+                    NextEpisode.after(eps, ep)
+                }.getOrNull()
+            }
         }
     }
     fun go(n: Int) {
@@ -241,6 +266,25 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int, onBack: () -> Unit) {
         linkFrom = 0
         zapTick++
         touch()
+    }
+    /** Play episode [n] next (inserting it after the current item when it is not in the list yet). */
+    fun playEpisode(n: Item, finished: Boolean) {
+        val ended = cur
+        val at = list.indexOfFirst { it.key == n.key }
+        if (at >= 0) go(at) else {
+            list = list.take(idx + 1) + n + list.drop(idx + 1)
+            go(idx + 1)
+        }
+        // Finished: drop it from Continue watching (go() saved its position first); the new episode becomes the show's last
+        if (finished) repo.store.removeResume(ended.key)
+    }
+    fun next() { val n = nextEp; if (n != null) playEpisode(n, finished = false) else go(idx + 1) }  // nextEp is only set for episodes
+    fun trackParams(): androidx.media3.common.TrackSelectionParameters.Builder = exo.trackSelectionParameters.buildUpon()
+    /** Remember an audio / subtitle choice globally and, during a series, for that show. */
+    fun rememberTracks(audio: String?, sub: String?) {
+        audio?.let { repo.store.audioLang = it }
+        sub?.let { repo.store.subLang = it }
+        if (seriesKey.isNotEmpty()) repo.store.seriesTracks = TrackPrefs.write(repo.store.seriesTracks, seriesKey, audio, sub)
     }
     fun seekBy(ms: Long, quiet: Boolean = false) {
         if (live) return
@@ -267,7 +311,8 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int, onBack: () -> Unit) {
                 Act.PLAY_PAUSE -> { togglePlay(); if (!exo.playWhenReady) showControls(); true }
                 Act.SEEK_BACK -> { seekBy(-SEEK_MS); if (!live) showControls(true); true }
                 Act.SEEK_FWD -> { seekBy(SEEK_MS); if (!live) showControls(true); true }
-                Act.NEXT, Act.CH_UP -> { go(idx + 1); true }
+                Act.NEXT -> { next(); true }
+                Act.CH_UP -> { go(idx + 1); true }
                 Act.PREV, Act.CH_DOWN -> { go(idx - 1); true }
                 Act.LAST_CH -> { if (prevIdx in list.indices && prevIdx != idx) go(prevIdx) else { flash = "No previous channel"; flashTick++ }; true }
                 Act.CONTROLS -> { showControls(); true }
@@ -339,10 +384,12 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int, onBack: () -> Unit) {
             override fun onPlaybackStateChanged(state: Int) {
                 buffering = state == Player.STATE_BUFFERING
                 if (state == Player.STATE_ENDED && cur.kind == "vod") {
-                    repo.store.removeResume(cur.key)
                     val ended = cur
+                    val n = nextEp
+                    if (autoNext && n != null && upNextCancelled != ended.key) { playEpisode(n, finished = true); return }
+                    repo.store.removeResume(ended.key)
                     if (ended.isEpisode()) kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) { repo.store.parentOf(ended)?.let { repo.store.saveLastEp(it.key, ended.key, true) } }
-                    if (idx < list.size - 1) go(idx + 1) else showControls()
+                    if (autoNext && n == null && !ended.isEpisodeLike() && idx < list.size - 1) go(idx + 1) else showControls()
                 }
             }
             override fun onTracksChanged(t: Tracks) { tracks = t }
@@ -377,6 +424,21 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int, onBack: () -> Unit) {
         try {
             val (url, used) = withContext(Dispatchers.IO) { repo.api.link(item, linkFrom) }
             linkUsed = used
+            // Remembered audio / subtitle choice (the show's own choice wins over the global one)
+            seriesKey = withContext(Dispatchers.IO) {
+                when {
+                    item.isEpisode() -> repo.store.parentOf(item)?.key ?: ""
+                    item.kind == "vod" && item.isEpisodeLike() -> "title:" + Tags.norm(item.parsed.title)
+                    else -> ""
+                }
+            }
+            val ch = TrackPrefs.resolve(TrackPrefs.Choice(repo.store.audioLang, repo.store.subLang),
+                seriesKey.takeIf { it.isNotEmpty() }?.let { TrackPrefs.read(repo.store.seriesTracks, it) })
+            exo.trackSelectionParameters = trackParams().clearOverrides()
+                .setPreferredAudioLanguage(ch.audio.ifEmpty { null })
+                .setPreferredTextLanguage(ch.sub.takeIf { it.isNotEmpty() && it != "off" })
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, ch.sub == "off")
+                .build()
             // Headers are read now so a token obtained during link() is included.
             http.setDefaultRequestProperties(repo.api.streamHeaders())
             exo.setMediaItem(mediaItemFor(url))
@@ -432,6 +494,18 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int, onBack: () -> Unit) {
         }
     }
 
+    // "Next episode in 10 s" near the end of an episode (Settings > Play next episode automatically)
+    val upNextIn = if (autoNext && !live && nextEp != null && upNextCancelled != item.key && err.isEmpty() && !resolving)
+        NextEpisode.countdown(pos, dur) else null
+    val showUpNext = upNextIn != null && dialog == null
+    LaunchedEffect(showUpNext) {
+        if (showUpNext) { controls = false; delay(80); runCatching { upNextFr.requestFocus() } }
+        else { delay(60); runCatching { if (dialog == null && err.isEmpty() && !controls) rootFr.requestFocus() } }
+    }
+
+    // TV: Back first hides the controls, then leaves the player
+    BackHandler(isTv && controls && dialog == null && err.isEmpty() && !showUpNext) { controls = false }
+    BackHandler(showUpNext) { upNextCancelled = item.key }
     BackHandler(dialog != null) { dialog = null; touch() }
 
     // Keys that are swallowed on KeyDown also have their KeyUp swallowed,
@@ -453,12 +527,13 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int, onBack: () -> Unit) {
                     Key.MediaPause -> { exo.pause(); showControls(); true }
                     Key.MediaFastForward -> { seekBy(SEEK_MS); if (!live) showControls(true); true }
                     Key.MediaRewind -> { seekBy(-SEEK_MS); if (!live) showControls(true); true }
-                    Key.MediaNext, Key.ChannelUp -> { go(idx + 1); true }
+                    Key.MediaNext -> { next(); true }
+                    Key.ChannelUp -> { go(idx + 1); true }
                     Key.MediaPrevious, Key.ChannelDown -> { go(idx - 1); true }
                     else -> false
                 }
                 if (handled) { swallowUp += k; return@onPreviewKeyEvent true }
-                if (dialog != null || err.isNotEmpty()) { touch(); return@onPreviewKeyEvent false }
+                if (dialog != null || err.isNotEmpty() || showUpNext) { touch(); return@onPreviewKeyEvent false }
                 if (controls) { touch(); return@onPreviewKeyEvent false }
                 // Controls hidden: remote shortcuts
                 val used = when (k) {
@@ -487,6 +562,12 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int, onBack: () -> Unit) {
                 }
             },
             update = { v ->
+                v.subtitleView?.apply {
+                    setFractionalTextSize(TrackPrefs.subFraction(subSize))
+                    setStyle(androidx.media3.ui.CaptionStyleCompat(android.graphics.Color.WHITE, android.graphics.Color.TRANSPARENT,
+                        android.graphics.Color.TRANSPARENT, androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_OUTLINE, android.graphics.Color.BLACK, null))
+                    setBottomPaddingFraction(if (controls) 0.22f else 0.06f)
+                }
                 v.resizeMode = when (aspect) {
                     "fill" -> AspectRatioFrameLayout.RESIZE_MODE_FILL
                     "zoom" -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
@@ -593,18 +674,36 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int, onBack: () -> Unit) {
             key(favTick) {
                 Controls(
                     item = item, live = live, list = list, idx = idx, playing = playWhenReady, pos = pos, dur = dur,
-                    buffered = buffered, canSeek = canSeek, isFav = repo.isFav(item), aspect = aspect, barPos = barPos, isTv = isTv,
+                    buffered = buffered, canSeek = canSeek, isFav = repo.isFav(item), aspect = aspect, barPos = if (isTv) "bottom" else barPos, isTv = isTv,
+                    hasNext = list.size > 1 || (!live && nextEp != null),
                     hasAudio = choices(tracks, C.TRACK_TYPE_AUDIO).size > 1, hasSubs = choices(tracks, C.TRACK_TYPE_TEXT).isNotEmpty(),
                     playFr = playFr, seekFr = seekFr,
                     onPlay = { togglePlay() }, onSeekBy = { seekBy(it); touch() },
                     onSeekTo = { exo.seekTo(it); pos = it; touch() },
-                    onPrev = { go(idx - 1) }, onNext = { go(idx + 1) },
+                    onPrev = { go(idx - 1) }, onNext = { next() },
                     onFav = { repo.toggleFav(item); favTick++; touch() },
                     onDialog = { dialog = it },
                     onAspect = { setAspect(when (aspect) { "fit" -> "fill"; "fill" -> "zoom"; else -> "fit" }); touch() },
                     onMove = { barPos = when (barPos) { "bottom" -> "left"; "left" -> "right"; else -> "bottom" }; repo.store.barPos = barPos; touch() },
                     onTouch = { touch() }
                 )
+            }
+        }
+
+        if (showUpNext) {
+            val n = nextEp
+            Column(
+                Modifier.align(Alignment.BottomEnd).padding(if (isTv) 40.dp else 20.dp).widthIn(max = 420.dp)
+                    .background(Color(0xEE15151C), RoundedCornerShape(14.dp)).padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text("Next episode in ${upNextIn}s", color = Color.White, fontSize = if (isTv) 20.sp else 17.sp, fontWeight = FontWeight.Bold)
+                if (n != null) Text(listOf(n.season, n.name).filter { it.isNotBlank() }.joinToString(" · "), color = Pal.Dim, fontSize = 14.sp,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    PillButton("▶  Play now", { nextEp?.let { playEpisode(it, finished = true) } }, Modifier.focusRequester(upNextFr), primary = true)
+                    PillButton("Cancel", { upNextCancelled = item.key; touch() })
+                }
             }
         }
 
@@ -631,9 +730,10 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int, onBack: () -> Unit) {
             val opts: List<Pair<String, () -> Unit>> = when (d) {
                 "audio" -> choices(tracks, C.TRACK_TYPE_AUDIO).map { c ->
                     ((if (c.selected) "✓ " else "    ") + c.label) to {
-                        exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
+                        exo.trackSelectionParameters = trackParams()
                             .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
                             .setOverrideForType(TrackSelectionOverride(c.group!!.mediaTrackGroup, c.index)).build()
+                        c.group.getTrackFormat(c.index).language?.takeIf { it.isNotBlank() && it != "und" }?.let { rememberTracks(it, null) }
                         dialog = null
                     }
                 }.ifEmpty { listOf("No other audio tracks" to { dialog = null }) }
@@ -641,15 +741,55 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int, onBack: () -> Unit) {
                     val off = exo.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT) ||
                         choices(tracks, C.TRACK_TYPE_TEXT).none { it.selected }
                     listOf(((if (off) "✓ " else "    ") + "Off") to {
-                        exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
+                        exo.trackSelectionParameters = trackParams()
                             .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build()
+                        rememberTracks(null, "off")
                         dialog = null
                     }) + choices(tracks, C.TRACK_TYPE_TEXT).map { c ->
                         ((if (c.selected && !off) "✓ " else "    ") + c.label) to {
-                            exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
+                            exo.trackSelectionParameters = trackParams()
                                 .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
                                 .setOverrideForType(TrackSelectionOverride(c.group!!.mediaTrackGroup, c.index)).build()
+                            c.group.getTrackFormat(c.index).language?.takeIf { it.isNotBlank() && it != "und" }?.let { rememberTracks(null, it) }
                             dialog = null
+                        }
+                    } + listOfNotNull(
+                        (if (live) null else "⬇  Download subtitles (OpenSubtitles)…" to { dialog = "subdl" }),
+                        "    Text size: ${subSize.replaceFirstChar { it.uppercase() }}" to {
+                            subSize = TrackPrefs.SIZES[(TrackPrefs.SIZES.indexOf(subSize) + 1) % TrackPrefs.SIZES.size]
+                            repo.store.subSize = subSize
+                        }
+                    )
+                }
+                "subdl" -> {
+                    val pref = repo.store.subLang.takeIf { it.isNotEmpty() && it != "off" }?.let { TrackPrefs.norm(it) }
+                    val langs = (listOfNotNull(pref, Locale.getDefault().language.takeIf { it.length == 2 }, "en") + OpenSubs.LANGS).distinct()
+                    langs.map { l ->
+                        OpenSubs.langName(l) to {
+                            dialog = null
+                            val target = item
+                            flash = "Searching subtitles…"; flashTick++
+                            scope.launch {
+                                try {
+                                    val q = subtitleQuery(repo, target, l)
+                                    val f = OpenSubs.fetch(repo.store.osKey, q, java.io.File(ctx.cacheDir, "subs"))
+                                    if (cur.key != target.key) return@launch
+                                    val base = exo.currentMediaItem ?: return@launch
+                                    val sc = MediaItem.SubtitleConfiguration.Builder(android.net.Uri.fromFile(f))
+                                        .setMimeType(OpenSubs.mimeFor(f)).setLanguage(l)
+                                        .setLabel("${OpenSubs.langName(l)} (OpenSubtitles)")
+                                        .setSelectionFlags(C.SELECTION_FLAG_DEFAULT).build()
+                                    val at = exo.currentPosition
+                                    exo.trackSelectionParameters = trackParams().clearOverridesOfType(C.TRACK_TYPE_TEXT)
+                                        .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false).setPreferredTextLanguage(l).build()
+                                    exo.setMediaItem(base.buildUpon().setSubtitleConfigurations(listOf(sc)).build(), at)
+                                    exo.prepare()
+                                    rememberTracks(null, l)
+                                    toast(ctx, "${OpenSubs.langName(l)} subtitles added")
+                                } catch (e: CancellationException) { throw e } catch (e: Exception) {
+                                    toast(ctx, e.message ?: "Could not download subtitles")
+                                }
+                            }
                         }
                     }
                 }
@@ -657,19 +797,18 @@ fun PlayerScreen(repo: Repo, list: List<Item>, start: Int, onBack: () -> Unit) {
                     ((if (aspect == k) "✓ " else "    ") + t) to { setAspect(k); dialog = null }
                 }
                 else -> buildList {
-                    add((if (repo.isFav(item)) "Remove favorite" else "Add favorite") to { repo.toggleFav(item); favTick++; dialog = null })
-                    if (live) {
-                        add("Move to My Channels" to { repo.moveToCustom(item, "My Channels"); dialog = null })
-                    }
+                    if (!live) add((if (repo.isFav(item)) "Remove favorite" else "Add favorite") to { repo.toggleFav(item); favTick++; dialog = null })
                     add("Audio track" to { dialog = "audio" })
                     add("Subtitles" to { dialog = "subs" })
                     add("Picture: Fit / Fill / Zoom" to { dialog = "aspect" })
-                    add("Move control bar (now: $barPos)" to { barPos = when (barPos) { "bottom" -> "left"; "left" -> "right"; else -> "bottom" }; repo.store.barPos = barPos; dialog = null })
+                    if (!isTv) add("Move control bar (now: $barPos)" to { barPos = when (barPos) { "bottom" -> "left"; "left" -> "right"; else -> "bottom" }; repo.store.barPos = barPos; dialog = null })
                     add("Reload stream" to { autoRetries = 0; linkFrom = 0; attempt++; dialog = null })
                 }
             }
-            val title = when (d) { "audio" -> "Audio"; "subs" -> "Subtitles"; "aspect" -> "Picture"; else -> item.name }
-            ChoiceDialog(title, opts) { dialog = null }
+            val title = when (d) { "audio" -> "Audio"; "subs" -> "Subtitles"; "subdl" -> "Download subtitles: language"; "aspect" -> "Picture"; else -> item.name }
+            // Live: the shared channel menu (favourites / folders, rename) with the player entries below it
+            if (live && d !in setOf("audio", "subs", "subdl", "aspect")) ChannelMenu(repo, item, null, opts, null) { favTick++; dialog = null }
+            else ChoiceDialog(title, opts) { dialog = null }
         }
     }
 }
@@ -760,13 +899,18 @@ private fun SeekBar(pos: Long, dur: Long, buffered: Long, fr: FocusRequester, on
 @Composable
 private fun Controls(
     item: Item, live: Boolean, list: List<Item>, idx: Int, playing: Boolean, pos: Long, dur: Long, buffered: Long,
-    canSeek: Boolean, isFav: Boolean, aspect: String, barPos: String, isTv: Boolean, hasAudio: Boolean, hasSubs: Boolean,
+    canSeek: Boolean, isFav: Boolean, aspect: String, barPos: String, isTv: Boolean, hasNext: Boolean, hasAudio: Boolean, hasSubs: Boolean,
     playFr: FocusRequester, seekFr: FocusRequester,
     onPlay: () -> Unit, onSeekBy: (Long) -> Unit, onSeekTo: (Long) -> Unit,
     onPrev: () -> Unit, onNext: () -> Unit, onFav: () -> Unit, onDialog: (String) -> Unit, onAspect: () -> Unit,
     onMove: () -> Unit, onTouch: () -> Unit
 ) {
     val pad = if (isTv) 40.dp else 16.dp
+    if (isTv) {
+        TvControls(item, live, list, idx, playing, pos, dur, buffered, canSeek, aspect, hasNext, hasAudio, hasSubs, playFr, seekFr,
+            onPlay, onSeekBy, onSeekTo, onPrev, onNext, onDialog)
+        return
+    }
     Box(Modifier.fillMaxSize()) {
         // Top: title, favourite, options (Back = system / remote Back)
         Row(
@@ -800,7 +944,7 @@ private fun Controls(
             if (!live) CtrlButton(Ic.Rewind, "Back 10 seconds", { onSeekBy(-SEEK_MS) }, enabled = canSeek)
             CtrlButton(if (playing) Ic.Pause else Ic.Play, if (playing) "Pause" else "Play", onPlay, Modifier.focusRequester(playFr), big = true)
             if (!live) CtrlButton(Ic.Forward, "Forward 10 seconds", { onSeekBy(SEEK_MS) }, enabled = canSeek)
-            if (list.size > 1) CtrlButton(Ic.Next, if (live) "Next channel" else "Next", onNext)
+            if (hasNext) CtrlButton(Ic.Next, if (live) "Next channel" else "Next", onNext)
         }
 
         // Option buttons (movable: bottom / left / right, as before)
@@ -837,6 +981,71 @@ private fun Controls(
                     .padding(horizontal = 12.dp).background(Color(0xAA000000), RoundedCornerShape(14.dp)).padding(8.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) { opts() }
+        }
+    }
+}
+
+/** OpenSubtitles search for [item]: TMDB / IMDb ids when known (the show's ids for an episode), else the title. */
+private suspend fun subtitleQuery(repo: Repo, item: Item, lang: String): OpenSubs.Query = withContext(Dispatchers.IO) {
+    val episode = item.isEpisodeLike()
+    val parent = if (item.isEpisode()) repo.store.parentOf(item) else null
+    val show = parent ?: item
+    val meta = runCatching { Tmdb.get(show) }.getOrNull()?.takeIf { it.found }
+    val epNo = if (episode) EpisodeOrder.episodeNo(item) else 0
+    val season = if (episode) EpisodeOrder.seasonNo(item).takeIf { it > 0 } ?: (if (epNo > 0) 1 else 0) else 0
+    OpenSubs.Query(tmdbId = meta?.tmdbId ?: 0, imdbId = meta?.imdbId.orEmpty(),
+        title = Names.title(show.parsed.title.ifBlank { show.name }), year = meta?.year?.ifBlank { null } ?: show.year.take(4),
+        season = season, episode = epNo, lang = lang)
+}
+
+/**
+ * TV / D-pad controls: a standard player bar under the video and nothing at the sides. Seek bar on top, then
+ * previous · −10 s · play/pause · +10 s · next on the left and audio · subtitles · picture · more on the right.
+ * Play/pause has focus when the bar opens; Up reaches the seek bar (Left / Right seek there).
+ */
+@Composable
+private fun TvControls(
+    item: Item, live: Boolean, list: List<Item>, idx: Int, playing: Boolean, pos: Long, dur: Long, buffered: Long,
+    canSeek: Boolean, aspect: String, hasNext: Boolean, hasAudio: Boolean, hasSubs: Boolean,
+    playFr: FocusRequester, seekFr: FocusRequester,
+    onPlay: () -> Unit, onSeekBy: (Long) -> Unit, onSeekTo: (Long) -> Unit,
+    onPrev: () -> Unit, onNext: () -> Unit, onDialog: (String) -> Unit
+) {
+    Box(Modifier.fillMaxSize()) {
+        Column(
+            Modifier.align(Alignment.BottomStart).fillMaxWidth()
+                .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xCC000000), Color(0xEE000000))))
+                .padding(start = 48.dp, end = 48.dp, top = 48.dp, bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text((if (live && item.num > 0) "${item.num}  " else "") + item.name, color = Color.White,
+                fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            val sub = listOfNotNull(
+                item.season.ifEmpty { null },
+                if (list.size > 1) (if (live) "Channel" else "Item") + " ${idx + 1} of ${list.size}" else null
+            ).joinToString("  ·  ")
+            if (sub.isNotEmpty()) Text(sub, color = Pal.Dim, fontSize = 14.sp, maxLines = 1)
+            if (!live) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Text(fmt(pos), color = Color.White, fontSize = 15.sp)
+                    SeekBar(pos, dur, buffered, seekFr, onSeekBy, onSeekTo, Modifier.weight(1f))
+                    Text(if (dur > 0) fmt(dur) else "--:--", color = Color.White, fontSize = 15.sp)
+                }
+            } else {
+                Text("● LIVE", color = Pal.Accent, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                if (list.size > 1) CtrlButton(Ic.Prev, if (live) "Previous channel" else "Previous", onPrev)
+                if (!live) CtrlButton(Ic.Rewind, "Back 10 seconds", { onSeekBy(-SEEK_MS) }, enabled = canSeek)
+                CtrlButton(if (playing) Ic.Pause else Ic.Play, if (playing) "Pause" else "Play", onPlay, Modifier.focusRequester(playFr))
+                if (!live) CtrlButton(Ic.Forward, "Forward 10 seconds", { onSeekBy(SEEK_MS) }, enabled = canSeek)
+                if (hasNext) CtrlButton(Ic.Next, if (live) "Next channel" else "Next episode", onNext)
+                Spacer(Modifier.weight(1f))
+                if (hasAudio || !live) CtrlButton(Ic.Audio, "Audio", { onDialog("audio") })
+                CtrlButton(Ic.Subtitles, if (hasSubs) "Subtitles" else "Subtitles (none)", { onDialog("subs") })
+                CtrlButton(Ic.Aspect, "Picture: " + aspect, { onDialog("aspect") })
+                CtrlButton(Ic.More, "More", { onDialog("menu") })
+            }
         }
     }
 }

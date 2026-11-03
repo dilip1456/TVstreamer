@@ -46,6 +46,10 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, onSearch: () -> Unit = {})
     var langs by remember { mutableStateOf(st.langs("live")) }
     var pickLangs by remember { mutableStateOf(false) }
     var menuTarget by remember { mutableStateOf<Any?>(null) }
+    var menuFolder by remember { mutableStateOf<String?>(null) }   // My Channels folder the channel menu was opened from
+    // Selection mode: OK ticks channels; then add them all to folders at once
+    var picked by remember { mutableStateOf<Map<String, Item>?>(null) }
+    var pickFolders by remember { mutableStateOf(false) }
     var msg by remember { mutableStateOf("") }
     fun save(k: String, v: String) = st.saveSort(k, v)
 
@@ -54,7 +58,7 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, onSearch: () -> Unit = {})
     val catIds = remember(cats) { cats.map { it.id }.toSet() }
     val catTitle = remember(repo.liveCats) { repo.liveCats.associate { it.id to it.title } }
     // Every channel's type and language: worked out once per channel list off the main thread (and saved), see LiveIndex
-    LaunchedEffect(repo.channels, repo.liveCats) { repo.liveIndex.ensure(repo.channels, repo.liveCats) }
+    LaunchedEffect(repo.rawChannels, repo.liveCats) { repo.liveIndex.ensure(repo.rawChannels, repo.liveCats) }
     val info = repo.liveIndex.info
     val visible = remember(repo.channels, catIds, repo.hidden, unlocked) {
         repo.channels.filter { it.cat in catIds && !repo.isChannelHidden(it) && (!it.locked || unlocked) }
@@ -75,6 +79,7 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, onSearch: () -> Unit = {})
             item { PillButton("All channels", { mode = "all"; save("live_mode", mode) }, Modifier.focusRequester(topFr), selected = mode == "all", size = 14) }
             item { PillButton("★  Favorites", { mode = "fav"; save("live_mode", mode) }, selected = mode == "fav", size = 14) }
             if (tvLive) item { PillButton("🔍  Search", onSearch, size = 14) }
+            item { PillButton(if (picked != null) "☑  Selecting" else "☐  Select", { picked = if (picked != null) null else emptyMap() }, selected = picked != null, size = 14) }
             item { Spacer(Modifier.width(12.dp)) }
             if (mode == "all" || favView == "grouped") item {
                 PillButton(if (groupBy == "type") "Grouped by type" else "Original categories",
@@ -83,7 +88,7 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, onSearch: () -> Unit = {})
             if (mode == "fav") {
                 item { PillButton(if (favView == "grouped") "Grouped" else "Single list", { favView = if (favView == "grouped") "single" else "grouped"; save("live_favview", favView) }, size = 14) }
                 if (favView == "single") item {
-                    PillButton(if (favOrder == "mine") "My order" else "A-Z", { favOrder = if (favOrder == "mine") "az" else "mine"; save("live_favorder", favOrder) }, size = 14)
+                    PillButton(if (favOrder == "mine") "Folder order" else "A-Z", { favOrder = if (favOrder == "mine") "az" else "mine"; save("live_favorder", favOrder) }, size = 14)
                 }
             }
             if (mode == "all" && groupBy == "type") item {
@@ -94,23 +99,40 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, onSearch: () -> Unit = {})
                 PillButton(if (sortAz) "A-Z" else "Portal order", { sortAz = !sortAz; save("live_az", if (sortAz) "az" else "default") }, size = 14)
             }
         }
-        if (repo.customCats.isNotEmpty() && mode == "all") {
-            repo.customCats.forEach { (name, items) ->
-                Label(name, 16, DIM2)
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    itemsIndexed(items) { i, ch -> ChannelCard(ch, repo.isFav(ch), { play(items, i) }, { menuTarget = ch }) }
+        // OK on a channel: play it, or in selection mode tick / untick it
+        val sel = picked
+        val playOrPick: (List<Item>, Int) -> Unit = { l, i ->
+            val p = picked
+            if (p == null) play(l, i) else l.getOrNull(i)?.let { c -> picked = if (c.key in p) p - c.key else p + (c.key to c) }
+        }
+        CompositionLocalProvider(LocalPicked provides sel?.keys) {
+            Spacer(Modifier.height(4.dp))
+            if (sel != null) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(vertical = 4.dp)) {
+                    Label(if (sel.isEmpty()) "Select channels with OK" else "${sel.size} selected", 15, Pal.Gold)
+                    if (sel.isNotEmpty()) {
+                        PillButton("📁  Add to folders…", { pickFolders = true }, primary = true, size = 13)
+                        if (sel.values.any { repo.isFav(it) }) PillButton("Remove from favorites", { repo.removeFromFavorites(sel.values.toList()); picked = emptyMap() }, size = 13)
+                        PillButton("Clear", { picked = emptyMap() }, size = 13)
+                    }
+                    PillButton("Done", { picked = null }, size = 13)
                 }
             }
-        }
-        if (msg.isNotEmpty()) Label(msg, 14, WARN2)
-        Spacer(Modifier.height(8.dp))
-        val chMenu: (Item) -> Unit = { menuTarget = it }
-        when {
-            mode == "fav" -> FavoritesView(repo, info, catTitle, groupBy, favView, favOrder, asList, sortAz, play, chMenu)
-            groupBy == "type" -> TypeView(repo, byLang, info, asList, sortAz, play, chMenu, { groupBy = "orig"; save("live_group", groupBy) })
-            else -> OriginalView(repo, cats, asList, sortAz, play, chMenu, { menuTarget = it }) { msg = it }
+            // My Channels first, in both modes
+            MyChannelsSection(repo, playOrPick, { ch, f -> menuFolder = f; menuTarget = ch }, Modifier.padding(vertical = 4.dp))
+            if (msg.isNotEmpty()) Label(msg, 14, WARN2)
+            Spacer(Modifier.height(6.dp))
+            val chMenu: (Item) -> Unit = { menuFolder = null; menuTarget = it }
+            when {
+                mode == "fav" -> FavoritesView(repo, info, catTitle, groupBy, favView, favOrder, asList, sortAz, playOrPick, chMenu)
+                groupBy == "type" -> TypeView(repo, byLang, info, asList, sortAz, playOrPick, chMenu, { groupBy = "orig"; save("live_group", groupBy) })
+                else -> OriginalView(repo, cats, asList, sortAz, playOrPick, chMenu, { menuTarget = it }) { msg = it }
+            }
         }
     }
+    androidx.activity.compose.BackHandler(picked != null && menuTarget == null && !pickFolders) { picked = null }
+    if (pickFolders) picked?.let { p -> FolderPicker(repo, p.values.toList()) { pickFolders = false; picked = null } }
 
     if (pickLangs) LiveLanguages(langCounts, langs, { langs = it; st.saveLangs("live", it) }) { pickLangs = false }
 
@@ -120,16 +142,10 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, onSearch: () -> Unit = {})
             is Cat -> ChoiceDialog(t.title, listOf(
                 (if (repo.isHidden("itv", t.id)) "Show folder" else "Hide folder") to { repo.toggleHide("itv", t.id); close() }
             ), onClose = close)
-            is Item -> ChoiceDialog(t.name, buildList {
-                add((if (repo.isFav(t)) "★  Remove from favorites" else "☆  Add to favorites") to { repo.toggleFav(t); close() })
-                if (mode == "fav" && favView == "single" && favOrder == "mine" && repo.isFav(t)) {
-                    add("▲  Move up" to { repo.moveFav(t, -1) })
-                    add("▼  Move down" to { repo.moveFav(t, 1) })
-                }
-                add("Move to My Channels" to { repo.moveToCustom(t, "My Channels"); close() })
+            is Item -> ChannelMenu(repo, repo.named(t), menuFolder, buildList {
                 add((if (repo.isChannelHidden(t)) "Unhide channel" else "Hide channel") to { repo.toggleHideChannel(t); close() })
                 info[t.key]?.let { add("Type: ${it.type} · Language: ${it.lang}" to close) }
-            }, focusKey = t.key, onClose = close)
+            }, onSelect = { picked = mapOf(t.key to t) }, onClose = close)
             else -> close()
         }
     }
@@ -150,7 +166,7 @@ private fun ChannelGrid(repo: Repo, list: List<Item>, asList: Boolean, play: (Li
     if (asList) {
         LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             itemsIndexed(list, key = { i, c -> "$i|${c.key}" }) { i, ch ->
-                Row1((if (repo.isFav(ch)) "★ " else "") + (if (ch.num > 0) "${ch.num}  " else "") + ch.name,
+                Row1((if (repo.isFav(ch)) "★ " else "") + (if (ch.num > 0) "${ch.num}  " else "") + pickShown(ch).name,
                     { repo.lastLiveIndex = i; play(list, i) }, onMenu = { menu(ch) }, onFocus = { Keys.focused = ch })
             }
         }
@@ -158,7 +174,7 @@ private fun ChannelGrid(repo: Repo, list: List<Item>, asList: Boolean, play: (Li
         LazyVerticalGrid(columns = GridCells.Adaptive(minSize = 160.dp), horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxSize()) {
             gridItemsIndexed(list, key = { i, c -> "$i|${c.key}" }) { i, ch ->
-                ChannelCard(ch, repo.isFav(ch), { repo.lastLiveIndex = i; play(list, i) }, { menu(ch) })
+                ChannelCard(pickShown(ch), repo.isFav(ch), { repo.lastLiveIndex = i; play(list, i) }, { menu(ch) })
             }
         }
     }
@@ -263,12 +279,12 @@ private fun FavoritesView(repo: Repo, info: Map<String, ChInfo>, catTitle: Map<S
                           favOrder: String, asList: Boolean, sortAz: Boolean, play: (List<Item>, Int) -> Unit, menu: (Item) -> Unit) {
     val favs = repo.favs.filter { it.kind == "itv" }
     if (favs.isEmpty()) {
-        Label("No favorite channels yet. In All channels, press Menu (or long-press / hold Menu) on a channel and choose Add to favorites.", 16, DIM2, maxLines = 3)
+        Label("No favorite channels yet. Press Menu (or long-press) on a channel, choose Add to favorites and pick a My Channels folder.", 16, DIM2, maxLines = 3)
         return
     }
     if (favView == "single") {
         val list = if (favOrder == "az") favs.sortedBy { it.name.lowercase() } else favs
-        if (favOrder == "mine") Label("Menu on a channel: Move up / Move down to change the order", 13, DIM2)
+        if (favOrder == "mine") Label("Folder by folder, in each folder's order (Menu on a channel in My Channels: Move earlier / later)", 13, DIM2, maxLines = 2)
         Spacer(Modifier.height(6.dp))
         ChannelGrid(repo, list, asList, play, menu)
         return
@@ -285,9 +301,9 @@ private fun FavoritesView(repo: Repo, info: Map<String, ChInfo>, catTitle: Map<S
                 Label("$title  ·  ${list.size}", 17, Pal.Gold)
                 Spacer(Modifier.height(4.dp))
                 if (asList) Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    list.forEachIndexed { i, ch -> Row1("★ ${ch.name}", { play(list, i) }, onMenu = { menu(ch) }, onFocus = { Keys.focused = ch }) }
+                    list.forEachIndexed { i, ch -> Row1("★ ${pickShown(ch).name}", { play(list, i) }, onMenu = { menu(ch) }, onFocus = { Keys.focused = ch }) }
                 } else LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    itemsIndexed(list, key = { i, c -> "$i|${c.key}" }) { i, ch -> ChannelCard(ch, true, { play(list, i) }, { menu(ch) }) }
+                    itemsIndexed(list, key = { i, c -> "$i|${c.key}" }) { i, ch -> ChannelCard(pickShown(ch), true, { play(list, i) }, { menu(ch) }) }
                 }
             }
         }
