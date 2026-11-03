@@ -15,7 +15,7 @@ previous/next channel or episode, audio track, subtitles, Fit / Fill / Zoom, fav
 Controls hide after 5 seconds. If a stream fails you get the reason on screen with Retry / Next / Back.
 The next episode plays automatically.
 
-## Player controls, next episode and subtitles (unreleased)
+## 1.49: player controls, next episode, subtitles, My Channels
 - TV / remote: one standard control bar under the video (seek bar; previous, −10 s, play/pause, +10 s, next episode; audio, subtitles, picture, more). No side panel on TV. Back hides the bar, Back again leaves. The movable side bar stays on phones.
 - Series: in the last 10 seconds of an episode a "Next episode in 10s" card offers Play now / Cancel; the next episode (or the next season's first) starts automatically. Turn it off in Settings > Player.
 - Audio and subtitle choices are remembered (for everything, and per show while watching a series) and synced with Google sync.
