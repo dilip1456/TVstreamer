@@ -109,23 +109,8 @@ fun groupCategories(cats: List<Cat>): Map<String, List<Cat>> {
 
 @Composable
 fun ChannelCard(ch: Item, fav: Boolean, onClick: () -> Unit, onMenu: () -> Unit) {
-    val hue = (ch.name.hashCode() and 0xFFFFFF) % 360
-    val bg = Color.hsl(hue.toFloat(), 0.45f, 0.28f)
-    Column(
-        Modifier.width(170.dp).tv(onClick, onMenu, { Keys.focused = ch }).padding(10.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Box(
-            Modifier.size(140.dp, 90.dp).background(bg, RoundedCornerShape(8.dp)),
-            contentAlignment = Alignment.Center
-        ) {
-            Label(ch.name.take(2).uppercase(), 28)
-            if (fav) Label("★", 16, Color.Yellow, Modifier.align(Alignment.TopEnd).padding(4.dp))
-        }
-        Spacer(Modifier.height(6.dp))
-        Label(ch.name, 13, maxLines = 2)
-        if (ch.num > 0) Label("#${ch.num}", 11, DIM)
-    }
+    // Same look as Live TV: rounded logo tile, number badge, readable name
+    Box(Modifier.width(150.dp)) { LiveTile(ch, fav, false, LocalPicked.current?.contains(ch.key) == true, rememberIsTv(), onClick, onMenu) }
 }
 
 @Composable

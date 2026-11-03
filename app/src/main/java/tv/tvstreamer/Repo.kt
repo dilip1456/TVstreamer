@@ -335,7 +335,9 @@ class Repo(ctx: Context) {
         favs = favs.filter { it.kind != "itv" } + folders.all()
     }
 
-    fun markPlayed(i: Item) { if (i.kind == "itv") store.addRecent(i) }
+    /** Key of the channel playing now (Live TV marks it). */
+    var nowPlaying by mutableStateOf("")
+    fun markPlayed(i: Item) { if (i.kind == "itv") { store.addRecent(i); nowPlaying = i.key } }
 
     /** Returns an error message, or null when access is allowed. */
     fun gate(locked: Boolean): String? {

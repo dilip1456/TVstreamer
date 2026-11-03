@@ -15,6 +15,24 @@ previous/next channel or episode, audio track, subtitles, Fit / Fill / Zoom, fav
 Controls hide after 5 seconds. If a stream fails you get the reason on screen with Retry / Next / Back.
 The next episode plays automatically.
 
+## 1.50: gentler portal, faster series, new Live TV
+
+- **Portal requests**: only a real rate limit (HTTP 429, or 503 with Retry-After) makes the app wait. An expired
+  token (401 / 403) signs in again once and retries; a single server error (5xx) no longer pauses everything. Only
+  repeated refusals / server errors pause briefly (30 s), with a message that says what happened. A failed stream link
+  no longer fires every other link strategy after a pause, and zapping on cancels the old channel's requests.
+- **Series**: the season list shows at once (saved per series), and only the season you look at is fetched (saved per
+  season, at most 2 season requests queued). Next episode uses the saved seasons instead of re-reading every season.
+- **Live TV**: groups first (My Channels folders, Recently watched, News, Sports, Movies, Music, Kids ...), language and
+  country filters, logo tiles with number badges, the channel playing now marked, sticky headers and A-Z jump.
+  TV: left group rail; phone: group chips.
+- **Channel names**: the best name from the portal's fields; "123 | ..." prefixes removed; number-only names read
+  "Channel 123 · Group"; the number is a badge.
+- **Details**: Versions show which one is selected (✓); the default is the one played last; OK / tap plays a version.
+- **Home**: hide any row from its ⋮ (TV: Menu on the row) > Hide this category; restore in Settings or Categories >
+  Show hidden. Synced with Google sync.
+- **Phone search**: a large full-width field; scope chips and mic / AI on their own row.
+
 ## 1.49: player controls, next episode, subtitles, My Channels
 - TV / remote: one standard control bar under the video (seek bar; previous, −10 s, play/pause, +10 s, next episode; audio, subtitles, picture, more). No side panel on TV. Back hides the bar, Back again leaves. The movable side bar stays on phones.
 - Series: in the last 10 seconds of an episode a "Next episode in 10s" card offers Play now / Cancel; the next episode (or the next season's first) starts automatically. Turn it off in Settings > Player.
