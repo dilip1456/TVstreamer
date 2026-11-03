@@ -15,8 +15,8 @@ class Stalker(private val store: Store) {
     private val http: OkHttpClient get() = Net.portal
     /** Every portal request (handshake, lists, links) waits its turn here: one at a time, about 2 a second at most. */
     val limiter = RateLimiter(500)
-    /** Pause after a "slow down" reply: 1 min, 2, 4 ... up to 30 min; reset by the next good reply. */
-    private val slowDown = Backoff(60_000, 30 * 60_000)
+    /** When to pause: only real rate limits (429 / Retry-After) get the long backoff; see [PortalGate]. */
+    private val gate = PortalGate()
     /** Only one portal request is in flight at a time, whoever asks (library, rows, details, player). */
     private val oneAtATime = Any()
     private var api = ""
@@ -55,18 +55,17 @@ class Stalker(private val store: Store) {
         http.newCall(b.build()).execute().use { r ->
             val t = r.body?.string().orEmpty()
             if (!r.isSuccessful) {
-                val e = PortalHttpException(r.code, "HTTP ${r.code}: ${t.take(200)}")
-                if (e.slowDown) {
-                    // Retry-After (seconds) when the portal gives one, else the growing backoff
-                    val ra = r.header("Retry-After")?.trim()?.toLongOrNull()?.times(1000)
-                    val wait = maxOf(ra ?: 0L, slowDown.next())
-                    limiter.pause(wait)
-                    note("portal", "HTTP ${r.code}: pausing ${wait / 1000}s")
-                    throw PortalBusyException(wait)
+                val ra = r.header("Retry-After")
+                val verdict = PortalVerdict.of(r.code, ra)
+                val wait = gate.onError(r.code, ra)
+                if (wait > 0) {
+                    limiter.pause(wait, verdict, r.code)
+                    note("portal", "HTTP ${r.code} ($verdict): pausing ${wait / 1000}s")
+                    throw PortalBusyException(wait, verdict, r.code)
                 }
-                throw e
+                throw PortalHttpException(r.code, "HTTP ${r.code}: ${mask(t.take(200))}", verdict)
             }
-            slowDown.reset()
+            gate.onSuccess()
             val body = t.ifEmpty { "{}" }.trim()
             return if (body.startsWith("[")) {
                 // Some portals return a bare array; wrap it
@@ -121,6 +120,11 @@ class Stalker(private val store: Store) {
                 return
             } catch (e: PortalBusyException) {
                 token = ""; throw e                     // the portal is there but wants us to wait: stop trying paths
+            } catch (e: PortalHttpException) {
+                token = ""
+                // The address answered (refused / server error): trying the other paths would only add requests
+                if (e.verdict == PortalVerdict.AUTH || e.verdict == PortalVerdict.SERVER) throw e
+                err = e
             } catch (e: Exception) {
                 err = e
                 token = ""
@@ -133,13 +137,14 @@ class Stalker(private val store: Store) {
 
     private fun call(q: String): JSONObject {
         ensureConnected()
+        val used = token
         return try {
             fetch("$api?$q&JsHttpRequest=1-xml")
-        } catch (e: PortalBusyException) {
-            throw e                                     // never retry straight away after "slow down"
         } catch (e: Exception) {
-            // Expired token / dropped connection: one new handshake, one retry
-            synchronized(this) { token = ""; connect() }
+            if (!needsNewToken(e)) throw e              // rate limit, server error, 404 ...: no retry burst
+            // Expired token / session (401 / 403, "Authorization failed" text instead of JSON): one new handshake, one retry.
+            // When another request already signed in again meanwhile, just retry with that token.
+            synchronized(this) { if (token == used || token.isEmpty()) { token = ""; connect() } }
             fetch("$api?$q&JsHttpRequest=1-xml")
         }
     }
@@ -192,7 +197,9 @@ class Stalker(private val store: Store) {
         }
         return (0 until a.length()).mapNotNull { i ->
             val o = a.optJSONObject(i) ?: return@mapNotNull null
-            Item("itv", o.optString("id"), o.optString("name"), o.optString("cmd"),
+            // Best readable name of the portal's fields (many portals put only the number in "name")
+            val nm = ChannelTitle.pick(o.optString("name"), o.optString("o_name"), o.optString("xmltv_id"), o.optString("cmd"), o.optInt("number"))
+            Item("itv", o.optString("id"), nm.ifEmpty { o.optString("name") }, o.optString("cmd"),
                 o.optString("tv_genre_id"), o.optInt("number"), o.optInt("censored") == 1,
                 img = absUrl(o.optString("logo"), logoDir = true))
         }
@@ -260,17 +267,23 @@ class Stalker(private val store: Store) {
                 pcmd = base.cmd.takeIf { it != cmd } ?: "", pid = base.id, sid = seasonId)
         }
 
-    /** Dig into a series and return a flat list of all episodes across seasons. */
+    /** Dig into a series and return a flat list of all episodes across seasons (one request per season: prefer [seasonList]). */
     fun seasons(seriesId: String): List<Item> = episodes(Item("vod", seriesId, "", "", "", -1, false))
 
-    fun episodes(series: Item): List<Item> {
+    fun episodes(series: Item): List<Item> = seasonList(series).flatMap { it.eps ?: seasonEpisodes(series, it) }
+
+    /**
+     * The seasons of a series without their episodes when the portal needs one request per season ([SeasonRef.eps] null):
+     * the details page shows the season chips at once and asks only for the season being looked at.
+     */
+    fun seasonList(series: Item): List<SeasonRef> {
         val seriesId = series.id
         // Classic Stalker: the series row carries a "series" array of episode numbers,
         // played with create_link&cmd=<series cmd>&series=<n>
         val classic = series.eps.split(",").mapNotNull { it.trim().toIntOrNull() }
-        if (classic.isNotEmpty() && series.cmd.isNotEmpty()) return episodesFromArray(series, series.cmd, "", classic, series.img)
+        if (classic.isNotEmpty() && series.cmd.isNotEmpty())
+            return listOf(SeasonRef("", "", series.cmd, episodesFromArray(series, series.cmd, "", classic, series.img)))
 
-        val out = mutableListOf<Item>()
         val queries = listOf(
             "type=vod&action=get_ordered_list&movie_id=${enc(seriesId)}&season_id=0&episode_id=0",
             "type=vod&action=get_ordered_list&movie_id=${enc(seriesId)}",
@@ -293,9 +306,14 @@ class Stalker(private val store: Store) {
                     for (i in 0 until pageArr.length()) a.put(pageArr.get(i))
                     val total = when (js) { is JSONObject -> js.optInt("total_items", 0); else -> 0 }
                     if (a.length() >= total && total > 0) break
+                    // A page shorter than the portal's page size is the last one: no extra empty-page request
+                    val per = (js as? JSONObject)?.optInt("max_page_items", 0) ?: 0
+                    if (per > 0 && pageArr.length() < per) break
                     page++
                 }
                 if (a.length() == 0) continue
+                val refs = mutableListOf<SeasonRef>()
+                val direct = mutableListOf<Item>()
                 for (i in 0 until a.length()) {
                     val o = a.optJSONObject(i) ?: continue
                     val sid = o.optString("id").ifEmpty { o.optString("season_id") }
@@ -304,50 +322,62 @@ class Stalker(private val store: Store) {
                     val isSeason = o.optInt("is_season") == 1 || o.has("season_id") || sname.contains("Season", true)
                     val img = absUrl(firstOf(o, "screenshot_uri", "cover_big", "cover", "poster"))
                     if (nums.isNotEmpty() && o.optString("cmd").isNotEmpty()) {
-                        // Season row with an episode-number array
-                        out += episodesFromArray(series, o.optString("cmd"), if (isSeason || a.length() > 1) sname else "", nums, img, sid)
+                        // Season row with an episode-number array: its episodes are known without another request
+                        val nm = if (isSeason || a.length() > 1) sname else ""
+                        refs += SeasonRef(nm, sid, o.optString("cmd"), episodesFromArray(series, o.optString("cmd"), nm, nums, img, sid), img)
                     } else if (isSeason && sid.isNotEmpty()) {
-                        try {
-                            val epResp = call("type=vod&action=get_ordered_list&movie_id=${enc(seriesId)}&season_id=${enc(sid)}&episode_id=0")
-                            val epJs = epResp.opt("js")
-                            val eps = when (epJs) {
-                                is JSONObject -> epJs.optJSONArray("data") ?: JSONArray()
-                                is JSONArray -> epJs
-                                else -> JSONArray()
-                            }
-                            for (e in 0 until eps.length()) {
-                                val ep = eps.optJSONObject(e) ?: continue
-                                val eid = ep.optString("id").ifEmpty { "$seriesId:$sid:$e" }
-                                val ename = ep.optString("name").ifEmpty { "Episode ${e + 1}" }
-                                val epNums = intList(ep.optJSONArray("series"))
-                                val epNum = epNums.singleOrNull()
-                                    ?: firstOf(ep, "series_number", "episode_number", "episode", "number").toIntOrNull()
-                                    ?: Regex("(?i)(?:episode|ep|e)\\s*(\\d+)").find(ename)?.groupValues?.get(1)?.toIntOrNull()
-                                    ?: (e + 1)
-                                out += Item("vod", eid, ename,
-                                    ep.optString("cmd").ifEmpty { "/media/$eid.mpg" },
-                                    ep.optString("category_id").ifEmpty { series.cat }, e + 1, series.locked,
-                                    img = absUrl(firstOf(ep, "screenshot_uri", "cover_big", "cover")).ifEmpty { img.ifEmpty { series.img } },
-                                    desc = firstOf(ep, "description").ifEmpty { series.desc },
-                                    year = series.year, rating = series.rating, genre = series.genre,
-                                    series = epNum, season = sname,
-                                    pcmd = o.optString("cmd").ifEmpty { series.cmd }, pid = seriesId, sid = sid)
-                            }
-                        } catch (_: Exception) {}
+                        refs += SeasonRef(sname, sid, o.optString("cmd"), null, img)
                     } else {
                         // Direct episode
                         val eid = sid.ifEmpty { seriesId }
-                        out += Item("vod", eid, sname.ifEmpty { "Episode ${i + 1}" },
+                        direct += Item("vod", eid, sname.ifEmpty { "Episode ${i + 1}" },
                             o.optString("cmd").ifEmpty { "/media/$eid.mpg" },
-                            o.optString("category_id").ifEmpty { series.cat }, out.size + 1, series.locked,
+                            o.optString("category_id").ifEmpty { series.cat }, direct.size + 1, series.locked,
                             img = img.ifEmpty { series.img }, desc = firstOf(o, "description").ifEmpty { series.desc },
                             year = series.year, rating = series.rating, genre = series.genre)
                     }
                 }
                 // Ignore a response that just echoed the series itself back
-                if (out.size == 1 && out[0].id == seriesId && out[0].series == 0) out.clear()
-                if (out.isNotEmpty()) break
-            } catch (_: Exception) {}
+                if (refs.isEmpty() && direct.size == 1 && direct[0].id == seriesId && direct[0].series == 0) direct.clear()
+                if (direct.isNotEmpty()) refs += SeasonRef("", "", "", direct)
+                if (refs.isNotEmpty()) return refs
+            } catch (e: Exception) {
+                if (stopsLinkTries(e)) throw e          // the app must wait: do not try the other queries
+            }
+        }
+        return emptyList()
+    }
+
+    /** One season's episodes (one request). */
+    fun seasonEpisodes(series: Item, s: SeasonRef): List<Item> {
+        s.eps?.let { return it }
+        val seriesId = series.id
+        val sid = s.sid
+        val epResp = call("type=vod&action=get_ordered_list&movie_id=${enc(seriesId)}&season_id=${enc(sid)}&episode_id=0")
+        val epJs = epResp.opt("js")
+        val eps = when (epJs) {
+            is JSONObject -> epJs.optJSONArray("data") ?: JSONArray()
+            is JSONArray -> epJs
+            else -> JSONArray()
+        }
+        val out = mutableListOf<Item>()
+        for (e in 0 until eps.length()) {
+            val ep = eps.optJSONObject(e) ?: continue
+            val eid = ep.optString("id").ifEmpty { "$seriesId:$sid:$e" }
+            val ename = ep.optString("name").ifEmpty { "Episode ${e + 1}" }
+            val epNums = intList(ep.optJSONArray("series"))
+            val epNum = epNums.singleOrNull()
+                ?: firstOf(ep, "series_number", "episode_number", "episode", "number").toIntOrNull()
+                ?: Regex("(?i)(?:episode|ep|e)\\s*(\\d+)").find(ename)?.groupValues?.get(1)?.toIntOrNull()
+                ?: (e + 1)
+            out += Item("vod", eid, ename,
+                ep.optString("cmd").ifEmpty { "/media/$eid.mpg" },
+                ep.optString("category_id").ifEmpty { series.cat }, e + 1, series.locked,
+                img = absUrl(firstOf(ep, "screenshot_uri", "cover_big", "cover")).ifEmpty { s.img.ifEmpty { series.img } },
+                desc = firstOf(ep, "description").ifEmpty { series.desc },
+                year = series.year, rating = series.rating, genre = series.genre,
+                series = epNum, season = s.name,
+                pcmd = s.cmd.ifEmpty { series.cmd }, pid = seriesId, sid = sid)
         }
         return out
     }
@@ -528,7 +558,9 @@ class Stalker(private val store: Store) {
                 }
             } catch (e: Exception) {
                 note(t.label, "request failed: ${e.message}")
-                fails += "${t.label}: ${e.message?.take(60)}"
+                // Rate limit pause or a cancelled request (channel changed): stop here, do not fire the other strategies
+                if (stopsLinkTries(e)) throw e
+                fails += "${t.label}: ${e.message?.take(90)}"
             }
         }
         // Some items carry a direct stream URL; use it when the portal gave nothing usable
@@ -542,7 +574,7 @@ class Stalker(private val store: Store) {
         }
         throw NoLinkException(
             "The portal gave no playable link (${fails.size} tries).\n" +
-            fails.takeLast(4).joinToString("\n") +
+            fails.distinct().takeLast(4).joinToString("\n") +
             (if (lastRaw.isNotEmpty()) "\nLast reply: ${mask(lastRaw).take(300)}" else "")
         )
     }

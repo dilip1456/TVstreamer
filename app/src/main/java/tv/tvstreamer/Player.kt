@@ -238,7 +238,7 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
         val ep = cur
         nextEp = null
         if (ep.kind == "vod" && ep.isEpisode()) withContext(Dispatchers.IO) {
-            repo.store.parentOf(ep)?.let { repo.store.saveLastEp(it.key, ep.key, false) }
+            repo.store.parentOf(ep)?.let { repo.store.saveLastEp(it.key, ep.key, false); repo.store.saveSort("season_${it.key}", ep.season) }
         }
         // Next episode: the next one in the list when it is the same show, else the show's next (also next season's first)
         if (ep.kind == "vod" && ep.isEpisodeLike()) {
@@ -250,8 +250,8 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
                     if (after != null && (if (parent != null) repo.store.parentOf(after)?.key == parent.key
                             else Tags.norm(after.parsed.title) == Tags.norm(ep.parsed.title))) return@runCatching after
                     if (parent == null) return@runCatching null
-                    val eps = if (parent.id.startsWith("grp:")) repo.lib.syntheticEpisodes(parent) else repo.api.episodes(parent)
-                    NextEpisode.after(eps, ep)
+                    if (parent.id.startsWith("grp:")) NextEpisode.after(repo.lib.syntheticEpisodes(parent), ep)
+                    else repo.seasons.nextEpisode(parent, ep)
                 }.getOrNull()
             }
         }
@@ -422,7 +422,8 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
         resolving = true
         exo.stop()
         try {
-            val (url, used) = withContext(Dispatchers.IO) { repo.api.link(item, linkFrom) }
+            // Interruptible: zapping on cancels this channel's link requests instead of letting them run in the background
+            val (url, used) = kotlinx.coroutines.runInterruptible(Dispatchers.IO) { repo.api.link(item, linkFrom) }
             linkUsed = used
             // Remembered audio / subtitle choice (the show's own choice wins over the global one)
             seriesKey = withContext(Dispatchers.IO) {

@@ -277,7 +277,7 @@ fun App(repo: Repo) {
                     is Screen.Detail -> DetailScreen(repo, s.item, play, { back() }, tick, s.focusEp, go)
                     is Screen.Grid -> GridScreen(repo, s.cat, open, play)
                     is Screen.Pool -> PoolScreen(repo, s.tab, s.lang, s.genre, s.title, s.sort, open)
-                    is Screen.Play -> PlayerScreen(repo, s.list, s.index) { back() }
+                    is Screen.Play -> PlayerScreen(repo, remember(s) { s.list.map(repo::fresh) }, s.index) { back() }
                 }
                 // Floating search: on every screen except the full-screen player and the remote-learning screen
                 if (cur !is Screen.Play && cur != Screen.Remote) {

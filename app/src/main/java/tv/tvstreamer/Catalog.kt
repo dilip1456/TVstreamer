@@ -695,12 +695,20 @@ fun DetailScreen(repo: Repo, item: Item, play: (List<Item>, Int) -> Unit, onBack
     val isTv = rememberIsTv()
     val scope = rememberCoroutineScope()
     val versions = remember(item.key, repo.lib.version) { if (item.id.startsWith("grp:")) listOf(item) else repo.lib.versionsOf(item) }
-    var cur by remember(item.key) { mutableStateOf(item) }
+    val verPref = remember(versions) { VersionPick.prefKey(versions, item) }
+    // Selected version: the one played last, else one in Continue watching, else the best
+    var cur by remember(item.key, versions) {
+        val inProgress = repo.store.continueList().map { it.first.key }.toSet()
+        mutableStateOf(if (versions.size > 1) VersionPick.default(versions, repo.store.sort(verPref, ""), inProgress) ?: item else item)
+    }
     val meta = rememberMeta(cur)
     val shownItem = cur.withMeta(meta)
     val name = meta?.title?.ifEmpty { null } ?: Names.title(cur.name)
-    var eps by remember(cur.key) { mutableStateOf<List<Item>>(emptyList()) }
-    var loading by remember(cur.key) { mutableStateOf(cur.isSeries) }
+    // Seasons first (saved list = instant chips), then only the season being looked at (saved per season on disk)
+    var refs by remember(cur.key) { mutableStateOf(if (cur.isSeries && !cur.id.startsWith("grp:")) repo.seasons.cached(cur).orEmpty() else emptyList()) }
+    val loaded = remember(cur.key) { mutableStateMapOf<String, List<Item>>().also { m -> refs.forEach { r -> repo.seasons.cachedEpisodes(cur, r)?.let { m[r.id] = it } } } }
+    val seasonBusy = remember(cur.key) { mutableStateMapOf<String, Boolean>() }
+    var listLoading by remember(cur.key) { mutableStateOf(cur.isSeries && refs.isEmpty()) }
     var msg by remember(cur.key) { mutableStateOf("") }
     var fav by remember(cur.key) { mutableStateOf(repo.isFav(cur)) }
     var reload by remember { mutableIntStateOf(0) }
@@ -708,31 +716,23 @@ fun DetailScreen(repo: Repo, item: Item, play: (List<Item>, Int) -> Unit, onBack
     var fix by remember { mutableStateOf(false) }
     LaunchedEffect(cur.key) { Keys.focused = cur }
     LaunchedEffect(cur.key, reload) {
-        if (cur.isSeries) {
-            loading = true
-            msg = ""
-            val r = withContext(Dispatchers.IO) {
-                runCatching { if (cur.id.startsWith("grp:")) repo.lib.syntheticEpisodes(cur) else repo.api.episodes(cur) }
-            }
-            // Always seasons ascending, episodes 1..N (the portal's order varies); next-episode logic uses this order too
-            eps = EpisodeOrder.sort(r.getOrDefault(emptyList()))
-            msg = r.exceptionOrNull()?.message ?: if (eps.isEmpty()) "No episodes found for this series" else ""
-            loading = false
+        if (!cur.isSeries) return@LaunchedEffect
+        msg = ""
+        if (refs.isEmpty()) listLoading = true
+        val r = runCatching {
+            if (cur.id.startsWith("grp:")) {
+                // Loose "Show S01E02" entries: all local, one chip per season
+                val all = EpisodeOrder.sort(withContext(Dispatchers.IO) { repo.lib.syntheticEpisodes(cur) })
+                EpisodeOrder.seasons(all).map { n -> SeasonRef(n, "", "", all.filter { it.season == n }) }
+            } else repo.seasons.list(cur, force = reload > 0)
         }
+        r.getOrNull()?.let { l -> refs = l; l.forEach { s -> s.eps?.let { loaded[s.id] = it } } }
+        if (refs.isEmpty()) msg = r.exceptionOrNull()?.message ?: "No episodes found for this series"
+        listLoading = false
     }
-    // TMDB names / stills / overviews mapped onto the portal's episodes by season + episode number
-    val epMeta by produceState(emptyMap<String, EpMeta>(), eps, meta?.tmdbId) {
-        val m = meta
-        if (m == null || m.type != "tv" || m.tmdbId == 0 || eps.isEmpty()) { value = emptyMap(); return@produceState }
-        val bySeason = eps.groupBy { seasonNo(it).coerceAtLeast(1) }
-        val out = mutableMapOf<String, EpMeta>()
-        for ((sn, list) in bySeason) {
-            val sm = Tmdb.season(m.tmdbId, sn)
-            list.forEach { e -> sm[episodeNo(e)]?.let { out[e.key] = it } }
-            value = out.toMap()
-        }
-    }
-    val seasons = remember(eps) { EpisodeOrder.seasons(eps) }
+    // Episodes of the seasons loaded so far, seasons ascending, episodes 1..N (next-episode logic uses this order too)
+    val eps = remember(refs, loaded.toMap()) { EpisodeOrder.sort(refs.flatMap { loaded[it.id].orEmpty() }) }
+    val seasons = remember(refs) { refs.map { it.name } }
     // Display names without the show's name ("Koffee With Karan Season 1" -> "Season 1"); raw names stay for requests
     val shows = listOfNotNull(cur.name, item.name, meta?.title?.ifEmpty { null })
     fun seasonName(s: String) = if (s.isEmpty()) "Episodes" else Names.seasonLabel(s, shows)
@@ -756,15 +756,46 @@ fun DetailScreen(repo: Repo, item: Item, play: (List<Item>, Int) -> Unit, onBack
         else -> eps.indexOfFirst { it.key in cont }
     }
     val focusKey = focusEp ?: eps.getOrNull(resumeEp)?.key
-    val curSeason = season ?: (if (resumeEp >= 0) eps[resumeEp].season else null) ?: seasons.firstOrNull() ?: ""
+    // The season chosen, else the last one played (remembered, so it loads first), else the first
+    val lastSeason = remember(cur.key, tick) { repo.store.sort("season_${cur.key}", "").ifEmpty { null } }
+    val curRef = SeasonPlan.first(refs, season ?: eps.getOrNull(resumeEp)?.season, lastSeason)
+    val curSeason = curRef?.name ?: ""
+    // Fetch the shown season (one request, or none when saved); other seasons only when their chip is chosen
+    LaunchedEffect(cur.key, curRef?.id, reload) {
+        val ref = curRef ?: return@LaunchedEffect
+        if (cur.id.startsWith("grp:") || (loaded.containsKey(ref.id) && reload == 0)) return@LaunchedEffect
+        seasonBusy[ref.id] = true
+        runCatching { repo.seasons.episodes(cur, ref, force = reload > 0) }
+            .onSuccess { loaded[ref.id] = it; if (it.isEmpty() && refs.size <= 1) msg = "No episodes found for this series" }
+            .onFailure { if (it !is kotlinx.coroutines.CancellationException) msg = it.message ?: "Could not load ${seasonName(ref.name)}" }
+        seasonBusy.remove(ref.id)
+    }
+    val seasonLoading = curRef != null && curRef.id !in loaded
+    val loading = cur.isSeries && (listLoading || seasonLoading)
     val shown = if (seasons.size > 1) eps.filter { it.season == curSeason } else eps
+    // TMDB names / stills / overviews mapped onto the portal's episodes by season + episode number
+    val epMeta by produceState(emptyMap<String, EpMeta>(), eps, meta?.tmdbId) {
+        val m = meta
+        if (m == null || m.type != "tv" || m.tmdbId == 0 || eps.isEmpty()) { value = emptyMap(); return@produceState }
+        val bySeason = eps.groupBy { seasonNo(it).coerceAtLeast(1) }
+        val out = mutableMapOf<String, EpMeta>()
+        for ((sn, list) in bySeason) {
+            val sm = Tmdb.season(m.tmdbId, sn)
+            list.forEach { e -> sm[episodeNo(e)]?.let { out[e.key] = it } }
+            value = out.toMap()
+        }
+    }
     val (rp, rd) = remember(tick, cur.key) { repo.store.resumeInfo(cur) }
     val canResume = !cur.isSeries && rp > 30_000 && (rd <= 0 || rp < rd * 0.95)
 
     fun start(list: List<Item>, i: Int) {
         val e = repo.gate(cur.locked)
         if (e != null) { msg = e; return }
-        if (cur.isSeries) repo.store.saveParent(cur, eps)
+        if (cur.isSeries) {
+            repo.store.saveParent(cur, eps)
+            list.getOrNull(i)?.let { repo.store.saveSort("season_${cur.key}", it.season) }
+        }
+        if (versions.size > 1) repo.store.saveSort(verPref, cur.key)
         play(list, i)
     }
 
@@ -830,19 +861,46 @@ fun DetailScreen(repo: Repo, item: Item, play: (List<Item>, Int) -> Unit, onBack
                 }
             }
             if (versions.size > 1) item {
+                val labels = remember(versions) { VersionPick.labels(versions.map { versionLabel(repo, it) }) }
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Versions", color = Pal.Text, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Text("Versions · ${versions.size}", color = Pal.Text, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 4.dp), modifier = Modifier.focusRestorer()) {
-                        items(versions, key = { it.key }) { v ->
-                            PillButton(versionLabel(repo, v), { cur = v }, selected = v.key == cur.key, size = 14)
+                        itemsIndexed(versions, key = { _, v -> v.key }) { i, v ->
+                            val sel = v.key == cur.key
+                            val pct = cont[v.key]?.let { p -> repo.store.resumeInfo(v).second.takeIf { it > 0 }?.let { d -> (p * 100 / d).toInt().coerceIn(0, 100) } }
+                            // OK / tap: a movie version plays at once (resuming where it was left); a series version opens its seasons
+                            PillButton((if (sel) "✓  " else "") + labels[i] + (pct?.let { "  ·  $it%" } ?: ""),
+                                { cur = v; repo.store.saveSort(verPref, v.key); if (!v.isSeries) start(listOf(v), 0) },
+                                selected = sel, primary = sel, size = 14, onMenu = { more = true })
                         }
+                    }
+                    if (!isTv) Label("Tap a version to play it. ✓ = the one used by Play.", 12, Pal.Dim)
+                }
+            }
+            if (cur.isSeries && listLoading && refs.isEmpty()) item {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 6.dp)) {
+                    repeat(4) { Box(Modifier.width(96.dp).height(36.dp).clip(RoundedCornerShape(18.dp)).shimmer()) }
+                }
+            }
+            if (seasons.size > 1) item {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 6.dp), modifier = Modifier.focusRestorer()) {
+                    items(refs, key = { it.id }) { r ->
+                        val n = loaded[r.id]?.size
+                        val tag = when { seasonBusy[r.id] == true -> "  …"; n != null -> "  $n"; else -> "" }
+                        PillButton(seasonName(r.name) + tag, { season = r.name }, selected = r.name == curSeason, size = 15)
                     }
                 }
             }
-            if (cur.isSeries && loading) item { CircularProgressIndicator(color = Pal.Accent, modifier = Modifier.padding(16.dp)) }
-            if (seasons.size > 1) item {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 6.dp), modifier = Modifier.focusRestorer()) {
-                    items(seasons) { s -> PillButton(seasonName(s), { season = s }, selected = s == curSeason, size = 15) }
+            if (cur.isSeries && seasonLoading && !listLoading) {
+                item { Label("Loading ${seasonName(curSeason)}…", 14, Pal.Dim, Modifier.padding(top = 6.dp)) }
+                items(4) {
+                    Row(Modifier.fillMaxWidth().background(Pal.Soft).padding(8.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                        Box(Modifier.width(epW).aspectRatio(16f / 9f).clip(RoundedCornerShape(6.dp)).shimmer())
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Box(Modifier.fillMaxWidth(0.6f).height(16.dp).clip(RoundedCornerShape(4.dp)).shimmer())
+                            Box(Modifier.fillMaxWidth(0.9f).height(12.dp).clip(RoundedCornerShape(4.dp)).shimmer())
+                        }
+                    }
                 }
             }
             if (shown.isNotEmpty()) item {

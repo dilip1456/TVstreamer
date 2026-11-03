@@ -35,11 +35,63 @@ class GentleTest {
         b.reset(); assertEquals(60_000L, b.next())
     }
 
-    @Test fun slowDownCodes() {
+    @Test fun onlyRealRateLimitsAreSlowDown() {
         assertTrue(PortalHttpException(429, "").slowDown)
-        assertTrue(PortalHttpException(403, "").slowDown)
-        assertTrue(PortalHttpException(503, "").slowDown)
+        assertEquals(PortalVerdict.RATE_LIMIT, PortalVerdict.of(503, "120"))
+        assertFalse(PortalHttpException(403, "").slowDown)          // expired token: sign in again instead
+        assertFalse(PortalHttpException(401, "").slowDown)
+        assertFalse(PortalHttpException(503, "").slowDown)          // server error without Retry-After
+        assertFalse(PortalHttpException(500, "").slowDown)
         assertFalse(PortalHttpException(404, "").slowDown)
+        assertEquals(PortalVerdict.AUTH, PortalVerdict.of(403))
+        assertEquals(PortalVerdict.SERVER, PortalVerdict.of(502))
+    }
+
+    @Test fun gatePausesOnlyForRateLimitsOrRepeatedFailures() {
+        val g = PortalGate(authLimit = 3, serverLimit = 3, shortMs = 30_000)
+        assertEquals(120_000L, g.onError(429, "120"))                // Retry-After wins over the 1 min backoff
+        g.onSuccess()
+        assertEquals(60_000L, g.onError(429, null))
+        g.onSuccess()
+        // One 403 (expired token) or one 500 (a dead channel) never pauses the app
+        assertEquals(0L, g.onError(403, null))
+        assertEquals(0L, g.onError(500, null))
+        assertEquals(0L, g.onError(404, null))
+        g.onSuccess()
+        // Refused again and again even with fresh tokens: a short pause, growing slowly
+        assertEquals(listOf(0L, 0L, 30_000L, 60_000L), List(4) { g.onError(403, null) })
+        g.onSuccess()
+        assertEquals(listOf(0L, 0L, 30_000L), List(3) { g.onError(502, null) })
+    }
+
+    @Test fun signInAgainOnlyForTokenProblems() {
+        assertTrue(needsNewToken(PortalHttpException(403, "")))
+        assertTrue(needsNewToken(PortalHttpException(401, "")))
+        assertTrue(needsNewToken(org.json.JSONException("Authorization failed.")))
+        assertTrue(needsNewToken(java.io.IOException("unexpected end of stream")))
+        assertFalse(needsNewToken(PortalHttpException(429, "")))
+        assertFalse(needsNewToken(PortalHttpException(500, "")))
+        assertFalse(needsNewToken(PortalBusyException(1000)))
+        assertFalse(needsNewToken(java.net.SocketTimeoutException()))
+    }
+
+    @Test fun linkTriesStopOnPauseOrCancelOnly() {
+        assertTrue(stopsLinkTries(PortalBusyException(1000)))
+        assertTrue(stopsLinkTries(java.io.InterruptedIOException()))
+        assertFalse(stopsLinkTries(java.net.SocketTimeoutException()))
+        assertFalse(stopsLinkTries(PortalHttpException(500, "")))     // next strategy may work
+    }
+
+    @Test fun busyMessagesSayWhatHappened() {
+        assertTrue(busyText(30_000, PortalVerdict.RATE_LIMIT, 429).contains("slow down (HTTP 429)"))
+        assertTrue(busyText(30_000, PortalVerdict.RATE_LIMIT, 429).contains("30 s"))
+        assertTrue(busyText(30_000, PortalVerdict.AUTH, 403).contains("refusing"))
+        assertFalse(busyText(30_000, PortalVerdict.AUTH, 403).contains("slow down"))
+        assertTrue(busyText(30_000, PortalVerdict.SERVER, 502).contains("server errors (HTTP 502)"))
+        assertTrue(busyText(120_000).contains("about 2 min"))
+        val l = RateLimiter(500, { 0L }, {})
+        l.pause(30_000, PortalVerdict.SERVER, 503)
+        assertEquals(PortalVerdict.SERVER, l.busy().reason)
     }
 
     @Test fun pageGapIsSmallAndRandom() {
@@ -70,5 +122,16 @@ class GentleTest {
         // Survives a restart
         val q = RefreshPolicy.from(p.toJson())
         assertEquals(p.lastAuto, q.lastAuto); assertEquals(p.lastManual, q.lastManual); assertEquals(p.early, q.early)
+    }
+
+    @Test fun ttlCacheExpiresAndEvicts() {
+        var t = 0L
+        val c = TtlCache<String, Int>(2, 1000, { t })
+        c["a"] = 1; c["b"] = 2
+        assertEquals(1, c["a"])
+        c["c"] = 3                                     // "b" was used least recently
+        assertEquals(null, c["b"])
+        t = 1001
+        assertEquals(null, c["a"])
     }
 }

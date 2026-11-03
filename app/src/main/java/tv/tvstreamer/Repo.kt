@@ -1,5 +1,7 @@
 package tv.tvstreamer
 
+import kotlinx.coroutines.sync.withLock
+
 import android.content.Context
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.grid.LazyGridState
@@ -26,6 +28,8 @@ class Repo(ctx: Context) {
     val api = Stalker(store)
     /** Movies / series of the selected languages, loaded in the background (see Library). */
     val lib = Library(this)
+    /** Series seasons / episodes, saved on disk per series and season and fetched one season at a time. */
+    val seasons = Seasons(api, store.cacheDir("seasons"))
 
     init { Tmdb.init(ctx, store.tmdbKey, store.omdbKey); Gemini.useKey(store.geminiKey) }
 
@@ -64,7 +68,9 @@ class Repo(ctx: Context) {
     private fun setLive(lc: List<Cat>, ch: List<Item>) {
         val lockedIds = lc.filter { it.locked }.map { it.id }.toSet()
         liveCats = lc
-        rawChannels = ch.map { it.copy(locked = it.locked || it.cat in lockedIds) }
+        val groups = lc.associate { it.id to it.title }
+        // Readable names (also for channels cached by older versions); number-only names become "Channel N · Group"
+        rawChannels = ch.map { it.copy(locked = it.locked || it.cat in lockedIds, name = ChannelTitle.display(it.name, it.num, groups[it.cat].orEmpty())) }
         rawByKey = rawChannels.associateBy { it.key }
         applyNames()
         liveIndex.ensure(rawChannels, lc)   // sort channels by type / language in the background, ready for Live TV
@@ -81,7 +87,13 @@ class Repo(ctx: Context) {
      * Shows the saved channel list, categories and movie / series catalog at once; asks the portal again only when
      * they are a day old, there is nothing saved, or [force] (Settings > Refresh library, repeated link failures).
      */
-    suspend fun load(force: Boolean = false) = withContext(Dispatchers.IO) {
+    suspend fun load(force: Boolean = false) = withContext(Dispatchers.IO) { loadLock.withLock { loadNow(force) } }
+
+    /** One list refresh at a time: start-up, sign-in sync, Settings and the daily refresh used to overlap (3 requests each). */
+    private val loadLock = kotlinx.coroutines.sync.Mutex()
+    @Volatile private var fetchedAt = 0L
+
+    private suspend fun loadNow(force: Boolean) = withContext(Dispatchers.IO) {
         if (store.portal.isBlank() || store.mac.isBlank()) {
             status = "Open Settings and enter the portal URL and MAC"
             return@withContext
@@ -99,6 +111,8 @@ class Repo(ctx: Context) {
         lib.start()       // the saved catalog appears now; a stale one refreshes in the background
         val fresh = channels.isNotEmpty() && vodCats.isNotEmpty() && System.currentTimeMillis() - listsAt < Library.MAX_AGE
         if (fresh && !force) return@withContext
+        // A second forced refresh right after one finished (e.g. start-up then sign-in sync) would just repeat it
+        if (fresh && api.token.isNotEmpty() && System.currentTimeMillis() - fetchedAt < 60_000) return@withContext   // api.reset() (new login) clears the token
         if (channels.isEmpty()) status = "Loading channels and categories…"
         try {
             val lc = api.liveCats()
@@ -108,6 +122,7 @@ class Repo(ctx: Context) {
             if (vc != vodCats) { clearRows(); lib.version++ }
             vodCats = vc
             listsAt = System.currentTimeMillis()
+            fetchedAt = listsAt
             store.cacheWrite("live.json", JSONObject().put("t", listsAt).put("cats", catsJson(lc)).put("items", itemsJson(ch)).toString())
             store.cacheWrite("vod.json", catsJson(vc).toString())
             status = ""
@@ -288,6 +303,12 @@ class Repo(ctx: Context) {
     /** [i] with the user's name for it (channels only). */
     fun named(i: Item): Item = ChannelNames.apply(i, chNames, rawByKey)
     fun isRenamed(i: Item) = i.key in chNames
+    /**
+     * A channel as the portal lists it now (current cmd / stream id) with its custom name, for playing. Folders,
+     * Recently watched and synced favourites keep copies that can be old; a stale cmd makes create_link fail.
+     */
+    fun fresh(i: Item): Item = if (i.kind != "itv") i else rawByKey[i.key]?.let { named(it) } ?: i
+
     fun portalName(i: Item): String = rawByKey[i.key]?.name ?: i.name
     /** Sets (or with null / blank, resets) a channel's display name; used in lists, folders, the player and search. */
     fun renameChannel(i: Item, name: String?) {
@@ -314,6 +335,8 @@ class Repo(ctx: Context) {
         if (pp != null && pp != pw) return "Saved password was rejected. Update it in Settings"
         return null
     }
+
+    private val searchCache = TtlCache<String, List<Item>>(40, 10 * 60_000)
 
     fun search(q: String): Pair<List<Item>, List<Item>> {
         val toks = q.lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.isNotEmpty() }
@@ -347,8 +370,10 @@ class Repo(ctx: Context) {
             val sq = (if (hard.isEmpty()) core else hard).joinToString(" ")
             // With the whole catalog saved locally the search is local only (searchAll adds the local matches)
             // One portal search request (only when the user searches); results are kept in the saved catalog
-            val res = runCatching { api.vod("*", 1, sq).first }.getOrDefault(emptyList())
-            lib.merge(res)
+            // Cached 10 min: re-typing, switching the scope chip or reopening search does not ask the portal again
+            val ck = sq.lowercase()
+            val res = searchCache[ck] ?: runCatching { api.vod("*", 1, sq).first }.getOrNull()
+                ?.also { searchCache[ck] = it; lib.merge(it) }.orEmpty()
             val titles = vodCats.associate { it.id to it.title }
             val f = res.filter { m ->
                 val h = squash(m.name + " " + (titles[m.cat] ?: ""))

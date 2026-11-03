@@ -398,6 +398,8 @@ class Store(ctx: Context) {
 
     fun cacheWrite(name: String, text: String) { runCatching { File(dir, name).writeText(text) } }
     fun cacheFile(name: String): File = File(dir, name)
+    /** A folder in the app's cache (Android may clear it; everything there can be fetched again). */
+    fun cacheDir(name: String): File = File(appCtx.cacheDir, name)
     fun cacheDelete(name: String) { runCatching { File(dir, name).delete() } }
     fun cacheRead(name: String): String? =
         runCatching { File(dir, name).takeIf { it.exists() }?.readText() }.getOrNull()
