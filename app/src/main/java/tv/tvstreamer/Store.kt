@@ -176,6 +176,36 @@ class Store(ctx: Context) {
         get() = p.getString("bar_pos", "bottom") ?: "bottom"
         set(v) { p.edit().putString("bar_pos", v).apply() }
 
+    /** Play the next episode automatically at the end of an episode (Settings > Player). Synced; default on. */
+    var autoNext: Boolean
+        get() = (p.getString("auto_next", "1") ?: "1") != "0"
+        set(v) { p.edit().putString("auto_next", if (v) "1" else "0").apply() }
+
+    /** Preferred audio language ("" = the stream's default). Synced. */
+    var audioLang: String
+        get() = p.getString("audio_lang", "") ?: ""
+        set(v) { p.edit().putString("audio_lang", v).apply() }
+
+    /** Preferred subtitles: "" = the stream's default, "off", or a language code. Synced. */
+    var subLang: String
+        get() = p.getString("sub_lang", "") ?: ""
+        set(v) { p.edit().putString("sub_lang", v).apply() }
+
+    /** Per-series audio / subtitle choices (JSON, see TrackPrefs). Synced. */
+    var seriesTracks: String
+        get() = p.getString("series_tracks", "") ?: ""
+        set(v) { p.edit().putString("series_tracks", v).apply() }
+
+    /** Subtitle text size: small, normal, large or huge. Synced. */
+    var subSize: String
+        get() = p.getString("sub_size", "normal") ?: "normal"
+        set(v) { p.edit().putString("sub_size", v).apply() }
+
+    /** OpenSubtitles.com API key (the user's own, optional). Private prefs only, never in the repo; synced with the other keys. */
+    var osKey: String
+        get() = sec.getString("os_key", "") ?: ""
+        set(v) { sec.edit().putString("os_key", v.trim()).apply() }
+
     /** TMDB v3 API key (or v4 read token) and optional OMDb key. Stored only in the private "secure" prefs, never in the repo. */
     var tmdbKey: String
         get() = sec.getString("tmdb_key", "") ?: ""
@@ -297,7 +327,7 @@ class Store(ctx: Context) {
         val last = runCatching { JSONObject(p.getString("lastep", "{}") ?: "{}").let { o -> o.keys().asSequence().associateWith { o.getJSONObject(it).toString() } } }.getOrDefault(emptyMap())
         val secrets = if (!withSecrets) emptyMap() else mapOf(
             "portal" to portal, "mac" to mac, "serial" to serial, "pw" to password, "tmdb" to tmdbKey, "omdb" to omdbKey,
-            "gemini" to geminiKey
+            "gemini" to geminiKey, "osub" to osKey
         ).filterValues { it.isNotEmpty() }
         return SyncLocal(
             favs = favs, hidden = hidden, custom = custom, orders = orders, langs = langs, prefs = prefStrings(),
@@ -327,7 +357,7 @@ class Store(ctx: Context) {
             if (withSecrets) {
                 fun put(name: String, cur: String, set: (String) -> Unit) {
                     val v = l.secrets[name]
-                    if (!v.isNullOrEmpty() && v != cur) { set(v); if (name != "tmdb" && name != "omdb" && name != "gemini") secretsChanged = true }
+                    if (!v.isNullOrEmpty() && v != cur) { set(v); if (name != "tmdb" && name != "omdb" && name != "gemini" && name != "osub") secretsChanged = true }
                 }
                 put("portal", portal) { portal = it }
                 put("mac", mac) { mac = it }
@@ -336,6 +366,7 @@ class Store(ctx: Context) {
                 put("tmdb", tmdbKey) { tmdbKey = it }
                 put("omdb", omdbKey) { omdbKey = it }
                 put("gemini", geminiKey) { geminiKey = it }
+                put("osub", osKey) { osKey = it }
             }
         } finally { muted = false }
         return secretsChanged
