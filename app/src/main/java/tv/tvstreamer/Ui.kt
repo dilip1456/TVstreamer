@@ -326,6 +326,7 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
                 }
             }, primary = true)
         }
+        item { HiddenRowsPanel(repo) }
         item {
             val n = repo.hiddenChannelCount()
             PillButton(if (n > 0) "Unhide all hidden channels ($n)" else "No hidden channels", { if (n > 0) { repo.unhideAllChannels(); note = "All channels shown again" } })

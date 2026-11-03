@@ -181,29 +181,61 @@ fun SearchOverlay(repo: Repo, st: SearchState, open: (Item) -> Unit, play: (List
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     val kb = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        TextField(
-                            value = st.query, onValueChange = { st.query = it; if (it.isNotBlank() && st.aiItems.isNotEmpty()) { st.aiItems = emptyList(); st.aiMsg = "" } }, singleLine = true,
-                            placeholder = { Text(if (Gemini.enabled) "Search, or ask: \"funny movies for tonight\"" else if (isTv) "Search movies, series, channels" else "Search movies, series, channels") },
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                            keyboardActions = KeyboardActions(onSearch = { kb?.hide(); runCatching { firstResFr.requestFocus() } }),
-                            modifier = Modifier.weight(1f).clip(RoundedCornerShape(28.dp)).focusRequester(fieldFr)
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        PillButton(if (voice.listening) "■" else "🎤", { if (voice.listening) voice.stop() else voice.start() }, selected = voice.listening, size = 14)
-                        if (Gemini.enabled) {
-                            Spacer(Modifier.width(8.dp))
-                            PillButton("✨ Ask AI", {
-                                kb?.hide()
-                                if (st.query.isBlank()) { status = "Type or say a request, e.g. \"a feel-good movie\""; runCatching { fieldFr.requestFocus() } }
-                                else handle(st.query)
-                            }, size = 14)
-                        }
-                        Spacer(Modifier.width(8.dp))
-                        PillButton("✕  Close", { voice.stop(); st.open = false }, size = 14)
+                    val onType: (String) -> Unit = { st.query = it; if (it.isNotBlank() && st.aiItems.isNotEmpty()) { st.aiItems = emptyList(); st.aiMsg = "" } }
+                    val askAi: () -> Unit = {
+                        kb?.hide()
+                        if (st.query.isBlank()) { status = "Type or say a request, e.g. \"a feel-good movie\""; runCatching { fieldFr.requestFocus() } }
+                        else handle(st.query)
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Scope.entries.forEach { s -> PillButton(s.label, { st.scope = s }, selected = st.scope == s, size = 14) }
+                    val hint = if (Gemini.enabled) "Search, or ask: \"funny movies for tonight\"" else "Search movies, series, channels"
+                    if (!isTv) {
+                        // Phone: one large full-width field (52 dp, 18 sp); scope chips and mic / Ask AI / close on a tidy row below
+                        TextField(
+                            value = st.query, onValueChange = onType, singleLine = true,
+                            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 18.sp),
+                            placeholder = { Text(hint, fontSize = 16.sp, color = Pal.Dim, maxLines = 1) },
+                            leadingIcon = { Text("🔍", fontSize = 18.sp) },
+                            trailingIcon = if (st.query.isNotEmpty()) ({
+                                Box(Modifier.clip(CircleShape).clickable { st.query = ""; runCatching { fieldFr.requestFocus() } }.padding(10.dp)) {
+                                    Text("✕", color = Pal.Dim, fontSize = 16.sp)
+                                }
+                            }) else null,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                            keyboardActions = KeyboardActions(onSearch = { kb?.hide() }),
+                            shape = RoundedCornerShape(26.dp),
+                            colors = androidx.compose.material3.TextFieldDefaults.colors(
+                                focusedContainerColor = Pal.Surface, unfocusedContainerColor = Pal.Surface,
+                                focusedTextColor = Pal.Text, unfocusedTextColor = Pal.Text, cursorColor = Pal.Gold,
+                                focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent),
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
+                                .border(1.dp, Pal.Gold.copy(alpha = 0.45f), RoundedCornerShape(26.dp)).focusRequester(fieldFr)
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            LazyRow(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                items(Scope.entries.toList()) { s -> PillButton(s.label, { st.scope = s }, selected = st.scope == s, size = 14) }
+                            }
+                            PillButton(if (voice.listening) "■" else "🎤", { if (voice.listening) voice.stop() else voice.start() }, selected = voice.listening, size = 14)
+                            if (Gemini.enabled) PillButton("✨ AI", askAi, size = 14)
+                            PillButton("✕", { voice.stop(); st.open = false }, size = 14)
+                        }
+                    } else {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            TextField(
+                                value = st.query, onValueChange = onType, singleLine = true,
+                                placeholder = { Text(hint) },
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                keyboardActions = KeyboardActions(onSearch = { kb?.hide(); runCatching { firstResFr.requestFocus() } }),
+                                modifier = Modifier.weight(1f).clip(RoundedCornerShape(28.dp)).focusRequester(fieldFr)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            PillButton(if (voice.listening) "■" else "🎤", { if (voice.listening) voice.stop() else voice.start() }, selected = voice.listening, size = 14)
+                            if (Gemini.enabled) { Spacer(Modifier.width(8.dp)); PillButton("✨ Ask AI", askAi, size = 14) }
+                            Spacer(Modifier.width(8.dp))
+                            PillButton("✕  Close", { voice.stop(); st.open = false }, size = 14)
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Scope.entries.forEach { s -> PillButton(s.label, { st.scope = s }, selected = st.scope == s, size = 14) }
+                        }
                     }
                     if (heard.isNotEmpty() && voice.listening) Text("“$heard”", color = Pal.Text, fontSize = 15.sp)
                     if (status.isNotEmpty()) Text(status, color = if (aiBusy || voice.listening) Pal.Dim else Pal.Warn, fontSize = 14.sp)

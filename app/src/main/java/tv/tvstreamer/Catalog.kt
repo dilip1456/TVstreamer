@@ -297,7 +297,11 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
     val heroPick = slides.getOrNull(heroIx.coerceIn(0, (slides.size - 1).coerceAtLeast(0)))
     val hero = heroPick?.show
 
-    val shelvesShown = remember(shelves) { shelves.distinctBy { it.key } }
+    // Rows hidden with the row menu ("Hide this category") stay out; restore in Settings or Categories
+    val shelvesShown = remember(shelves, repo.hidden) {
+        val off = HomeHide.ids(repo.hidden)
+        shelves.distinctBy { it.key }.filter { "${HomeHide.PREFIX}$mode|${it.key}" !in off }
+    }
     val screenKey = "cat:$mode"
     val heroFr = remember { FocusRequester() }
     val navFr = remember { FocusRequester() }
@@ -467,9 +471,13 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                     add("▲  Move row up" to { repo.moveCat("vod", c.id, -1) })
                     add("▼  Move row down" to { repo.moveCat("vod", c.id, 1) })
                     add("⤒  Move row to top" to { repo.moveCatTo("vod", c.id, true); menu = null })
-                    add("Hide this category" to { repo.toggleHide("vod", c.id); menu = null })
+                    add("🚫  Hide this category" to { repo.toggleHide("vod", c.id); menu = null; repo.status = "\"${shelf.title}\" hidden. Show it again in Settings or Categories > Hidden." })
                     if (shelf.error.isNotEmpty()) add("Retry loading" to { repo.retryRow(c); menu = null })
                 }
+                if (shelf.cat == null) add("🚫  Hide this category" to {
+                    repo.hideRow(mode, shelf.key, shelf.title); menu = null
+                    repo.status = "\"${shelf.title}\" hidden. Show it again in Settings or Categories > Hidden."
+                })
                 if (tabbed) add("🌐  Languages…" to { menu = null; go(Screen.Languages(mode, Screen.Home)) })
                 add("Browse / arrange all categories…" to { menu = null; go(Screen.Categories) })
             }
@@ -565,8 +573,9 @@ private fun ShelfRow(repo: Repo, screen: String, shelf: Shelf, isTv: Boolean, hP
             Text(shelf.title, color = Pal.Text, fontSize = if (isTv) 20.sp else 17.sp, fontWeight = FontWeight.Bold,
                 maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
             if (shelf.cat?.locked == true) Text("  🔒", fontSize = 14.sp)
-            if (!isTv && (shelf.cat != null || shelf.pool != null)) {
-                // Phones: "⋮" next to the title opens the row menu (move / hide)
+            if (!isTv) {
+                // Phones: "⋮" next to the title opens the row menu (move / hide). TV: Menu (or long-press OK) on any card in
+                // the row opens the same menu, so Up / Down between rows needs no extra stop
                 Spacer(Modifier.width(6.dp))
                 Box(Modifier.focusCard({ onMenu(null) }, shape = RoundedCornerShape(12.dp)).padding(horizontal = 10.dp, vertical = 2.dp)) {
                     Text("⋮", color = Pal.Dim, fontSize = 18.sp)
@@ -1264,6 +1273,7 @@ fun CategoriesScreen(repo: Repo, go: (Screen) -> Unit) {
                             focusedTextColor = Pal.Text, unfocusedTextColor = Pal.Text
                         )
                     )
+                    if (showHidden) HiddenRowsPanel(repo, Modifier.fillMaxWidth(if (isTv) 0.6f else 1f))
                     Text("${cats.size} of ${all.size}" + (if (q.isNotEmpty()) " match \"$q\"" else ""), color = Pal.Dim, fontSize = 12.sp)
                 }
             }

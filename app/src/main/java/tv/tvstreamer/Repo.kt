@@ -232,6 +232,17 @@ class Repo(ctx: Context) {
         store.hidden = hidden
     }
 
+    /** Hide a Home / Movies / Series row (synced with the hidden set, like hidden categories). */
+    fun hideRow(tab: String, rowKey: String, title: String) {
+        if (HomeHide.isHidden(hidden, tab, rowKey)) return
+        hidden = hidden + HomeHide.entry(tab, rowKey, title); store.hidden = hidden
+    }
+
+    fun unhideRow(entry: String) { hidden = hidden.filterNot { HomeHide.id(it) == HomeHide.id(entry) }.toSet(); store.hidden = hidden }
+
+    /** Every hidden Home row and hidden Movies / Series category shown again (hidden channels stay hidden). */
+    fun unhideAllRows() { hidden = hidden.filterNot { it.startsWith(HomeHide.PREFIX) || it.startsWith("vod:") }.toSet(); store.hidden = hidden }
+
     /** Re-reads everything cloud sync may have changed. */
     fun reloadSynced() {
         hidden = store.hidden
