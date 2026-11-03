@@ -20,6 +20,8 @@ The next episode plays automatically.
 - Series: in the last 10 seconds of an episode a "Next episode in 10s" card offers Play now / Cancel; the next episode (or the next season's first) starts automatically. Turn it off in Settings > Player.
 - Audio and subtitle choices are remembered (for everything, and per show while watching a series) and synced with Google sync.
 - Subtitles: pick embedded tracks, change the text size, or download subtitles from OpenSubtitles.com (Subtitles > Download subtitles). Downloading needs your own free OpenSubtitles API key in Settings (opensubtitles.com/en/consumers); nothing is built in. Without an account OpenSubtitles allows about 5 downloads a day.
+- My Channels (top of Live TV, in Normal and Favorites mode): your own channel folders. Menu (or long-press) on a channel > Add to favorites opens a folder picker: tick one or more folders, or make a new one. A favorite channel is one that is in at least one folder; Remove from favorites takes it out of all of them. Use Select to tick several channels and add them to folders in one go. Menu on a folder chip: rename, move, delete. Menu on a channel inside a folder: move earlier / later, remove from that folder.
+- Rename channel (channel menu): your own name is shown in lists, folders, the player and search (search finds the portal name too); Reset name brings the portal name back. Folders and names are synced with Google sync.
 
 ## Remote
 - Select: open or play; while watching, shows the controls

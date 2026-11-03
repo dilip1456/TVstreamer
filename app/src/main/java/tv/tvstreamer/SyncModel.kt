@@ -135,7 +135,9 @@ data class SyncLocal(
     /** TMDB "Fix match" choices: cache key -> "movie:123" / "tv:45" / "none". */
     val fixes: Map<String, String> = emptyMap(),
     /** Portal login and API keys; only filled when the user turned that on. */
-    val secrets: Map<String, String> = emptyMap()
+    val secrets: Map<String, String> = emptyMap(),
+    /** Custom channel names: channel key -> name. */
+    val names: Map<String, String> = emptyMap()
 )
 
 object SyncCodec {
@@ -164,6 +166,7 @@ object SyncCodec {
         for ((k, v) in l.lastEp) m["lastep/$k"] = v
         for ((k, v) in l.fixes) m["fix/$k"] = v
         for ((k, v) in l.secrets) if (v.isNotEmpty()) m["secret/$k"] = v
+        for ((k, v) in l.names) if (v.isNotEmpty()) m["chname/$k"] = v
         return m
     }
 
@@ -187,7 +190,9 @@ object SyncCodec {
         val hidden = under("hidden/").keys.map { it.removePrefix("hidden/") }.toSet()
 
         val customRaw = under("custom/").entries.groupBy { it.key.removePrefix("custom/").substringBefore(SEP) }
-        val custom = customRaw.mapValues { (name, list) ->
+        // Empty folders exist only as their order entry
+        val folderNames = customRaw.keys + under("customorder/").keys.map { it.removePrefix("customorder/") }
+        val custom = folderNames.associateWith { customRaw[it].orEmpty() }.mapValues { (name, list) ->
             val byKey = list.associate { it.key.substringAfter(SEP) to it.value }
             val o = arr(live["customorder/$name"]?.v).filter { it in byKey }
             val keys = o + oldestFirst(byKey).map { it.key }.filter { it !in o }
@@ -202,6 +207,7 @@ object SyncCodec {
         val lastEp = under("lastep/").mapKeys { it.key.removePrefix("lastep/") }.mapValues { it.value.v!! }.toSortedMap()
         val fixes = under("fix/").mapKeys { it.key.removePrefix("fix/") }.mapValues { it.value.v!! }.toSortedMap()
         val secrets = under("secret/").mapKeys { it.key.removePrefix("secret/") }.mapValues { it.value.v!! }.toSortedMap()
-        return SyncLocal(favs, hidden, custom, orders, langs, prefs, recent, resume, lastEp, fixes, secrets)
+        val names = under("chname/").mapKeys { it.key.removePrefix("chname/") }.mapValues { it.value.v!! }.toSortedMap()
+        return SyncLocal(favs, hidden, custom, orders, langs, prefs, recent, resume, lastEp, fixes, secrets, names)
     }
 }

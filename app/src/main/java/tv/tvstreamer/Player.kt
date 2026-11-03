@@ -202,7 +202,7 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
     val autoNext = remember { repo.store.autoNext }
     val scope = rememberCoroutineScope()
 
-    val item = list[idx]
+    val item = list[idx].let { if (it.kind == "itv") repo.named(it) else it }   // custom channel name
     val cur by rememberUpdatedState(item)
     val live = item.kind == "itv"
     val canSeek = !live && dur > 0
@@ -797,10 +797,7 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
                     ((if (aspect == k) "✓ " else "    ") + t) to { setAspect(k); dialog = null }
                 }
                 else -> buildList {
-                    add((if (repo.isFav(item)) "Remove favorite" else "Add favorite") to { repo.toggleFav(item); favTick++; dialog = null })
-                    if (live) {
-                        add("Move to My Channels" to { repo.moveToCustom(item, "My Channels"); dialog = null })
-                    }
+                    if (!live) add((if (repo.isFav(item)) "Remove favorite" else "Add favorite") to { repo.toggleFav(item); favTick++; dialog = null })
                     add("Audio track" to { dialog = "audio" })
                     add("Subtitles" to { dialog = "subs" })
                     add("Picture: Fit / Fill / Zoom" to { dialog = "aspect" })
@@ -809,7 +806,9 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
                 }
             }
             val title = when (d) { "audio" -> "Audio"; "subs" -> "Subtitles"; "subdl" -> "Download subtitles: language"; "aspect" -> "Picture"; else -> item.name }
-            ChoiceDialog(title, opts) { dialog = null }
+            // Live: the shared channel menu (favourites / folders, rename) with the player entries below it
+            if (live && d !in setOf("audio", "subs", "subdl", "aspect")) ChannelMenu(repo, item, null, opts, null) { favTick++; dialog = null }
+            else ChoiceDialog(title, opts) { dialog = null }
         }
     }
 }

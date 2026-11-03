@@ -193,7 +193,7 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
     val lib = repo.lib
     var contVer by remember { mutableIntStateOf(0) }
     val cont = remember(tick, contVer) { repo.store.continueList() }
-    val recent = remember(tick) { repo.store.list("recent").filter { !it.locked } }
+    val recent = remember(tick) { repo.store.list("recent").filter { !it.locked }.map(repo::named) }
     var menu by remember { mutableStateOf<Pair<Shelf, Item?>?>(null) }
     var sortMenu by remember { mutableStateOf(false) }
     var updateMsg by remember { mutableStateOf("") }

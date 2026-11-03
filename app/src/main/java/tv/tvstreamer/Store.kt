@@ -124,15 +124,31 @@ class Store(ctx: Context) {
             o.keys().asSequence().associateWith { k -> o.getJSONArray(k).toItems() }
         } catch (_: Exception) { emptyMap() }
     }
-    fun addToCustom(name: String, item: Item) {
-        val m = customCats().toMutableMap()
-        val list = m.getOrPut(name) { emptyList() }.toMutableList()
-        if (list.none { it.key == item.key }) list += item
-        m[name] = list
-        val o = org.json.JSONObject()
-        m.forEach { (k, v) -> o.put(k, itemsJson(v)) }
-        p.edit().putString("custom_cats", o.toString()).apply()
+    /** My Channels folders (the source of truth for favourite channels) with the user's folder order. */
+    fun folders(): FolderSet {
+        val order = runCatching { JSONArray(p.getString("folder_order", "[]")).let { a -> (0 until a.length()).map { a.getString(it) } } }
+            .getOrDefault(emptyList())
+        return FolderSet(customCats(), order)
     }
+    fun saveFolders(f: FolderSet) {
+        val o = org.json.JSONObject()
+        f.names.forEach { n -> o.put(n, itemsJson(f.items(n))) }
+        p.edit().putString("custom_cats", o.toString()).putString("folder_order", JSONArray(f.names).toString()).apply()
+    }
+    /** Old favourite channels were moved into folders once (local flag, see Repo). */
+    var favChannelsMigrated: Boolean
+        get() = p.getString("fav_ch_migrated", "") == "1"
+        set(v) { p.edit().putString("fav_ch_migrated", if (v) "1" else "").apply() }
+
+    /** Custom channel display names: channel key -> name. */
+    fun chNames(): Map<String, String> = runCatching {
+        val o = JSONObject(p.getString("ch_names", "{}") ?: "{}")
+        o.keys().asSequence().associateWith { o.getString(it) }
+    }.getOrDefault(emptyMap())
+    fun saveChNames(m: Map<String, String>) {
+        p.edit().putString("ch_names", JSONObject().also { o -> m.forEach { (k, v) -> o.put(k, v) } }.toString()).apply()
+    }
+
     /** User arranged order of categories by kind ("itv" or "vod"). Ids not listed keep the portal order after these. */
     fun catOrder(kind: String): List<String> =
         runCatching { JSONArray(p.getString("order_$kind", "[]")).let { a -> (0 until a.length()).map { a.getString(it) } } }
@@ -331,7 +347,7 @@ class Store(ctx: Context) {
         ).filterValues { it.isNotEmpty() }
         return SyncLocal(
             favs = favs, hidden = hidden, custom = custom, orders = orders, langs = langs, prefs = prefStrings(),
-            recent = p.getString("recent", "") ?: "", resume = resume, lastEp = last, secrets = secrets
+            recent = p.getString("recent", "") ?: "", resume = resume, lastEp = last, secrets = secrets, names = chNames()
         )
     }
 
@@ -353,6 +369,7 @@ class Store(ctx: Context) {
             if (l.recent.isEmpty()) e.remove("recent") else e.putString("recent", l.recent)
             e.putString("resume", JSONArray().also { a -> l.resume.forEach { a.put(JSONObject(it)) } }.toString())
             e.putString("lastep", JSONObject().also { o -> l.lastEp.forEach { (k, v) -> o.put(k, JSONObject(v)) } }.toString())
+            e.putString("ch_names", JSONObject().also { o -> l.names.forEach { (k, v) -> o.put(k, v) } }.toString())
             e.commit()
             if (withSecrets) {
                 fun put(name: String, cur: String, set: (String) -> Unit) {
@@ -374,9 +391,9 @@ class Store(ctx: Context) {
 
     companion object {
         /** Prefs stored in their own sync entries. */
-        val STRUCTURED = setOf("fav", "hidden", "custom_cats", "recent", "resume", "lastep")
+        val STRUCTURED = setOf("fav", "hidden", "custom_cats", "recent", "resume", "lastep", "ch_names")
         /** Never synced. */
-        val LOCAL_ONLY = emptySet<String>()
+        val LOCAL_ONLY = setOf("fav_ch_migrated")
     }
 
     fun cacheWrite(name: String, text: String) { runCatching { File(dir, name).writeText(text) } }
