@@ -38,7 +38,8 @@ import kotlinx.coroutines.launch
  * Live TV (v1.52): one clean list, grouped by portal type and category only (News incl. "Local News", Sports, …).
  *  - TV: a Netflix-style left menu (icons; labels open while it has focus, it collapses when focus moves right) with
  *    Search, Mode, All channels, Languages and the sections. Left on a channel goes to its section in the menu.
- *  - Rows: number badge, logo, clean name, what is on now with a progress bar, what is next; the channel playing is marked.
+ *  - Rows: number badge, logo, clean name, small language tag; the channel playing is marked. The schedule is in the player.
+ *  - Sections fold: OK on a header (or a sub-category in the left tree) hides / shows its channels; saved.
  *  - Modes: Default (every channel not hidden) or a custom mode (only its channels). "All channels" also lists the
  *    others, dimmed and marked Hidden; hold OK / long-press shows or hides one. Menu on a channel = channel menu.
  *  - Languages: only the selected languages are listed (Menu on the left menu, or its Languages entry; phone: ⋮).
@@ -75,10 +76,11 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
     }
     val types = remember(sections) { sections.map { it.type }.distinct() }
     // List positions: section header index, flat channel list (what the player steps through)
-    val layout = remember(sections) {
+    val collapsed = repo.liveCollapsed
+    val layout = remember(sections, collapsed) {
         val starts = HashMap<String, Int>(); val typeStart = HashMap<String, Int>()
-        var i = 0
-        for (s in sections) { starts[s.key] = i; typeStart.putIfAbsent(s.type, i); i += 1 + s.rows.size }
+        for ((k, i) in LiveCollapse.starts(sections.map { it.key to it.rows.size }, collapsed)) starts[k] = i
+        for (s in sections) typeStart.putIfAbsent(s.type, starts[s.key] ?: 0)
         Triple(starts, typeStart, sections.flatMap { s -> s.rows.map { it.ch } })
     }
     val flat = layout.third
@@ -103,6 +105,9 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
     val playingFr = remember { FocusRequester() }
     val restoreFr = remember { FocusRequester() }   // the last focused channel when nothing played yet
     val firstFr = remember { FocusRequester() }
+    // Section header focus targets; Channel / Page up-down jump a whole section and land on its header (1.56)
+    val headFrs = remember { HashMap<String, FocusRequester>() }
+    fun headFr(k: String) = headFrs.getOrPut(k) { FocusRequester() }
     var navOpen by remember { mutableStateOf(false) }
     val ctx = LocalContext.current
     // Select mode (bulk hide / unhide): null = off, else the selected channel keys
@@ -139,12 +144,13 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
         val k = repo.nowPlaying.ifEmpty { focusKey }
         val sec = sections.firstOrNull { s -> s.rows.any { it.ch.key == k } }
         if (sec != null) {
+            if (sec.key in collapsed) { runCatching { state.scrollToItem(layout.first[sec.key] ?: 0) }; delay(120); if (tv) runCatching { headFr(sec.key).requestFocus() }; return@LaunchedEffect }
             val at = (layout.first[sec.key] ?: 0) + 1 + sec.rows.indexOfFirst { it.ch.key == k }
             // Keep the saved scroll position when the channel is on screen there; scroll only when it is not
             LiveView.scrollFor(state.firstVisibleItemIndex, at)?.let { runCatching { state.scrollToItem(it) } }
             delay(120)
             if (tv) runCatching { (if (k == repo.nowPlaying) playingFr else restoreFr).requestFocus() }
-        } else if (tv) { delay(150); runCatching { firstFr.requestFocus() } }
+        } else if (tv) { delay(150); runCatching { firstFr.requestFocus() }.onFailure { sections.firstOrNull()?.let { runCatching { headFr(it.key).requestFocus() } } } }
     }
 
     // Search closed (Back): back to the channel focused last (else the one playing), scrolled into view (1.55)
@@ -152,6 +158,7 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
         if (AppUi.searchClosed == 0 || !tv) return@LaunchedEffect
         val k = SearchReturn.liveTarget(focusKey, repo.nowPlaying).ifEmpty { return@LaunchedEffect }
         val sec = sections.firstOrNull { s -> s.rows.any { it.ch.key == k } } ?: return@LaunchedEffect
+        if (sec.key in collapsed) { runCatching { state.scrollToItem(layout.first[sec.key] ?: 0) }; delay(120); runCatching { headFr(sec.key).requestFocus() }; return@LaunchedEffect }
         val at = (layout.first[sec.key] ?: 0) + 1 + sec.rows.indexOfFirst { it.ch.key == k }
         LiveView.scrollFor(state.firstVisibleItemIndex, at)?.let { runCatching { state.scrollToItem(it) } }
         delay(120)
@@ -177,15 +184,26 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
     LaunchedEffect(undo) { if (undo != null) { delay(120); if (tv) runCatching { undoFr.requestFocus() }; delay(5000); undo = null } }
     fun holdGroup(n: LiveModes.Node) { repo.toggleGroup(n.key); undo = n.key to (n.key in repo.hidden) }
     var expanded by remember { mutableStateOf("") }
+    fun nodeSections(n: LiveModes.Node) = sections.filter { sc -> sc.type == n.type && when {
+        n.region -> sc.rows.any { it.region == n.label }
+        n.key == Taxonomy.typeKey(n.type) -> true
+        else -> sc.label == n.label || sc.label.startsWith(n.label + " · ")
+    } }
     fun jumpNode(n: LiveModes.Node) {
-        val sec = sections.firstOrNull { sc -> sc.type == n.type && when {
-            n.region -> sc.rows.any { it.region == n.label }
-            n.key == Taxonomy.typeKey(n.type) -> true
-            else -> sc.label == n.label || sc.label.startsWith(n.label + " · ")
-        } } ?: return
+        val sec = nodeSections(n).firstOrNull() ?: return
         var at = layout.first[sec.key] ?: return
-        if (n.region) at += 1 + sec.rows.indexOfFirst { it.region == n.label }.coerceAtLeast(0)
+        if (n.region && sec.key !in collapsed) at += 1 + sec.rows.indexOfFirst { it.region == n.label }.coerceAtLeast(0)
         scope.launch { runCatching { state.animateScrollToItem(at) } }
+    }
+    // Channel / Page up-down jump a whole section and land on its header (1.56)
+    fun pageKey(e: androidx.compose.ui.input.key.KeyEvent): Boolean {
+        val down = when (e.key) { Key.ChannelDown, Key.PageDown, Key.MediaFastForward -> true; Key.ChannelUp, Key.PageUp, Key.MediaRewind -> false; else -> return false }
+        if (e.type != KeyEventType.KeyDown) return true
+        val cur = focusSec.ifEmpty { sections.firstOrNull()?.key.orEmpty() }
+        val k = LiveCollapse.step(sections.map { it.key }, cur, down) ?: return true
+        val at = layout.first[k] ?: return true
+        scope.launch { runCatching { state.scrollToItem(at) }; delay(60); runCatching { headFr(k).requestFocus() } }
+        return true
     }
     // Live TV options (Menu on the left nav / ⋮ on phone): view state, Select, languages
     fun viewOpts(close: () -> Unit): List<Pair<String, () -> Unit>> = LiveModes.View.values().map { v ->
@@ -209,11 +227,18 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
                     langs != null -> "No channels in the selected languages."
                     else -> "No channels to show."
                 }, 16, Pal.Dim, maxLines = 3)
-                else -> LazyColumn(state = state, modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(2.dp),
+                else -> LazyColumn(state = state, modifier = Modifier.fillMaxSize().onPreviewKeyEvent { e -> pageKey(e) }, verticalArrangement = Arrangement.spacedBy(2.dp),
                     contentPadding = PaddingValues(bottom = 48.dp)) {
                     sections.forEachIndexed { si, s ->
-                        stickyHeader(key = "h|${s.key}") { SectionHeader(s) }
-                        items(s.rows, key = { r -> "${s.key}|${r.ch.key}" }) { r ->
+                        val folded = s.key in collapsed
+                        stickyHeader(key = "h|${s.key}") {
+                            SectionHeader(s, folded, tv, Modifier.focusRequester(headFr(s.key))
+                                .onFocusChanged { if (it.isFocused) focusSec = s.key }
+                                .then(if (rail) Modifier.focusProperties { left = navReq("t:" + s.type) } else Modifier),
+                                onToggle = { repo.toggleCollapsed(listOf(s.key)) },
+                                onHold = { tree.firstOrNull { it.type == s.type }?.let { holdGroup(it) } })
+                        }
+                        if (!folded) items(s.rows, key = { r -> "${s.key}|${r.ch.key}" }) { r ->
                             val ch = r.ch
                             val first = si == 0 && r === s.rows.first()
                             ChannelRow(repo, ch, r.on, browseAll, ch.key == repo.nowPlaying, tv, sel?.let { ch.key in it },
@@ -294,14 +319,16 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
                         if (open && navOpen) n.children.forEachIndexed { ci, c ->
                             if (c.region && (ci == 0 || !n.children[ci - 1].region)) Label("Regions", 11, Pal.Dim, Modifier.padding(start = 44.dp, top = 6.dp))
                             NavEntry(if (c.region) "◦" else "·", c.label, navOpen, Modifier.padding(start = 22.dp), count = c.count, dim = c.hidden, small = true,
-                                onFocus = { jumpNode(c) }, onLongClick = { holdGroup(c) }, onClick = { jumpNode(c) })
+                                onFocus = { jumpNode(c) }, onLongClick = { holdGroup(c) },
+                                // 1.56: OK on a sub-category folds its channels in the list (or shows them again)
+                                onClick = { repo.toggleCollapsed(nodeSections(c).map { it.key }); jumpNode(c) })
                         }
                     }
                 }
             }
             Column(Modifier.weight(1f).fillMaxHeight().padding(start = 12.dp, end = 32.dp, top = 18.dp)) {
                 Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(bottom = 10.dp)) {
-                    Label("Live TV", 26, Pal.Text)
+                    Label("Live TV", Ts.TITLE, Pal.Text)
                     Label(listOfNotNull(
                         if (mode == LiveModes.DEFAULT) null else mode,
                         "$modeCount channels",
@@ -315,7 +342,7 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
     } else {
         Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
-                Label("Live TV", 22, Pal.Text, Modifier.weight(1f))
+                Label("Live TV", Ts.TITLE, Pal.Text, Modifier.weight(1f))
                 PillButton((if (mode == LiveModes.DEFAULT) "Default" else mode) + " ▾", { popup = "modes" }, size = 13)
                 PillButton("☰", { popup = "sections" }, size = 13)
                 PillButton("⋮", { popup = "more" }, size = 13)
@@ -344,12 +371,21 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
 private fun sectionTitle(s: LiveModes.Section): String = LiveOverlay.title(s.type, s.label)
 
 @Composable
-private fun SectionHeader(s: LiveModes.Section) {
-    Row(Modifier.fillMaxWidth().background(Pal.Bg).padding(top = 14.dp, bottom = 6.dp, start = 4.dp),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Label(s.type.uppercase(), 13, Pal.GoldText)
-        if (!s.label.equals(s.type, true)) Label(s.label, 15, Pal.Text)
-        Label("${s.rows.size}", 12, Pal.Dim)
+private fun SectionHeader(s: LiveModes.Section, folded: Boolean, tv: Boolean, modifier: Modifier, onToggle: () -> Unit, onHold: () -> Unit) {
+    var f by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(10.dp)
+    // Focusable header: OK / click folds the section, hold OK / long-press hides the group. Chevron + channel count.
+    Row(Modifier.fillMaxWidth().background(Pal.Bg).padding(top = 6.dp, bottom = 2.dp).then(modifier).popupOpener()
+            .onFocusChanged { f = it.isFocused }
+            .clip(shape).background(if (f) Pal.FocusBg else Color.Transparent)
+            .then(if (f) Modifier.border(2.dp, Pal.Gold, shape) else Modifier)
+            .combinedClickable(onClick = onToggle, onLongClick = onHold)
+            .padding(horizontal = 10.dp, vertical = if (tv) 6.dp else 5.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Label(if (folded) "▸" else "▾", Ts.SECONDARY, if (f) Pal.Gold else Pal.Dim)
+        Label(s.type.uppercase(), Ts.HEAD, Pal.GoldText)
+        if (!s.label.equals(s.type, true)) Label(s.label, Ts.HEAD, Pal.Text, Modifier.weight(1f, fill = false))
+        Label("${s.rows.size}", Ts.CAPTION, Pal.Dim)
     }
 }
 
@@ -366,22 +402,22 @@ private fun NavEntry(icon: String, label: String, open: Boolean, modifier: Modif
             .clip(RoundedCornerShape(12.dp))
             .background(bg)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-            .padding(horizontal = 14.dp, vertical = if (small) 7.dp else 11.dp)
+            .padding(horizontal = 12.dp, vertical = if (small) 5.dp else 8.dp)
             .alpha(if (dim && !f) 0.45f else 1f),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Label(icon, if (small) 13 else 18, if (f) Color.Black else Pal.Text)
+        Label(icon, if (small) Ts.SECONDARY else Ts.ROW + 2, if (f) Color.Black else Pal.Text)
         if (open) {
-            Label(label, if (small) 13 else 15, if (f) Color.Black else Pal.Text, Modifier.weight(1f))
-            if (dim) Label("Hidden", 10, if (f) Color.Black else Pal.Dim)
-            if (count >= 0) Label("$count", 12, if (f) Color.Black else Pal.Dim)
-            if (arrow.isNotEmpty()) Label(arrow, 12, if (f) Color.Black else Pal.Dim)
+            Label(label, if (small) Ts.SECONDARY else Ts.ROW, if (f) Color.Black else Pal.Text, Modifier.weight(1f))
+            if (dim) Label("Hidden", Ts.CAPTION, if (f) Color.Black else Pal.Dim)
+            if (count >= 0) Label("$count", Ts.CAPTION, if (f) Color.Black else Pal.Dim)
+            if (arrow.isNotEmpty()) Label(arrow, Ts.CAPTION, if (f) Color.Black else Pal.Dim)
         }
     }
 }
 
 /**
- * One channel: number badge, logo, clean name, now / next with progress. Dimmed + "Hidden" when it is not in the
+ * One channel: number badge, logo, clean name, a small language tag. Dimmed + "Hidden" when it is not in the
  * current mode (All channels). OK plays; hold OK / long-press: show or hide (All channels) or the menu; Menu = menu.
  */
 @Composable
@@ -392,10 +428,7 @@ private fun ChannelRow(repo: Repo, ch: Item, on: Boolean, browseAll: Boolean, pl
     val shape = RoundedCornerShape(12.dp)
     val local = remember(ch.cat, repo.liveCats) { LiveKind.isLocalNews(repo.liveCats.firstOrNull { it.id == ch.cat }?.title.orEmpty()) }
     val name = remember(ch.name, local) { ChannelTitle.pretty(ch.name, local) }
-    val t = rememberMinute()
-    val progs = repo.epg.guide[ch.id]?.progs
-    val now = Epg.now(progs, t)
-    val next = Epg.next(progs, t)
+    val lang = remember(ch.key, repo.liveIndex.info) { ChannelTitle.langTag(repo.liveIndex.info[ch.key]?.lang) }
     Row(
         modifier.fillMaxWidth().popupOpener()
             .onFocusChanged { f = it.isFocused; if (it.isFocused) Keys.focused = ch }
@@ -417,32 +450,25 @@ private fun ChannelRow(repo: Repo, ch: Item, on: Boolean, browseAll: Boolean, pl
             .background(when { f -> Pal.FocusBg; playing -> Pal.Soft; else -> Color.Transparent })
             .then(if (f) Modifier.border(2.dp, Pal.Gold, shape) else Modifier)
             .combinedClickable(onClick = onClick, onLongClick = if (!tv || browseAll) onToggle else onMenu)
-            .padding(horizontal = 12.dp, vertical = if (tv) 10.dp else 8.dp)
+            .padding(horizontal = 10.dp, vertical = if (tv) Ts.ROW_PAD_TV else Ts.ROW_PAD)
             .alpha(if (on || checked == true) 1f else 0.45f),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        // 1.56: compact row, no schedule (that lives in the player and the channel menu)
         if (checked != null) CheckDot(checked)
-        Box(Modifier.widthIn(min = 38.dp), contentAlignment = Alignment.CenterEnd) {
-            if (ch.num > 0) Label("${ch.num}", if (tv) 15 else 13, if (playing) Pal.GoldText else Pal.Dim)
+        Box(Modifier.widthIn(min = 32.dp), contentAlignment = Alignment.CenterEnd) {
+            if (ch.num > 0) Label("${ch.num}", Ts.SECONDARY, if (playing) Pal.GoldText else Pal.Dim)
         }
-        Box(Modifier.size(if (tv) 76.dp else 60.dp, if (tv) 46.dp else 38.dp).background(Pal.Card, RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
-            if (ch.img.isNotEmpty()) Poster(ch.img, name, Modifier.fillMaxSize().padding(5.dp), ContentScale.Fit, initialsSize = 14)
-            else Label(ChannelTitle.initials(name), 14, Pal.GoldText)
+        Box(Modifier.size(if (tv) 56.dp else 48.dp, if (tv) 34.dp else 30.dp).background(Pal.Card, RoundedCornerShape(6.dp)), contentAlignment = Alignment.Center) {
+            if (ch.img.isNotEmpty()) Poster(ch.img, name, Modifier.fillMaxSize().padding(4.dp), ContentScale.Fit, initialsSize = 12)
+            else Label(ChannelTitle.initials(name), Ts.CAPTION, Pal.GoldText)
         }
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Label(name, if (tv) 17 else 15, if (playing) Pal.GoldText else Pal.Text, Modifier.weight(1f, fill = false))
-                if (playing) Label("● NOW PLAYING", 10, Pal.Gold)
-                if (!on) Box(Modifier.background(Pal.Soft, RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 1.dp)) { Label("Hidden", 11, Pal.Dim) }
-            }
-            if (now != null) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Label(now.title, 13, Pal.Text2, Modifier.weight(1f, fill = false))
-                    ProgressLine(now.progress(t), Modifier.width(if (tv) 90.dp else 56.dp))
-                }
-            }
+        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Label(name, Ts.ROW, if (playing) Pal.GoldText else Pal.Text, Modifier.weight(1f, fill = false))
+            if (lang.isNotEmpty()) Label(lang, Ts.CAPTION, Pal.Dim)
+            if (playing) Label("● NOW", Ts.CAPTION, Pal.Gold)
+            if (!on) Box(Modifier.background(Pal.Soft, RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 1.dp)) { Label("Hidden", Ts.CAPTION, Pal.Dim) }
         }
-        if (tv && next != null) Label("Next ${hhmm(next.start)} · ${next.title}", 12, Pal.Dim, Modifier.widthIn(max = 260.dp))
     }
 }
 

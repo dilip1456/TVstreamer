@@ -168,6 +168,7 @@ object ChannelTitle {
         s = s.replace(QUALITY, " ").replace(BRACKETS_EMPTY, " ").replace(PIPES, " ").replace(NUM_TRAIL_TAG, "")
         s = s.replace(EDGE, "").replace(SPACES, " ").trim()
         s = s.replace(NUM_LEAD, "")
+        s = stripLang(s)
         if (local) localName(s)?.let { return it }
         val out = tidyCase(s).replace(SPACES, " ").trim()
         return if (out.isEmpty() || numeric(out)) clean(raw) else out
@@ -200,4 +201,37 @@ object ChannelTitle {
         val letters = p.filter { it.isLetter() }
         return if (letters.isNotEmpty() && letters.all { it.isUpperCase() }) p.split(' ').joinToString(" ") { caseWord(it, true) } else p
     }
+
+    // ---- Language / country words out of names (1.56) ----
+    private val LANG_WORDS = listOf("english", "hindi", "urdu", "tamil", "telugu", "malayalam", "kannada", "marathi", "bengali",
+        "bangla", "punjabi", "gujarati", "odia", "oriya", "assamese", "bhojpuri", "nepali", "sinhala", "arabic", "french", "german",
+        "spanish", "italian", "portuguese", "turkish", "persian", "farsi", "russian", "polish", "dutch", "greek", "albanian",
+        "usa", "united states", "uk", "united kingdom", "india", "pakistan", "canada", "australia", "ireland")
+    private val LANG_ALT = LANG_WORDS.joinToString("|") { it.replace(" ", "\\s+") }
+    private val CODES2 = "EN|ENG|US|UK|GB|IN|PK|CA|AU|IE|AR|FR|DE|ES|IT|PT|TR|HI|UR"
+    /** "(English)", "[Hindi]" anywhere. */
+    private val LANG_PAREN = Regex("(?i)[\\[(]\\s*(?:$LANG_ALT)\\s*[\\])]")
+    /** A trailing language / country word: "Star Plus Hindi", "Fox Sports USA", "BBC One EN". */
+    private val LANG_TAIL = Regex("(?i)\\s+(?:$LANG_ALT)$|\\s+(?-i:$CODES2)$")
+    /** A leading full word with a separator: "English: CNN", "USA - Fox". */
+    private val LANG_LEAD = Regex("(?i)^(?:$LANG_ALT)\\s*(?::|\\||-|–)\\s*")
+
+    /**
+     * Strips language and country words. A trailing word goes only when two or more words stay, so brands such as
+     * "Zee Tamil" or "Colors Kannada" keep their name while "Star Plus Hindi" becomes "Star Plus".
+     */
+    fun stripLang(raw: String): String {
+        var s = raw.replace(LANG_PAREN, " ").replace(SPACES, " ").trim()
+        LANG_LEAD.find(s)?.let { m -> val rest = s.substring(m.range.last + 1).trim(); if (rest.isNotEmpty()) s = rest }
+        while (true) {
+            val m = LANG_TAIL.find(s) ?: break
+            val rest = s.substring(0, m.range.first).replace(EDGE, "").trim()
+            if (rest.split(' ').count { w -> w.any { it.isLetterOrDigit() } } < 2) break
+            s = rest
+        }
+        return s.replace(EDGE, "").replace(SPACES, " ").trim()
+    }
+
+    /** The small language tag next to a name: "" when unknown. */
+    fun langTag(lang: String?): String = lang?.takeIf { it.isNotBlank() && it != Tags.OTHER }.orEmpty()
 }

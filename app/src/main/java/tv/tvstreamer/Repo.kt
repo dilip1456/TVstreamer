@@ -474,6 +474,9 @@ class Repo(private val ctx: Context) {
     /** Live TV languages: null = all; else only these are listed (synced with the other language choices). */
     var liveLangs by mutableStateOf(store.langs("live"))
         private set
+    var liveCollapsed by mutableStateOf(LiveCollapse.decode(store.liveCollapsed))
+        private set
+    fun toggleCollapsed(keys: Collection<String>) { liveCollapsed = LiveCollapse.toggle(liveCollapsed, keys); store.liveCollapsed = LiveCollapse.encode(liveCollapsed) }
     fun chooseLiveLangs(v: Set<String>?) { liveLangs = v?.takeIf { it.isNotEmpty() }; store.saveLangs("live", liveLangs) }
 
     /** Reminders for upcoming programmes (on this device): a toast at the start time. */

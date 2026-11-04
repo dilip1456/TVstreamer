@@ -102,8 +102,8 @@ fun ChannelPanel(repo: Repo, list: List<Item>, playing: Int, title: String = "Ch
     }
     PopupFrame(onClose, alignment = Alignment.CenterStart, scrim = Color(0x26000000)) {
         Column(Modifier.padding(horizontal = 20.dp).fillMaxHeight(0.84f).width(360.dp).clip(RoundedCornerShape(18.dp)).background(Color(0xB80E0E14)).border(1.dp, Color(0x1FFFFFFF), RoundedCornerShape(18.dp)).padding(vertical = 14.dp)) {
-            Text(title, color = Pal.Text, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 18.dp))
-            Text("OK play · ◀ ▶ later shows", color = Pal.Dim, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp))
+            Text(title, color = Pal.Text, fontSize = Ts.ROW.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 18.dp))
+            Text("OK play · ◀ ▶ later shows", color = Pal.Dim, fontSize = Ts.CAPTION.sp, modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp))
             LazyColumn(state = state, contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 itemsIndexed(list, key = { _, c -> c.key }) { i, raw ->
                     val ch = repo.named(raw)

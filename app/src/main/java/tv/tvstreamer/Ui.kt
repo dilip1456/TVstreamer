@@ -75,8 +75,8 @@ fun Label(text: String, size: Int = 18, color: Color = Pal.Text, modifier: Modif
 
 @Composable
 fun Row1(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, onMenu: (() -> Unit)? = null, onFocus: (() -> Unit)? = null) {
-    Box(modifier.fillMaxWidth().tv(onClick, onMenu, onFocus).padding(horizontal = 12.dp, vertical = 8.dp)) {
-        Label(text, maxLines = 3)
+    Box(modifier.fillMaxWidth().tv(onClick, onMenu, onFocus).padding(horizontal = 12.dp, vertical = Ts.MENU_PAD)) {
+        Label(text, Ts.ROW, maxLines = 3)
     }
 }
 
@@ -121,7 +121,7 @@ fun SettingField(label: String, value: String, password: Boolean = false, multiL
     val focus = androidx.compose.ui.platform.LocalFocusManager.current
     val tv = rememberIsTv()
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Label(label, if (tv) 16 else 14, DIM, maxLines = 3)
+        Label(label, Ts.SECONDARY, DIM, maxLines = 3)
         // TV: the keyboard opens only on OK / click, never because focus moved here (KeyboardGate)
         KeyboardGate(Modifier.fillMaxWidth()) { inner ->
             TextField(
@@ -205,4 +205,20 @@ fun Modifier.menuRow(index: () -> Int, count: () -> Int): Modifier = onPreviewKe
         Key.DirectionRight -> i >= 0 && i == count() - 1
         else -> false
     }
+}
+
+/**
+ * One type scale for the whole app (1.56): every list, menu, panel and setting uses these sizes, so text looks the same
+ * everywhere. TITLE: screen titles; HEAD: section headers; ROW: list rows and menu entries; SECONDARY: counts, numbers,
+ * supporting text; CAPTION: tags and hints.
+ */
+object Ts {
+    const val TITLE = 22
+    const val HEAD = 14
+    const val ROW = 15
+    const val SECONDARY = 13
+    const val CAPTION = 11
+    val ROW_PAD = 6.dp
+    val ROW_PAD_TV = 7.dp
+    val MENU_PAD = 7.dp
 }

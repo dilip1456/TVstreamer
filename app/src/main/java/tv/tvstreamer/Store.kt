@@ -288,6 +288,11 @@ class Store(ctx: Context) {
         set(v) { p.edit().putString("keymap", v).apply() }
 
     /** Languages picked for a tab ("movies" / "series"). null = never chosen (show everything). */
+    /** Collapsed Live TV sections (1.56). */
+    var liveCollapsed: String
+        get() = p.getString("live_collapsed", "").orEmpty()
+        set(v) { p.edit().putString("live_collapsed", v).apply() }
+
     fun langs(tab: String): Set<String>? =
         if (!p.contains("langs_$tab")) null else p.getStringSet("langs_$tab", emptySet())?.toSet()
 
