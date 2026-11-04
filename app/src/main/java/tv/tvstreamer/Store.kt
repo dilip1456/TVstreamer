@@ -222,6 +222,34 @@ class Store(ctx: Context) {
         get() = sec.getString("os_key", "") ?: ""
         set(v) { sec.edit().putString("os_key", v.trim()).apply() }
 
+    /** Optional OpenSubtitles login (20 downloads a day instead of 5). Private prefs only; not synced. */
+    var osUser: String
+        get() = sec.getString("os_user", "") ?: ""
+        set(v) { sec.edit().putString("os_user", v.trim()).remove("os_token").remove("os_login_failed").apply() }
+    var osPass: String
+        get() = sec.getString("os_pass", "") ?: ""
+        set(v) { sec.edit().putString("os_pass", v).remove("os_token").remove("os_login_failed").apply() }
+    var osToken: String
+        get() = sec.getString("os_token", "") ?: ""
+        set(v) { sec.edit().putString("os_token", v).apply() }
+    var osTokenUntil: Long
+        get() = sec.getLong("os_token_until", 0)
+        set(v) { sec.edit().putLong("os_token_until", v).apply() }
+    var osLoginFailed: String
+        get() = sec.getString("os_login_failed", "") ?: ""
+        set(v) { sec.edit().putString("os_login_failed", v).apply() }
+    /** SubDL API key (the user's own, optional). Private prefs; synced with the other keys. */
+    var subdlKey: String
+        get() = sec.getString("subdl_key", "") ?: ""
+        set(v) { sec.edit().putString("subdl_key", v.trim()).apply() }
+    /** "Daily quota used up until" per subtitle source (epoch ms). */
+    var osQuotaUntil: Long
+        get() = p.getLong("os_quota_until", 0)
+        set(v) { p.edit().putLong("os_quota_until", v).apply() }
+    var subdlQuotaUntil: Long
+        get() = p.getLong("subdl_quota_until", 0)
+        set(v) { p.edit().putLong("subdl_quota_until", v).apply() }
+
     /** TMDB v3 API key (or v4 read token) and optional OMDb key. Stored only in the private "secure" prefs, never in the repo. */
     var tmdbKey: String
         get() = sec.getString("tmdb_key", "") ?: ""
@@ -343,7 +371,7 @@ class Store(ctx: Context) {
         val last = runCatching { JSONObject(p.getString("lastep", "{}") ?: "{}").let { o -> o.keys().asSequence().associateWith { o.getJSONObject(it).toString() } } }.getOrDefault(emptyMap())
         val secrets = if (!withSecrets) emptyMap() else mapOf(
             "portal" to portal, "mac" to mac, "serial" to serial, "pw" to password, "tmdb" to tmdbKey, "omdb" to omdbKey,
-            "gemini" to geminiKey, "osub" to osKey
+            "gemini" to geminiKey, "osub" to osKey, "subdl" to subdlKey
         ).filterValues { it.isNotEmpty() }
         return SyncLocal(
             favs = favs, hidden = hidden, custom = custom, orders = orders, langs = langs, prefs = prefStrings(),
@@ -384,6 +412,7 @@ class Store(ctx: Context) {
                 put("omdb", omdbKey) { omdbKey = it }
                 put("gemini", geminiKey) { geminiKey = it }
                 put("osub", osKey) { osKey = it }
+                put("subdl", subdlKey) { subdlKey = it }
             }
         } finally { muted = false }
         return secretsChanged

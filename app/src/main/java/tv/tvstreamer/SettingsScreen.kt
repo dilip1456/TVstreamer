@@ -76,6 +76,9 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
     var omdb by remember { mutableStateOf(s.omdbKey) }
     var gem by remember { mutableStateOf(s.geminiKey) }
     var osk by remember { mutableStateOf(s.osKey) }
+    var osu by remember { mutableStateOf(s.osUser) }
+    var osp by remember { mutableStateOf(s.osPass) }
+    var sdk by remember { mutableStateOf(s.subdlKey) }
     var autoNext by remember { mutableStateOf(s.autoNext) }
     var subSize by remember { mutableStateOf(s.subSize) }
     var note by remember { mutableStateOf("") }
@@ -145,11 +148,16 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
                 Box(first) { FieldWithLink({ SettingField("TMDB", tmdb, password = true) { tmdb = it } }, "Get key") { link("TMDB", TMDB_KEY_URL) } }
                 FieldWithLink({ SettingField("OMDb", omdb, password = true) { omdb = it } }, "Get key") { link("OMDb", OMDB_KEY_URL) }
                 FieldWithLink({ SettingField("OpenSubtitles", osk, password = true) { osk = it } }, "Get key") { link("OpenSubtitles", OpenSubs.KEY_URL) }
+                SettingField("OpenSubtitles username (optional: 20 downloads/day instead of 5)", osu) { osu = it }
+                SettingField("OpenSubtitles password (optional)", osp, password = true) { osp = it }
+                FieldWithLink({ SettingField("SubDL (subtitle backup)", sdk, password = true) { sdk = it } }, "Get key") { link("SubDL", SubDl.KEY_URL) }
                 FieldWithLink({ SettingField("Gemini", gem, password = true) { gem = it } }, "Get key") { link("Google AI Studio", Gemini.KEY_URL) }
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     PillButton("Save and test", {
                         keyboard?.hide()
-                        s.tmdbKey = tmdb; s.omdbKey = omdb; s.osKey = osk
+                        s.tmdbKey = tmdb; s.omdbKey = omdb; s.osKey = osk; s.subdlKey = sdk
+                        if (osu != s.osUser) s.osUser = osu
+                        if (osp != s.osPass) s.osPass = osp
                         Tmdb.setKeys(tmdb, omdb)
                         val gemChanged = gem != s.geminiKey
                         s.geminiKey = gem; Gemini.useKey(gem)
@@ -159,12 +167,13 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
                             if (tmdb.isNotBlank() || omdb.isNotBlank()) parts += withContext(Dispatchers.IO) { Tmdb.test(tmdb, omdb) }
                             if (gem.isNotBlank()) parts += withContext(Dispatchers.IO) { Gemini.test(gem) } else if (gemChanged) parts += "Gemini off"
                             if (osk.isNotBlank()) parts += "OpenSubtitles saved"
+                            if (sdk.isNotBlank()) parts += "SubDL saved"
                             note = parts.joinToString(" · ").ifEmpty { "Saved" }
                             if (gem.isNotBlank()) launch { Ai.refreshSuggested(repo, force = true) }
                         }
                     }, primary = true)
                     PillButton("Learn more", {
-                        learn = "API keys" to ("All optional. TMDB: posters, plots, cast. OMDb: IMDb ratings. OpenSubtitles: subtitle downloads. " +
+                        learn = "API keys" to ("All optional. TMDB: posters, plots, cast. OMDb: IMDb ratings. OpenSubtitles (+ optional login for more downloads) and SubDL: subtitle downloads; files are saved on the device so replays never download again. " +
                             "Gemini: \"Suggested for you\" and voice / AI search (titles from your history are sent to Google). Keys sync with Google sync.")
                     })
                 }

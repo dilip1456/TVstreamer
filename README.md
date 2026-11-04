@@ -41,6 +41,12 @@ The next episode plays automatically.
 - **Compact menus:** small rounded see-through cards on the right with tight rows and small text. Move to top was removed from the channel menu.
 - **Live player side panels:** the channels (Left) and schedule (Right) panels are narrower rounded see-through cards with tighter rows and smaller text.
 
+
+### Subtitles (1.54)
+- Downloaded subtitles are saved on the device (per title / episode / language) and re-used: replays and later sessions never download again. The language picked for a title is remembered and attached automatically next time.
+- Sources, in order: saved copy → OpenSubtitles.com (your API key; add your free account login for 20 downloads/day instead of 5) → SubDL (your own free key: 2,000 searches / 50 downloads a day). When a source's daily limit is reached the player says so and tries the next one; that source is skipped until its reset time.
+- All keys go in Settings > API keys; none are built in.
+
 ## 1.53: clean live player, faster guide, simpler Settings
 
 **Live TV player**

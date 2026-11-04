@@ -91,9 +91,34 @@ object OpenSubs {
     private fun req(key: String, url: String) = Request.Builder().url(url)
         .header("Api-Key", key).header("User-Agent", UA).header("Accept", "application/json")
 
-    /** Searches, downloads the best match into [dir] and returns the file (".srt" or ".vtt" etc.). Throws [Failure]. */
-    suspend fun fetch(key: String, q: Query, dir: File): File = withContext(Dispatchers.IO) {
-        if (key.isBlank()) throw Failure("Add your free OpenSubtitles API key in Settings to download subtitles.")
+    /** Today's download allowance is used up; [until] = reset time (epoch ms). */
+    class Quota(val until: Long) : Exception("quota")
+
+    /**
+     * Optional login (Settings): a free account's downloads count against the user (20 a day) instead of the anonymous
+     * per-IP allowance through the key (5 a day). The token lasts 24 h and is reused; login is called at most once per token.
+     */
+    private fun token(store: Store): String? {
+        if (store.osUser.isBlank() || store.osPass.isBlank()) return null
+        if (store.osToken.isNotBlank() && store.osTokenUntil > System.currentTimeMillis()) return store.osToken
+        if (store.osLoginFailed == store.osUser) return null // stop after a 401 until the credentials change
+        return try {
+            http.newCall(req(store.osKey, "$API/login").post(JSONObject().put("username", store.osUser).put("password", store.osPass).toString()
+                .toRequestBody("application/json".toMediaType())).build()).execute().use { r ->
+                val body = r.body?.string().orEmpty()
+                if (r.code == 401) { store.osLoginFailed = store.osUser; return null }
+                if (!r.isSuccessful) return null
+                JSONObject(body).optString("token").ifEmpty { null }?.also {
+                    store.osToken = it; store.osTokenUntil = System.currentTimeMillis() + 23 * 3600_000L
+                }
+            }
+        } catch (e: Exception) { null }
+    }
+
+    /** Searches and downloads the best match; returns (bytes, ext). Throws [Failure] or [Quota]. Saving is the caller's job. */
+    suspend fun fetchBytes(store: Store, q: Query): Pair<ByteArray, String> = withContext(Dispatchers.IO) {
+        val key = store.osKey
+        if (key.isBlank()) throw Failure("OpenSubtitles: no API key")
         if (q.tmdbId <= 0 && q.imdbId.isBlank() && q.title.isBlank()) throw Failure("Not enough info to search subtitles for this title.")
         val hits = try {
             http.newCall(req(key, "$API/subtitles?${searchParams(q)}").get().build()).execute().use { r ->
@@ -101,26 +126,27 @@ object OpenSubs {
                 if (!r.isSuccessful) throw Failure(errorFor(r.code, body))
                 parseSearch(body)
             }
-        } catch (e: Failure) { throw e } catch (e: Exception) { throw Failure("Could not reach OpenSubtitles (${e.message ?: "network error"})") }
-        val hit = best(hits, q) ?: throw Failure("No ${langName(q.lang)} subtitles found on OpenSubtitles.")
+        } catch (e: Failure) { throw e } catch (e: Exception) { throw Failure("Could not reach OpenSubtitles") }
+        val hit = best(hits, q) ?: throw Failure("No ${langName(q.lang)} subtitles on OpenSubtitles")
+        val tok = token(store)
         try {
-            val link = http.newCall(req(key, "$API/download").post(JSONObject().put("file_id", hit.fileId).toString()
-                .toRequestBody("application/json".toMediaType())).build()).execute().use { r ->
+            val rb = req(key, "$API/download").post(JSONObject().put("file_id", hit.fileId).toString().toRequestBody("application/json".toMediaType()))
+            if (tok != null) rb.header("Authorization", "Bearer $tok")
+            val link = http.newCall(rb.build()).execute().use { r ->
                 val body = r.body?.string().orEmpty()
+                if (r.code == 406 || r.code == 429) throw Quota(Subtitles.Quota.parseReset(body, System.currentTimeMillis()))
+                if (r.code == 401 && tok != null) { store.osToken = ""; store.osTokenUntil = 0 }
                 if (!r.isSuccessful) throw Failure(errorFor(r.code, body))
                 JSONObject(body).optString("link").ifEmpty { throw Failure("OpenSubtitles did not return a download link.") }
             }
-            val ext = hit.fileName.substringAfterLast('.', "srt").lowercase().takeIf { it in setOf("srt", "vtt", "ass", "ssa") } ?: "srt"
-            dir.mkdirs()
-            val out = File(dir, "os_${hit.fileId}.$ext")
-            http.newCall(Request.Builder().url(link).header("User-Agent", UA).build()).execute().use { r ->
+            val ext = hit.fileName.substringAfterLast('.', "srt").lowercase().takeIf { it in Subtitles.EXTS } ?: "srt"
+            val bytes = http.newCall(Request.Builder().url(link).header("User-Agent", UA).build()).execute().use { r ->
                 if (!r.isSuccessful) throw Failure("Subtitle download failed (${r.code}).")
-                out.writeBytes(r.body?.bytes() ?: ByteArray(0))
+                r.body?.bytes() ?: ByteArray(0)
             }
-            if (out.length() == 0L) throw Failure("The subtitle file was empty.")
-            dir.listFiles()?.filter { it.name.startsWith("os_") }?.sortedByDescending { it.lastModified() }?.drop(20)?.forEach { it.delete() }
-            out
-        } catch (e: Failure) { throw e } catch (e: Exception) { throw Failure("Subtitle download failed (${e.message ?: "network error"})") }
+            if (bytes.isEmpty()) throw Failure("The subtitle file was empty.")
+            bytes to ext
+        } catch (e: Failure) { throw e } catch (e: Quota) { throw e } catch (e: Exception) { throw Failure("Subtitle download failed") }
     }
 
     fun mimeFor(f: File): String = when (f.extension.lowercase()) {

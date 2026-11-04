@@ -309,6 +309,37 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
         sub?.let { repo.store.subLang = it }
         if (seriesKey.isNotEmpty()) repo.store.seriesTracks = TrackPrefs.write(repo.store.seriesTracks, seriesKey, audio, sub)
     }
+    val subCache = remember { Subtitles.Cache(java.io.File(ctx.filesDir, "subs")) }
+    /** Adds a downloaded / saved subtitle file to the current item, keeping the position. */
+    fun attachSub(f: java.io.File, l: String, source: String, select: Boolean) {
+        val base = exo.currentMediaItem ?: return
+        val sc = MediaItem.SubtitleConfiguration.Builder(android.net.Uri.fromFile(f))
+            .setMimeType(OpenSubs.mimeFor(f)).setLanguage(l)
+            .setLabel("${OpenSubs.langName(l)} ($source)")
+            .setSelectionFlags(if (select) C.SELECTION_FLAG_DEFAULT else 0).build()
+        val at = exo.currentPosition
+        if (select) exo.trackSelectionParameters = trackParams().clearOverridesOfType(C.TRACK_TYPE_TEXT)
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false).setPreferredTextLanguage(l).build()
+        exo.setMediaItem(base.buildUpon().setSubtitleConfigurations(listOf(sc)).build(), at)
+        exo.prepare()
+    }
+    var autoSubFor by remember { mutableStateOf("") }
+    /** Replays / later sessions: re-attach the subtitle picked for this title from the on-device copy (no download). */
+    fun autoAttachSaved() {
+        val target = cur
+        if (target.kind != "vod" || autoSubFor == target.key) return
+        autoSubFor = target.key
+        if (exo.currentMediaItem?.localConfiguration?.subtitleConfigurations?.isNotEmpty() == true) return
+        scope.launch {
+            val q0 = runCatching { subtitleQuery(repo, target, "") }.getOrNull() ?: return@launch
+            val (l, f) = withContext(Dispatchers.IO) {
+                val l = subCache.choice(q0)
+                l to l.takeIf { it.isNotEmpty() }?.let { subCache.get(q0.copy(lang = it)) }
+            }
+            if (f == null || cur.key != target.key) return@launch
+            attachSub(f, l, "saved", select = repo.store.subLang != "off")
+        }
+    }
     fun seekBy(ms: Long, quiet: Boolean = false) {
         if (live) return
         val d = exo.duration
@@ -461,6 +492,7 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
             override fun onPlayWhenReadyChanged(p: Boolean, reason: Int) { playWhenReady = p }
             override fun onPlaybackStateChanged(state: Int) {
                 buffering = state == Player.STATE_BUFFERING
+                if (state == Player.STATE_READY) autoAttachSaved()
                 if (state == Player.STATE_ENDED && cur.kind == "vod") {
                     val ended = cur
                     val n = nextEp
@@ -920,7 +952,7 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
                             dialog = null
                         }
                     } + listOfNotNull(
-                        (if (live) null else "⬇  Download subtitles (OpenSubtitles)…" to { dialog = "subdl" }),
+                        (if (live) null else "⬇  Download subtitles…" to { dialog = "subdl" }),
                         "    Text size: ${subSize.replaceFirstChar { it.uppercase() }}" to {
                             subSize = TrackPrefs.SIZES[(TrackPrefs.SIZES.indexOf(subSize) + 1) % TrackPrefs.SIZES.size]
                             repo.store.subSize = subSize
@@ -938,20 +970,12 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
                             scope.launch {
                                 try {
                                     val q = subtitleQuery(repo, target, l)
-                                    val f = OpenSubs.fetch(repo.store.osKey, q, java.io.File(ctx.cacheDir, "subs"))
+                                    val got = Subtitles.fetch(repo.store, subCache, q) { m -> flash = m; flashTick++ }
+                                    subCache.remember(q, l)
                                     if (cur.key != target.key) return@launch
-                                    val base = exo.currentMediaItem ?: return@launch
-                                    val sc = MediaItem.SubtitleConfiguration.Builder(android.net.Uri.fromFile(f))
-                                        .setMimeType(OpenSubs.mimeFor(f)).setLanguage(l)
-                                        .setLabel("${OpenSubs.langName(l)} (OpenSubtitles)")
-                                        .setSelectionFlags(C.SELECTION_FLAG_DEFAULT).build()
-                                    val at = exo.currentPosition
-                                    exo.trackSelectionParameters = trackParams().clearOverridesOfType(C.TRACK_TYPE_TEXT)
-                                        .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false).setPreferredTextLanguage(l).build()
-                                    exo.setMediaItem(base.buildUpon().setSubtitleConfigurations(listOf(sc)).build(), at)
-                                    exo.prepare()
+                                    attachSub(got.file, l, got.source, select = true)
                                     rememberTracks(null, l)
-                                    toast(ctx, "${OpenSubs.langName(l)} subtitles added")
+                                    flash = "${OpenSubs.langName(l)} subtitles added" + if (got.cached) " (saved copy)" else " (${got.source})"; flashTick++
                                 } catch (e: CancellationException) { throw e } catch (e: Exception) {
                                     toast(ctx, e.message ?: "Could not download subtitles")
                                 }
