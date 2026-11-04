@@ -15,6 +15,32 @@ previous/next channel or episode, audio track, subtitles, Fit / Fill / Zoom, fav
 Controls hide after 5 seconds. If a stream fails you get the reason on screen with Retry / Next / Back.
 The next episode plays automatically.
 
+## 1.54: sub-categories, view states, hide whole groups, compact menus
+
+**Live TV**
+- **View states:** Only active (the default), Only hidden, or All channels (hidden ones dimmed with a Hidden tag).
+  - Pick one from the Menu popup: Menu on a channel, Menu on the left nav, or ⋮ on a phone.
+  - Select channels… moved into the same menu.
+- **Left nav:** now only Search, Mode, Languages and the category tree. All channels and Select are no longer there.
+- **Sub-categories by topic:** every type gets them (never by language; that stays a separate filter):
+  - Sports: Cricket, Tennis, Football, American Football, Basketball, Baseball, Hockey, Golf, Horse Racing, Motorsport, Combat, Rugby, Athletics & More
+  - News: Local News, National, International, Business, Weather, Politics
+  - Movies: Premium, Action, Comedy & Romance, Horror, Classic, Family, Indie & World
+  - Entertainment: Networks, Drama & Series, Comedy, Reality, Talk & Game shows, Shopping
+  - Kids: Preschool, Cartoons, Education, Teens & Family
+  - Music: Pop & Hits, Film & Folk songs, Hip Hop & R&B, Rock, Dance, Country, Classical & Jazz, Radio
+  - Documentary & Lifestyle: Nature, History, Science & Tech, Crime, Cooking & Food, Travel, Home & Fashion
+  - Religious: Christian, Islamic, Hindu, Sikh, Jain & Buddhist
+  - Everything else: Other
+- **Sports regions:** Sports also lists regions (Australia, New Zealand, Caribbean, UK & Ireland, USA, Canada, India, Pakistan, …), so unwanted regional sports channels can be hidden in one go.
+- **Category tree:** the left nav is an expandable tree with counts. Sub-categories larger than 60 channels are split into sections by region or portal category.
+- **Hide whole groups:** hold OK (or long-press) on a category, sub-category or region to hide it. A bar with Undo appears for 5 seconds. Hidden groups show dimmed in Only hidden / All channels, and holding again shows them. They are also listed in Settings > Hidden and sync like hidden channels.
+- **Top menu:** the Home / Movies / Series / Live TV tabs now show on Live TV (TV). Up from the list reaches them, and Back in the list goes to them first, so Back no longer leaves Live TV.
+
+**Menus and panels**
+- **Compact menus:** small rounded see-through cards on the right with tight rows and small text. Move to top was removed from the channel menu.
+- **Live player side panels:** the channels (Left) and schedule (Right) panels are narrower rounded see-through cards with tighter rows and smaller text.
+
 ## 1.53: clean live player, faster guide, simpler Settings
 
 **Live TV player**

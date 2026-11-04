@@ -10,14 +10,14 @@ package tv.tvstreamer
  * the hidden ones was not in it, so focus fell to the first channel). And the restore always re-scrolled to put the
  * playing channel 2 rows from the top, even when it was already on screen, so the list jumped.
  */
-data class LiveView(val browseAll: Boolean = false, val index: Int = 0, val offset: Int = 0, val focus: String = "") {
-    fun encode(): String = listOf(if (browseAll) "1" else "0", index, offset, focus).joinToString("|")
+data class LiveView(val view: LiveModes.View = LiveModes.View.ACTIVE, val index: Int = 0, val offset: Int = 0, val focus: String = "") {
+    fun encode(): String = listOf(when (view) { LiveModes.View.ACTIVE -> "0"; LiveModes.View.ALL -> "1"; LiveModes.View.HIDDEN -> "2" }, index, offset, focus).joinToString("|")
 
     companion object {
         fun decode(s: String?): LiveView {
             val p = s.orEmpty().split("|", limit = 4)
             if (p.size < 3) return LiveView()
-            return LiveView(p[0] == "1", p[1].toIntOrNull()?.coerceAtLeast(0) ?: 0, p[2].toIntOrNull()?.coerceAtLeast(0) ?: 0, p.getOrElse(3) { "" })
+            return LiveView(when (p[0]) { "1" -> LiveModes.View.ALL; "2" -> LiveModes.View.HIDDEN; else -> LiveModes.View.ACTIVE }, p[1].toIntOrNull()?.coerceAtLeast(0) ?: 0, p[2].toIntOrNull()?.coerceAtLeast(0) ?: 0, p.getOrElse(3) { "" })
         }
 
         /**

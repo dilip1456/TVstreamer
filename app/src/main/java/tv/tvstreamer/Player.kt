@@ -3,6 +3,8 @@
 
 package tv.tvstreamer
 
+import androidx.compose.foundation.border
+
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
@@ -991,16 +993,20 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
 fun ChoiceDialog(title: String, opts: List<Pair<String, () -> Unit>>, focusKey: Any? = title, onClose: () -> Unit) {
     val first = remember { FocusRequester() }
     LaunchedEffect(focusKey, opts.size) { delay(60); runCatching { first.requestFocus() } }
-    PopupFrame(onClose) {
+    // Compact, see-through card on the right (1.54): small text, tight rows, the page stays visible behind it
+    PopupFrame(onClose, alignment = Alignment.CenterEnd, scrim = Color(0x40000000)) {
         Column(
-            Modifier.widthIn(min = 300.dp, max = 480.dp).heightIn(max = 460.dp)
-                .background(Pal.Surface.copy(alpha = 0.98f), RoundedCornerShape(18.dp))
-                .padding(horizontal = 22.dp, vertical = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            Modifier.padding(end = 40.dp).widthIn(min = 240.dp, max = 330.dp).heightIn(max = 420.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(Pal.Surface.copy(alpha = 0.86f))
+                .border(1.dp, Color(0x1FFFFFFF), RoundedCornerShape(16.dp))
+                .padding(horizontal = 10.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
-            Text(title, color = Pal.Text, fontSize = 20.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Spacer(Modifier.height(6.dp))
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(title, color = Pal.Dim, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp))
+            Spacer(Modifier.height(4.dp))
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(1.dp)) {
                 itemsIndexed(opts) { i, (label, action) ->
                     MenuEntry(label, action, if (i == 0) Modifier.focusRequester(first) else Modifier)
                 }
@@ -1020,12 +1026,12 @@ fun MenuEntry(label: String, onClick: () -> Unit, modifier: Modifier = Modifier,
     val bg by androidx.compose.animation.animateColorAsState(if (f) Pal.Gold else Color.Transparent, Motion.colorSpec(), label = "menuBg")
     Box(
         modifier.fillMaxWidth().popupOpener().onFocusChanged { f = it.isFocused }
-            .clip(RoundedCornerShape(50))
+            .clip(RoundedCornerShape(10.dp))
             .background(bg)
             .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 11.dp)
+            .padding(horizontal = 12.dp, vertical = 7.dp)
     ) {
-        Text(label, color = when { f -> Color.Black; dim -> Pal.Dim; else -> Pal.Text }, fontSize = 16.sp,
+        Text(label, color = when { f -> Color.Black; dim -> Pal.Dim; else -> Pal.Text }, fontSize = 14.sp,
             fontWeight = if (f) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }

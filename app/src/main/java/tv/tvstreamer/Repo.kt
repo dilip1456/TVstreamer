@@ -462,6 +462,8 @@ class Repo(private val ctx: Context) {
         if (f != folders) applyFolders(f)
         if (h != hidden) { hidden = h; store.hidden = h }
     }
+    /** Hold on a left-nav category / sub-category / region: hide it, or show it again (synced like channel hides). */
+    fun toggleGroup(key: String) { hidden = if (key in hidden) hidden - key else hidden + key; store.hidden = hidden }
     fun toTopOfMode(ch: Item) { val m = mode(); if (m != LiveModes.DEFAULT) applyFolders(LiveModes.toTop(ch, m, folders)) }
 
     /** Live TV languages: null = all; else only these are listed (synced with the other language choices). */

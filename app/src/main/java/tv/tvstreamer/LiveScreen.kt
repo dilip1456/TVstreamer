@@ -45,12 +45,13 @@ import kotlinx.coroutines.launch
  *  - Guide: now / next loaded only for the rows on screen. Back from the player lands on the channel that played.
  */
 @Composable
-fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, onSearch: () -> Unit = {}) {
+fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {}, onSearch: () -> Unit = {}) {
     val tv = rememberIsTv()
     val wide = LocalContext.current.resources.configuration.smallestScreenWidthDp >= 600
     val rail = tv || wide
     // Kept in Repo (and saved): Back from the player must bring back the same list (1.53)
-    var browseAll by remember { mutableStateOf(repo.liveView.browseAll) }
+    var view by remember { mutableStateOf(repo.liveView.view) }
+    val browseAll = view.showsHidden
     var popup by remember { mutableStateOf<String?>(null) }    // modes | langs | sections
     var menuCh by remember { mutableStateOf<Item?>(null) }
 
@@ -65,9 +66,10 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, onSearch: () -> Unit = {})
     val base = remember(repo.channels, catIds, unlocked) { repo.channels.filter { it.cat in catIds && (!it.locked || unlocked) } }
     val mode = repo.mode()
     val langs = repo.liveLangs
-    val rows = remember(base, mode, repo.folders, repo.hidden, browseAll, langs, info) {
-        LiveModes.rows(base, mode, repo.folders, repo.hidden, browseAll, langs, info)
+    val rows = remember(base, mode, repo.folders, repo.hidden, view, langs, info, catTitle) {
+        LiveModes.rows(base, mode, repo.folders, repo.hidden, view, langs, info, catTitle)
     }
+    val tree = remember(rows, repo.hidden, view) { LiveModes.tree(rows, repo.hidden, view) }
     val sections = remember(rows, info, catTitle, catOrder, mode) {
         LiveModes.sections(rows, info, catTitle, catOrder, if (mode != LiveModes.DEFAULT) repo.folders.items(mode).map { it.key } else null)
     }
@@ -88,8 +90,8 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, onSearch: () -> Unit = {})
         repo.listStates.getOrPut("live152") { repo.liveView.let { androidx.compose.foundation.lazy.LazyListState(it.index, it.offset) } }
     }
     var focusKey by remember { mutableStateOf(repo.liveView.focus) }
-    fun saveView() = repo.saveLiveView(LiveView(browseAll, state.firstVisibleItemIndex, state.firstVisibleItemScrollOffset, focusKey))
-    LaunchedEffect(browseAll) { saveView() }
+    fun saveView() = repo.saveLiveView(LiveView(view, state.firstVisibleItemIndex, state.firstVisibleItemScrollOffset, focusKey))
+    LaunchedEffect(view) { saveView() }
     LaunchedEffect(state) {
         snapshotFlow { state.firstVisibleItemIndex to state.firstVisibleItemScrollOffset }
             .collect { delay(400); saveView() }   // collect is sequential: at most one save per 400 ms while scrolling
@@ -158,6 +160,26 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, onSearch: () -> Unit = {})
         pendingPlay?.cancel()
         pendingPlay = scope.launch { delay(DoublePress.WINDOW_MS); pendingPlay = null; playAt(ch) }
     }
+    // Hold on a left-nav group hides it (or shows it again); the bar at the bottom offers Undo for a few seconds
+    var undo by remember { mutableStateOf<Pair<String, Boolean>?>(null) }   // group key, hidden now
+    val undoFr = remember { FocusRequester() }
+    LaunchedEffect(undo) { if (undo != null) { delay(120); if (tv) runCatching { undoFr.requestFocus() }; delay(5000); undo = null } }
+    fun holdGroup(n: LiveModes.Node) { repo.toggleGroup(n.key); undo = n.key to (n.key in repo.hidden) }
+    var expanded by remember { mutableStateOf("") }
+    fun jumpNode(n: LiveModes.Node) {
+        val sec = sections.firstOrNull { sc -> sc.type == n.type && when {
+            n.region -> sc.rows.any { it.region == n.label }
+            n.key == Taxonomy.typeKey(n.type) -> true
+            else -> sc.label == n.label || sc.label.startsWith(n.label + " · ")
+        } } ?: return
+        var at = layout.first[sec.key] ?: return
+        if (n.region) at += 1 + sec.rows.indexOfFirst { it.region == n.label }.coerceAtLeast(0)
+        scope.launch { runCatching { state.animateScrollToItem(at) } }
+    }
+    // Live TV options (Menu on the left nav / ⋮ on phone): view state, Select, languages
+    fun viewOpts(close: () -> Unit): List<Pair<String, () -> Unit>> = LiveModes.View.values().map { v ->
+        ((if (v == view) "✓  " else "     ") + v.label) to { view = v; close() }
+    } + listOf("Select channels…" to { sel = emptySet(); close() })
     fun jumpTo(type: String) { layout.second[type]?.let { scope.launch { runCatching { state.animateScrollToItem(it) } } } }
 
     @Composable
@@ -171,7 +193,8 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, onSearch: () -> Unit = {})
             when {
                 repo.channels.isEmpty() -> Label(repo.status.ifEmpty { "No channels loaded yet" }, 16, Pal.Dim, maxLines = 3)
                 sections.isEmpty() -> Label(when {
-                    mode != LiveModes.DEFAULT && !browseAll -> "\"$mode\" has no channels yet. Open All channels and hold OK on a channel to add it."
+                    view == LiveModes.View.HIDDEN -> "Nothing hidden."
+                    mode != LiveModes.DEFAULT && !browseAll -> "\"$mode\" has no channels yet. Menu > All channels, then hold OK on a channel to add it."
                     langs != null -> "No channels in the selected languages."
                     else -> "No channels to show."
                 }, 16, Pal.Dim, maxLines = 3)
@@ -206,17 +229,40 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, onSearch: () -> Unit = {})
                     onHide = { bulk(false) }, onShow = { bulk(true) },
                     onAll = { sel = LiveSelect.selectAll(cur, secKeys) }, onCancel = { sel = null })
             }
+            undo?.let { (k, nowHidden) ->
+                Row(Modifier.fillMaxWidth().padding(top = 6.dp).clip(RoundedCornerShape(16.dp)).background(Pal.Surface.copy(alpha = 0.94f))
+                    .padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Label((if (nowHidden) "Hidden " else "Showing ") + Taxonomy.label(k), 14, Pal.Text, Modifier.weight(1f))
+                    PillButton("Undo", { repo.toggleGroup(k); undo = null }, Modifier.focusRequester(undoFr), size = 13)
+                }
+            }
         }
     }
 
-    if (rail) {
-        Row(Modifier.fillMaxSize()) {
+    // TV: the same top menu as Home / Movies / Series, so Up from the list reaches it. Back in the list goes to it first.
+    val liveTabFr = remember { FocusRequester() }
+    var headerFocused by remember { mutableStateOf(false) }
+    val header = tv && !AppUi.phoneNav
+    BackHandler(header && !headerFocused && sel == null && undo == null && !Popups.any) { runCatching { liveTabFr.requestFocus() } }
+    if (rail) Column(Modifier.fillMaxSize()) {
+        if (header) Row(
+            Modifier.fillMaxWidth().padding(start = 48.dp, end = 48.dp, top = 14.dp, bottom = 2.dp).onFocusChanged { headerFocused = it.hasFocus },
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally)
+        ) {
+            NavTab("🔍", onSearch)
+            NavTab("Home", { go(Screen.Home) })
+            NavTab("Movies", { go(Screen.MoviesTab) })
+            NavTab("Series", { go(Screen.SeriesTab) })
+            NavTab("Live TV", {}, Modifier.focusRequester(liveTabFr), selected = true)
+            NavTab("Categories", { go(Screen.Categories) })
+        }
+        Row(Modifier.fillMaxWidth().weight(1f)) {
             val w by animateDpAsState(if (navOpen) 264.dp else 76.dp, tween(180), label = "nav")
             Column(
                 Modifier.width(w).fillMaxHeight().background(if (navOpen) Pal.Surface.copy(alpha = 0.96f) else Color.Transparent)
                     .onFocusChanged { navOpen = it.hasFocus }
                     .onPreviewKeyEvent { e ->
-                        if (e.type == KeyEventType.KeyUp && e.key == Key.Menu) { popup = "langs"; true } else false
+                        if (e.type == KeyEventType.KeyUp && e.key == Key.Menu) { popup = "more"; true } else false
                     }
                     .padding(vertical = 18.dp, horizontal = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp)
@@ -224,18 +270,21 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, onSearch: () -> Unit = {})
                 val toList = Modifier
                 NavEntry("🔍", "Search", navOpen, toList, onClick = onSearch)
                 NavEntry("◉", if (mode == LiveModes.DEFAULT) "Mode: Default" else "Mode: $mode", navOpen, toList, onClick = { popup = "modes" })
-                NavEntry(if (browseAll) "◎" else "◌", if (browseAll) "All channels (on)" else "All channels", navOpen, toList, selected = browseAll,
-                    onClick = { browseAll = !browseAll })
-                NavEntry("☑", if (sel == null) "Select" else "Selecting (${sel?.size ?: 0})", navOpen, toList, selected = sel != null,
-                    onClick = { sel = if (sel == null) emptySet() else null; if (sel != null) scope.launch { delay(120); runCatching { (if (repo.nowPlaying.isNotEmpty()) playingFr else firstFr).requestFocus() } } })
                 NavEntry("🌐", if (langs == null) "Languages: all" else "Languages: ${langs.size}", navOpen, toList, onClick = { popup = "langs" })
                 Spacer(Modifier.height(10.dp))
                 // A plain column (all entries composed) so Left from any channel always finds its section entry
                 Column(Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState()), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    types.forEach { t ->
-                        val n = sections.filter { it.type == t }.sumOf { it.rows.size }
-                        NavEntry(LiveGroups.icon(t), t, navOpen, Modifier.focusRequester(navReq("t:$t")).then(toList),
-                            count = n, onFocus = { jumpTo(t) }, onClick = { jumpTo(t) })
+                    // Tree: type -> sub-categories (and Sports regions) with counts. Focus opens a type; hold OK hides.
+                    tree.forEach { n ->
+                        val open = expanded == n.type
+                        NavEntry(LiveGroups.icon(n.type), n.label, navOpen, Modifier.focusRequester(navReq("t:${n.type}")).then(toList),
+                            count = n.count, dim = n.hidden, arrow = if (n.children.isEmpty()) "" else if (open) "▾" else "▸",
+                            onFocus = { expanded = n.type; jumpNode(n) }, onLongClick = { holdGroup(n) }, onClick = { expanded = if (open) "" else n.type; jumpNode(n) })
+                        if (open && navOpen) n.children.forEachIndexed { ci, c ->
+                            if (c.region && (ci == 0 || !n.children[ci - 1].region)) Label("Regions", 11, Pal.Dim, Modifier.padding(start = 44.dp, top = 6.dp))
+                            NavEntry(if (c.region) "◦" else "·", c.label, navOpen, Modifier.padding(start = 22.dp), count = c.count, dim = c.hidden, small = true,
+                                onFocus = { jumpNode(c) }, onLongClick = { holdGroup(c) }, onClick = { jumpNode(c) })
+                        }
                     }
                 }
             }
@@ -246,7 +295,7 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, onSearch: () -> Unit = {})
                         if (mode == LiveModes.DEFAULT) null else mode,
                         "$modeCount channels",
                         langs?.sorted()?.joinToString(", ")?.let { if (it.length > 40) "${langs.size} languages" else it },
-                        if (browseAll) "showing hidden" else null
+                        if (view != LiveModes.View.ACTIVE) view.label.lowercase() else null
                     ).joinToString("  ·  "), 14, Pal.Dim, Modifier.padding(bottom = 4.dp))
                 }
                 ListPane(Modifier.weight(1f))
@@ -271,14 +320,12 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, onSearch: () -> Unit = {})
             layout.first[s.key]?.let { scope.launch { runCatching { state.scrollToItem(it) } } }; popup = null
         } }, focusKey = "sections", onClose = { popup = null })
         "more" -> ChoiceDialog("Live TV", listOf(
-            "Languages…" to { popup = "langs" },
-            "Select channels…" to { sel = emptySet(); popup = null },
-            (if (browseAll) "Hide hidden channels" else "Show all channels (incl. hidden)") to { browseAll = !browseAll; popup = null },
+            "Languages…" to { popup = "langs" }) + viewOpts { popup = null } + listOf(
             "Search" to { popup = null; onSearch() }
         ), focusKey = "more", onClose = { popup = null })
     }
     menuCh?.let { ch ->
-        ChannelMenu(repo, repo.named(ch), null, listOf("Languages…" to { menuCh = null; popup = "langs" }), null,
+        ChannelMenu(repo, repo.named(ch), null, viewOpts { menuCh = null } + listOf("Languages…" to { menuCh = null; popup = "langs" }), null,
             onPlay = { playAt(ch) }) { menuCh = null }
     }
 }
@@ -298,21 +345,26 @@ private fun SectionHeader(s: LiveModes.Section) {
 /** Left menu entry: icon always, label when the menu is open; focus = soft highlight. */
 @Composable
 private fun NavEntry(icon: String, label: String, open: Boolean, modifier: Modifier = Modifier, selected: Boolean = false, count: Int = -1,
-                     onFocus: (() -> Unit)? = null, onClick: () -> Unit) {
+                     dim: Boolean = false, arrow: String = "", small: Boolean = false,
+                     onFocus: (() -> Unit)? = null, onLongClick: (() -> Unit)? = null, onClick: () -> Unit) {
     var f by remember { mutableStateOf(false) }
+    val bg by androidx.compose.animation.animateColorAsState(when { f -> Pal.Gold; selected -> Pal.ChipSel; else -> Color.Transparent }, tween(160), label = "nav")
     Row(
         modifier.fillMaxWidth().popupOpener()
             .onFocusChanged { if (it.isFocused != f) { f = it.isFocused; if (f) onFocus?.invoke() } }
             .clip(RoundedCornerShape(12.dp))
-            .background(when { f -> Pal.Gold; selected -> Pal.ChipSel; else -> Color.Transparent })
-            .combinedClickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 11.dp),
+            .background(bg)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .padding(horizontal = 14.dp, vertical = if (small) 7.dp else 11.dp)
+            .alpha(if (dim && !f) 0.45f else 1f),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Label(icon, 18, if (f) Color.Black else Pal.Text)
+        Label(icon, if (small) 13 else 18, if (f) Color.Black else Pal.Text)
         if (open) {
-            Label(label, 15, if (f) Color.Black else Pal.Text, Modifier.weight(1f))
+            Label(label, if (small) 13 else 15, if (f) Color.Black else Pal.Text, Modifier.weight(1f))
+            if (dim) Label("Hidden", 10, if (f) Color.Black else Pal.Dim)
             if (count >= 0) Label("$count", 12, if (f) Color.Black else Pal.Dim)
+            if (arrow.isNotEmpty()) Label(arrow, 12, if (f) Color.Black else Pal.Dim)
         }
     }
 }

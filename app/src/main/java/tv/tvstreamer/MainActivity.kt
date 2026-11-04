@@ -269,7 +269,7 @@ fun App(repo: Repo) {
                     Screen.Home -> Catalog(repo, "home", go, open, play, tick)
                     Screen.MoviesTab -> Catalog(repo, "movies", go, open, play, tick)
                     Screen.SeriesTab -> Catalog(repo, "series", go, open, play, tick)
-                    Screen.Live -> Live(repo, play) { search.open = true }
+                    Screen.Live -> Live(repo, play, go) { search.open = true }
                     Screen.Search -> Catalog(repo, "home", go, open, play, tick)
                     Screen.Settings -> SettingsScreen(repo, go)
                     Screen.Categories -> CategoriesScreen(repo, go)

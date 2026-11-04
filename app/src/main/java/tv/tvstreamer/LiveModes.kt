@@ -12,7 +12,15 @@ object LiveModes {
     const val DEFAULT = ""
 
     /** One list row: the channel and whether it is enabled (shown) in the current mode. */
-    data class Row(val ch: Item, val on: Boolean)
+    data class Row(val ch: Item, val on: Boolean, val type: String = "", val sub: String = "", val region: String = "")
+
+    /** What the list shows: only active channels (default), only hidden ones, or all (hidden ones dimmed). */
+    enum class View(val label: String) {
+        ACTIVE("Only active"), HIDDEN("Only hidden"), ALL("All channels");
+        fun next(): View = values()[(ordinal + 1) % values().size]
+        fun shows(on: Boolean): Boolean = when (this) { ACTIVE -> on; HIDDEN -> !on; ALL -> true }
+        val showsHidden get() = this != ACTIVE
+    }
 
     /** A list section: its nav type (News, Sports, …), header label ("Local News", "Entertainment") and rows. */
     data class Section(val type: String, val label: String, val rows: List<Row>, val local: Boolean = false) {
@@ -32,12 +40,57 @@ object LiveModes {
 
     /** The rows to list: enabled channels (or all with [browseAll]) of the selected languages. */
     fun rows(chans: List<Item>, mode: String, folders: FolderSet, hidden: Set<String>, browseAll: Boolean,
-             langs: Set<String>?, info: Map<String, ChInfo>): List<Row> {
+             langs: Set<String>?, info: Map<String, ChInfo>): List<Row> =
+        rows(chans, mode, folders, hidden, if (browseAll) View.ALL else View.ACTIVE, langs, info, emptyMap())
+
+    /**
+     * Rows for a [view] of the selected languages, each with its type, sub-category and (Sports) region. A channel is
+     * on when it is enabled in the mode and none of its groups (type, sub-category, region) is hidden.
+     */
+    fun rows(chans: List<Item>, mode: String, folders: FolderSet, hidden: Set<String>, view: View,
+             langs: Set<String>?, info: Map<String, ChInfo>, catTitle: Map<String, String>): List<Row> {
         val inMode = if (mode != DEFAULT && mode in folders.folders) folders.items(mode).map { it.key }.toSet() else null
+        val localOf = HashMap<String, Boolean>()
         return chans.asSequence().filter { langOk(it, langs, info) }.map { c ->
-            Row(c, if (inMode != null) c.key in inMode else "ch:${c.key}" !in hidden)
-        }.filter { browseAll || it.on }.toList()
+            val title = catTitle[c.cat].orEmpty()
+            val local = localOf.getOrPut(c.cat) { LiveKind.isLocalNews(title) }
+            val type = if (local) LiveKind.NEWS else info[c.key]?.type ?: LiveKind.OTHER
+            val sub = Taxonomy.sub(type, title, c.name)
+            val region = if (type == LiveKind.SPORTS) Taxonomy.region(title, c.name) else ""
+            val chOn = if (inMode != null) c.key in inMode else "ch:${c.key}" !in hidden
+            Row(c, chOn && !Taxonomy.groupHidden(type, sub, region, hidden), type, sub, region)
+        }.filter { view.shows(it.on) }.toList()
     }
+
+    /** A left-nav tree node: a type, or one of its sub-categories / regions, with its channel count. */
+    data class Node(val key: String, val type: String, val label: String, val count: Int, val hidden: Boolean,
+                    val children: List<Node> = emptyList(), val region: Boolean = false)
+
+    /**
+     * Left-nav tree: types in [LiveKind.ORDER] with their sub-categories (rule order, "Other" last) and, for Sports, the
+     * regions. Hidden groups are only listed when the view shows hidden channels.
+     */
+    fun tree(rows: List<Row>, hidden: Set<String>, view: View): List<Node> {
+        val rank = LiveKind.ORDER.withIndex().associate { it.value to it.index }
+        return rows.filter { it.type.isNotEmpty() }.groupBy { it.type }.entries.sortedBy { rank[it.key] ?: 99 }.mapNotNull { (type, rs) ->
+            val tHidden = Taxonomy.typeKey(type) in hidden
+            if (tHidden && !view.showsHidden) return@mapNotNull null
+            val order = Taxonomy.RULES[type].orEmpty().map { it.first }.withIndex().associate { it.value to it.index }
+            val subs = rs.groupBy { it.sub }.entries.sortedBy { order[it.key] ?: 999 }.mapNotNull { (sub, l) ->
+                val h = Taxonomy.subKey(type, sub) in hidden
+                if (h && !view.showsHidden) null else Node(Taxonomy.subKey(type, sub), type, sub, l.size, h || tHidden)
+            }
+            val regions = if (type != LiveKind.SPORTS) emptyList() else rs.filter { it.region.isNotEmpty() }.groupBy { it.region }.entries
+                .sortedByDescending { it.value.size }.mapNotNull { (r, l) ->
+                    val h = Taxonomy.regionKey(type, r) in hidden
+                    if (h && !view.showsHidden) null else Node(Taxonomy.regionKey(type, r), type, r, l.size, h || tHidden, region = true)
+                }
+            Node(Taxonomy.typeKey(type), type, type, rs.size, tHidden, if (subs.size > 1 || regions.isNotEmpty()) subs + regions else emptyList())
+        }
+    }
+
+    /** A sub-category larger than this is split into sections by portal category. */
+    const val SPLIT_AT = 60
 
     /**
      * Rows grouped by portal type and category only (never by name letters): types in [LiveKind.ORDER], categories in
@@ -49,6 +102,7 @@ object LiveModes {
         val modePos = modeOrder?.withIndex()?.associate { it.value to it.index }
         val groups = LinkedHashMap<Pair<String, String>, MutableList<Row>>()
         val localOf = HashMap<String, Boolean>()
+        if (rows.isNotEmpty() && rows.all { it.sub.isNotEmpty() }) return subSections(rows, catTitle, catPos, modePos)
         for (r in rows) {
             val title = catTitle[r.ch.cat].orEmpty()
             val local = localOf.getOrPut(r.ch.cat) { LiveKind.isLocalNews(title) }
@@ -70,6 +124,25 @@ object LiveModes {
             val sorted = if (modePos != null) v.first.sortedBy { modePos[it.ch.key] ?: Int.MAX_VALUE }
             else v.first.sortedWith(compareBy({ if (it.ch.num > 0) it.ch.num else Int.MAX_VALUE }, { it.ch.name.lowercase() }))
             out += Section(k.first, k.second, sorted, v.third)
+        }
+        return out
+    }
+
+    private fun subSections(rows: List<Row>, catTitle: Map<String, String>, catPos: Map<String, Int>, modePos: Map<String, Int>?): List<Section> {
+        val typeRank = LiveKind.ORDER.withIndex().associate { it.value to it.index }
+        fun sorted(l: List<Row>) = if (modePos != null) l.sortedBy { modePos[it.ch.key] ?: Int.MAX_VALUE }
+            else l.sortedWith(compareBy({ if (it.ch.num > 0) it.ch.num else Int.MAX_VALUE }, { it.ch.name.lowercase() }))
+        val out = ArrayList<Section>()
+        for ((type, rs) in rows.groupBy { it.type }.entries.sortedBy { typeRank[it.key] ?: 99 }) {
+            val order = Taxonomy.RULES[type].orEmpty().map { it.first }.withIndex().associate { it.value to it.index }
+            for ((sub, l) in rs.groupBy { it.sub }.entries.sortedBy { order[it.key] ?: 999 }) {
+                val local = sub == "Local News"
+                if (l.size <= SPLIT_AT) { out += Section(type, sub, sorted(l), local); continue }
+                // Large: one section per region (Sports) or portal category (same label merged), in portal order
+                l.groupBy { r -> r.region.ifEmpty { catTitle[r.ch.cat].orEmpty().let { if (it.isBlank()) "" else LiveKind.sectionLabel(it) } } }.entries
+                    .sortedBy { e -> e.value.minOf { catPos[it.ch.cat] ?: Int.MAX_VALUE } }
+                    .forEach { (lab, part) -> out += Section(type, if (lab.isEmpty() || lab == sub) sub else "$sub · $lab", sorted(part), local) }
+            }
         }
         return out
     }
