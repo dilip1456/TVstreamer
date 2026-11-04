@@ -47,7 +47,8 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, onSearch: () -> Unit = {})
     val tv = rememberIsTv()
     val wide = LocalContext.current.resources.configuration.smallestScreenWidthDp >= 600
     val rail = tv || wide
-    var browseAll by remember { mutableStateOf(false) }
+    // Kept in Repo (and saved): Back from the player must bring back the same list (1.53)
+    var browseAll by remember { mutableStateOf(repo.liveView.browseAll) }
     var popup by remember { mutableStateOf<String?>(null) }    // modes | langs | sections
     var menuCh by remember { mutableStateOf<Item?>(null) }
 
@@ -81,34 +82,52 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, onSearch: () -> Unit = {})
     val allLangs = remember(base, info) { LiveModes.languages(base, info) }
     val modeCount = rows.count { it.on }
 
-    val state = remember { repo.listStates.getOrPut("live152") { androidx.compose.foundation.lazy.LazyListState() } }
+    val state = remember {
+        repo.listStates.getOrPut("live152") { repo.liveView.let { androidx.compose.foundation.lazy.LazyListState(it.index, it.offset) } }
+    }
+    var focusKey by remember { mutableStateOf(repo.liveView.focus) }
+    fun saveView() = repo.saveLiveView(LiveView(browseAll, state.firstVisibleItemIndex, state.firstVisibleItemScrollOffset, focusKey))
+    LaunchedEffect(browseAll) { saveView() }
+    LaunchedEffect(state) {
+        snapshotFlow { state.firstVisibleItemIndex to state.firstVisibleItemScrollOffset }
+            .collect { delay(400); saveView() }   // collect is sequential: at most one save per 400 ms while scrolling
+    }
+    DisposableEffect(Unit) { onDispose { saveView() } }
     val scope = rememberCoroutineScope()
     val navFr = remember { HashMap<String, FocusRequester>() }
     fun navReq(k: String) = navFr.getOrPut(k) { FocusRequester() }
     val playingFr = remember { FocusRequester() }
+    val restoreFr = remember { FocusRequester() }   // the last focused channel when nothing played yet
     val firstFr = remember { FocusRequester() }
     var navOpen by remember { mutableStateOf(false) }
 
     // Guide for the rows on screen only (debounced in EpgLoader)
     LaunchedEffect(state, flat) {
+        // Visible rows plus a few ahead (scrolling down shows the guide at once); cached ones show instantly
         snapshotFlow { state.layoutInfo.visibleItemsInfo.mapNotNull { (it.key as? String)?.substringAfter('|', "")?.takeIf { k -> k.startsWith("itv:") } } }
-            .collect { keys -> repo.epg.want(keys.map { it.removePrefix("itv:") }) }
+            .collect { keys ->
+                val pos = keys.mapNotNull { flatPos[it] }
+                val ids = Epg.ahead(pos, flat.size).mapNotNull { flat.getOrNull(it)?.id }
+                repo.epg.want(ids.ifEmpty { keys.map { it.removePrefix("itv:") } })
+            }
     }
     // Back from the player: land on the channel that was playing (else the first channel)
     var restored by remember { mutableStateOf(false) }
     LaunchedEffect(flat.isNotEmpty()) {
         if (restored || flat.isEmpty()) return@LaunchedEffect
         restored = true
-        val k = repo.nowPlaying
+        val k = repo.nowPlaying.ifEmpty { focusKey }
         val sec = sections.firstOrNull { s -> s.rows.any { it.ch.key == k } }
         if (sec != null) {
             val at = (layout.first[sec.key] ?: 0) + 1 + sec.rows.indexOfFirst { it.ch.key == k }
-            runCatching { state.scrollToItem((at - 2).coerceAtLeast(0)) }
-            delay(120); if (tv) runCatching { playingFr.requestFocus() }
+            // Keep the saved scroll position when the channel is on screen there; scroll only when it is not
+            LiveView.scrollFor(state.firstVisibleItemIndex, at)?.let { runCatching { state.scrollToItem(it) } }
+            delay(120)
+            if (tv) runCatching { (if (k == repo.nowPlaying) playingFr else restoreFr).requestFocus() }
         } else if (tv) { delay(150); runCatching { firstFr.requestFocus() } }
     }
 
-    fun playAt(ch: Item) { val i = flatPos[ch.key] ?: return; val e = repo.gate(ch.locked); if (e == null) play(flat, i) else repo.status = e }
+    fun playAt(ch: Item) { focusKey = ch.key; saveView(); val i = flatPos[ch.key] ?: return; val e = repo.gate(ch.locked); if (e == null) play(flat, i) else repo.status = e }
     fun jumpTo(type: String) { layout.second[type]?.let { scope.launch { runCatching { state.animateScrollToItem(it) } } } }
 
     @Composable
@@ -135,7 +154,9 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, onSearch: () -> Unit = {})
                             val first = si == 0 && r === s.rows.first()
                             ChannelRow(repo, ch, r.on, browseAll, ch.key == repo.nowPlaying, tv,
                                 Modifier
-                                    .then(if (ch.key == repo.nowPlaying) Modifier.focusRequester(playingFr) else Modifier)
+                                    .then(if (ch.key == repo.nowPlaying) Modifier.focusRequester(playingFr)
+                                        else if (ch.key == focusKey && repo.nowPlaying.isEmpty()) Modifier.focusRequester(restoreFr) else Modifier)
+                                    .onFocusChanged { if (it.isFocused) focusKey = ch.key }
                                     .then(if (first) Modifier.focusRequester(firstFr) else Modifier)
                                     .then(if (rail) Modifier.focusProperties { left = navReq("t:" + s.type) } else Modifier),
                                 onClick = { playAt(ch) },

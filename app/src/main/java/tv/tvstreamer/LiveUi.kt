@@ -86,7 +86,7 @@ fun InfoDialog(title: String, text: String, onClose: () -> Unit) {
  * (or clears) a reminder. Back closes it.
  */
 @Composable
-fun ChannelPanel(repo: Repo, list: List<Item>, playing: Int, onPlay: (Int) -> Unit, onClose: () -> Unit) {
+fun ChannelPanel(repo: Repo, list: List<Item>, playing: Int, title: String = "Channels", onPlay: (Int) -> Unit, onClose: () -> Unit) {
     val ctx = LocalContext.current
     val state = rememberLazyListState(initialFirstVisibleItemIndex = (playing - 3).coerceAtLeast(0))
     val first = remember { FocusRequester() }
@@ -100,8 +100,8 @@ fun ChannelPanel(repo: Repo, list: List<Item>, playing: Int, onPlay: (Int) -> Un
     }
     PopupFrame(onClose, alignment = Alignment.CenterStart, scrim = Color(0x66000000)) {
         Column(Modifier.fillMaxHeight().width(460.dp).background(Color(0xF00E0E14)).padding(vertical = 24.dp)) {
-            Text("Channels", color = Pal.Text, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 24.dp))
-            Text("◀ ▶ schedule  ·  OK play / remind", color = Pal.Dim, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 24.dp, vertical = 6.dp))
+            Text(title, color = Pal.Text, fontSize = 20.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 24.dp))
+            Text("▲▼ browse  ·  OK play  ·  ◀ ▶ later shows  ·  Back close", color = Pal.Dim, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 24.dp, vertical = 6.dp))
             LazyColumn(state = state, contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 itemsIndexed(list, key = { _, c -> c.key }) { i, raw ->
                     val ch = repo.named(raw)
@@ -177,7 +177,10 @@ fun ChannelMenu(repo: Repo, ch: Item, @Suppress("UNUSED_PARAMETER") folder: Stri
                 "Portal name: ${repo.portalName(ch)}",
                 "Channel id: ${ch.id}",
                 repo.liveIndex.info[ch.key]?.let { "Type: ${it.type} · Language: ${it.lang}" },
-                if (ch.locked) "Locked (password)" else null
+                if (ch.locked) "Locked (password)" else null,
+                repo.api.liveMeta[ch.id]?.let { m -> "Stream: " + (if (m.useTmp) "temporary link" else "direct link") +
+                    (if (m.cmds.size > 1) " · ${m.cmds.size} alternates" else "") },
+                LinkDiag.of(ch.key)?.let { "\nLast link attempt\n" + it.line() } ?: "\nNot played on this device yet"
             ).joinToString("\n")) { onClose() }
             return
         }
@@ -287,4 +290,106 @@ fun LanguagePicker(repo: Repo, langs: List<Pair<String, Int>>, onClose: () -> Un
             })
         }
     }, focusKey = "langs", onClose = onClose)
+}
+
+/**
+ * Live player schedule (Right): this channel's guide as a list (now with progress, next, later). OK on an upcoming show
+ * sets or clears a reminder; Back closes.
+ */
+@Composable
+fun GuidePanel(repo: Repo, ch: Item, onClose: () -> Unit) {
+    val ctx = LocalContext.current
+    val t = rememberMinute()
+    val first = remember { FocusRequester() }
+    var tick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(ch.id) { repo.epg.wantFirst(ch.id); repo.epg.wantDay(ch.id) }
+    val progs = Epg.upcoming(repo.epg.guide[ch.id]?.progs, t)
+    val loaded = repo.epg.guide[ch.id] != null
+    LaunchedEffect(progs.isNotEmpty()) { delay(80); runCatching { first.requestFocus() } }
+    PopupFrame(onClose, alignment = Alignment.CenterEnd, scrim = Color(0x66000000)) {
+        Column(Modifier.fillMaxHeight().width(480.dp).background(Color(0xF00E0E14)).padding(vertical = 24.dp)) {
+            Text(ChannelTitle.pretty(ch.name), color = Pal.Text, fontSize = 20.sp, fontWeight = FontWeight.Bold, maxLines = 1,
+                overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 24.dp))
+            Text("Schedule  ·  OK on a later show: remind me", color = Pal.Dim, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 24.dp, vertical = 6.dp))
+            if (progs.isEmpty()) {
+                Text(if (loaded) "No schedule for this channel." else "Loading the schedule…", color = Pal.Dim, fontSize = 15.sp,
+                    modifier = Modifier.padding(24.dp))
+                MenuEntry("Close", onClose, Modifier.padding(horizontal = 14.dp).focusRequester(first), dim = true)
+            } else LazyColumn(contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                itemsIndexed(progs, key = { _, p -> p.start }) { i, p ->
+                    var f by remember { mutableStateOf(false) }
+                    val on = p.isOn(t)
+                    val reminded = remember(tick, p.start) { repo.hasReminder(ch, p) }
+                    Column(
+                        Modifier.fillMaxWidth().then(if (i == 0) Modifier.focusRequester(first) else Modifier)
+                            .popupOpener()
+                            .onFocusChanged { f = it.isFocused }
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(if (f) Color(0x33FFFFFF) else Color.Transparent)
+                            .clickable {
+                                if (on) onClose() else {
+                                    val set = repo.toggleReminder(ch, p); tick++
+                                    toast(ctx, if (set) "Reminder set: ${p.title} at ${hhmm(p.start)}" else "Reminder removed")
+                                }
+                            }
+                            .padding(horizontal = 12.dp, vertical = 10.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text(if (on) "NOW" else hhmm(p.start), color = if (on) Pal.Gold else Pal.Dim, fontSize = 13.sp,
+                                fontWeight = if (on) FontWeight.Bold else FontWeight.Normal, modifier = Modifier.widthIn(min = 56.dp))
+                            Text(p.title, color = Pal.Text, fontSize = 16.sp, fontWeight = if (f || on) FontWeight.SemiBold else FontWeight.Normal,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                            if (reminded) Text("⏰", fontSize = 13.sp)
+                        }
+                        if (on) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.padding(top = 6.dp)) {
+                            Text(hhmm(p.start), color = Pal.Dim, fontSize = 11.sp)
+                            ProgressLine(p.progress(t), Modifier.weight(1f))
+                            Text(hhmm(p.stop), color = Pal.Dim, fontSize = 11.sp)
+                        }
+                        if (f && p.desc.isNotBlank()) Text(p.desc, color = Pal.Dim, fontSize = 12.sp, maxLines = 3, overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(top = 4.dp))
+                        if (f && !on) Text(if (reminded) "OK: remove reminder" else "OK: remind me", color = Pal.Gold, fontSize = 11.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Live player info bar (OK / after zapping): a slim strip along the bottom (about an eighth of the screen) on a soft
+ * gradient scrim: number and name, what is on now with a thin progress line and times, and what is next. Small text,
+ * no box over the picture. It never takes focus, so Up / Down keep zapping.
+ */
+@Composable
+fun LiveInfoBar(repo: Repo, ch: Item, pos: Int, count: Int, isTv: Boolean, modifier: Modifier = Modifier, actions: (@Composable RowScope.() -> Unit)? = null) {
+    LaunchedEffect(ch.id) { repo.epg.wantFirst(ch.id) }
+    val t = rememberMinute()
+    val entry = repo.epg.guide[ch.id]
+    val now = Epg.now(entry?.progs, t)
+    val next = Epg.next(entry?.progs, t)
+    Column(
+        modifier.fillMaxWidth()
+            .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color.Transparent, Color(0xB3000000), Color(0xE6000000))))
+            .padding(start = if (isTv) 48.dp else 14.dp, end = if (isTv) 48.dp else 14.dp, top = if (isTv) 28.dp else 18.dp, bottom = if (isTv) 18.dp else 12.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            if (ch.num > 0) Text("${ch.num}", color = Pal.Gold, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            Text(ChannelTitle.pretty(ch.name), color = Color.White, fontSize = if (isTv) 16.sp else 14.sp, fontWeight = FontWeight.SemiBold,
+                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 260.dp))
+            Text(now?.title ?: if (entry == null) "Loading guide…" else "No guide", color = if (now != null) Color.White else Pal.Dim,
+                fontSize = if (isTv) 14.sp else 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            if (next != null) Text("Next ${hhmm(next.start)}  ${next.title}", color = Pal.Dim, fontSize = 12.sp, maxLines = 1,
+                overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = if (isTv) 340.dp else 160.dp))
+            if (count > 1 && isTv) Text("${pos + 1}/$count", color = Pal.Dim, fontSize = 11.sp)
+        }
+        if (now != null) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(hhmm(now.start), color = Pal.Dim, fontSize = 11.sp)
+            ProgressLine(now.progress(t), Modifier.weight(1f))
+            Text(hhmm(now.stop), color = Pal.Dim, fontSize = 11.sp)
+        }
+        if (actions != null) Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 4.dp), content = actions)
+    }
 }

@@ -417,7 +417,9 @@ class Repo(private val ctx: Context) {
     // ---- Live TV guide, modes, languages, reminders (v1.52) ----
 
     /** Now / next, loaded only for the channels on screen (see EpgLoader). */
-    val epg = EpgLoader({ id -> api.shortEpg(id) }, { api.linkBusy.get() > 0 })
+    // Guide: cached on disk and shown at once, refreshed in the background (1.53)
+    val epg = EpgLoader({ id -> api.shortEpg(id) }, { api.linkBusy.get() > 0 },
+        fetchDay = { id -> api.dayEpg(id) }, load = { store.cacheRead("epg.json") }, save = { store.cacheWrite("epg.json", it) })
 
     /** Current Live TV mode: "" = Default (every channel not hidden), else a custom mode's name. */
     var liveMode by mutableStateOf(store.sort("live_mode", LiveModes.DEFAULT))
@@ -426,6 +428,10 @@ class Repo(private val ctx: Context) {
         liveMode = if (name in folders.folders) name else LiveModes.DEFAULT
         store.saveSort("live_mode", liveMode)
     }
+    /** Live TV list view (All channels, scroll, focused channel), kept across the player and restarts (1.53). */
+    var liveView by mutableStateOf(LiveView.decode(store.sort("live_view", "")))
+        private set
+    fun saveLiveView(v: LiveView) { if (v != liveView) { liveView = v; store.saveSort("live_view", v.encode()) } }
     /** The mode actually used ("" when the saved one was deleted, e.g. on another device). */
     fun mode(): String = liveMode.takeIf { it in folders.folders } ?: LiveModes.DEFAULT
     val modes: List<String> get() = folders.names

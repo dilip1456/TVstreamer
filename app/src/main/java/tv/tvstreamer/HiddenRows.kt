@@ -31,14 +31,14 @@ object HomeHide {
 
 /** Settings > Hidden: hidden Home rows, categories and channels, each with "Show again" (D-pad: OK). The only place to restore them. */
 @Composable
-fun HiddenRowsPanel(repo: Repo, modifier: Modifier = Modifier) {
+fun HiddenRowsPanel(repo: Repo, modifier: Modifier = Modifier, title: Boolean = true) {
     val rows = HomeHide.entries(repo.hidden)
     val cats = repo.hidden.filter { it.startsWith("vod:") }.mapNotNull { k -> repo.vodCats.find { "vod:${it.id}" == k } }
     val liveCats = repo.hidden.filter { it.startsWith("itv:") }.mapNotNull { k -> repo.liveCats.find { "itv:${it.id}" == k } }
     val channels = repo.hiddenChannelCount()
     val titles = repo.hiddenTitleCount()
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Label("Hidden", 18)
+        if (title) Label("Hidden", 18)
         if (rows.isEmpty() && cats.isEmpty() && liveCats.isEmpty() && channels == 0 && titles == 0) Label("Nothing hidden", 13, Pal.Dim)
         rows.forEach { e ->
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {

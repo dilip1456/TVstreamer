@@ -46,8 +46,10 @@ class EpgTest {
         val cache = mapOf("1" to Epg.Entry(t - 1000, listOf(Prog("x", t - 10, t + 10_000))), "2" to Epg.Entry(t - Epg.TTL_MS - 1, emptyList()))
         assertTrue(Epg.fresh(cache["1"], t))
         assertFalse(Epg.fresh(cache["2"], t))
-        assertEquals("2", Epg.pick(listOf("1", "2", "3"), cache, emptyMap(), t))
-        assertEquals("3", Epg.pick(listOf("1", "2", "3"), cache, mapOf("2" to t - 1000), t))
+        // nothing cached ("3") goes before stale ("2")
+        assertEquals("3", Epg.pick(listOf("1", "2", "3"), cache, emptyMap(), t))
+        assertEquals("2", Epg.pick(listOf("1", "2", "3"), cache, mapOf("3" to t - 1000), t))
+        assertEquals("2", Epg.pick(listOf("1", "2"), cache, emptyMap(), t))
         assertNull(Epg.pick(listOf("1"), cache, emptyMap(), t))
     }
 }

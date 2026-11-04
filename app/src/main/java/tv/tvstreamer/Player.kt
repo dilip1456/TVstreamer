@@ -175,8 +175,15 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
     var showLog by remember { mutableStateOf(false) }
     // Live streams whose address does not say HLS / TS: play the same link again as HLS, then as plain TS
     var mimeTry by remember { mutableIntStateOf(0) }
+    var zapDir by remember { mutableIntStateOf(0) }          // +1 / -1 when the channel was reached by zapping (auto-skip keeps going)
+    var skipped by remember { mutableIntStateOf(0) }         // dead channels skipped in a row
+    var formatTries by remember { mutableIntStateOf(0) }
+    var strategyTries by remember { mutableIntStateOf(0) }
     var lastUrl by remember { mutableStateOf("") }
-    var panel by remember { mutableStateOf(false) }   // TV live: channel panel with now / next and schedule
+    // Live TV (1.53): no player controls, only these overlays (see LiveOverlay): info bar, channels (Left), schedule (Right)
+    var layer by remember { mutableStateOf(LiveOverlay.Layer.NONE) }
+    var infoTick by remember { mutableIntStateOf(0) }
+    val panel = layer == LiveOverlay.Layer.CHANNELS || layer == LiveOverlay.Layer.GUIDE
     var err by remember { mutableStateOf("") }
     var resolving by remember { mutableStateOf(true) }
     var buffering by remember { mutableStateOf(false) }
@@ -186,7 +193,7 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
     var dur by remember { mutableLongStateOf(0L) }
     var buffered by remember { mutableLongStateOf(0L) }
     var tracks by remember { mutableStateOf(Tracks.EMPTY) }
-    var controls by remember { mutableStateOf(true) }
+    var controls by remember { mutableStateOf(initial.getOrNull(start)?.kind != "itv") }   // never for live channels
     var interact by remember { mutableIntStateOf(0) }
     var focusSeekBar by remember { mutableStateOf(false) }
     var dialog by remember { mutableStateOf<String?>(null) } // audio | subs | aspect | menu
@@ -234,7 +241,11 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
     }
 
     fun touch() { interact++ }
-    fun showControls(seekBar: Boolean = false) { focusSeekBar = seekBar; controls = true; touch() }
+    fun showInfo() { if (layer == LiveOverlay.Layer.NONE || layer == LiveOverlay.Layer.INFO) layer = LiveOverlay.Layer.INFO; infoTick++ }
+    fun showControls(seekBar: Boolean = false) {
+        if (live) { controls = false; showInfo(); return }   // live: the info bar instead of the player controls
+        focusSeekBar = seekBar; controls = true; touch()
+    }
     fun saveNow() {
         val i = cur
         if (i.kind == "vod" && exo.duration > 0 && exo.duration != C.TIME_UNSET) repo.store.saveResume(i, exo.currentPosition, exo.duration)
@@ -264,6 +275,7 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
     }
     fun go(n: Int) {
         if (list.size <= 1) return
+        zapDir = when (n) { idx + 1 -> 1; idx - 1 -> -1; else -> 0 }
         saveNow()
         val to = (n + list.size) % list.size
         if (to != idx) prevIdx = idx
@@ -271,6 +283,7 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
         autoRetries = 0
         linkFrom = 0
         zapTick++
+        if (list[to].kind == "itv") { controls = false; showInfo() }
         touch()
     }
     /** Play episode [n] next (inserting it after the current item when it is not in the list yet). */
@@ -359,6 +372,49 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
         }
     }
 
+    /**
+     * Live playback failed: probe the link (masked into LinkDiag), then, in order: replay as the sniffed format
+     * (following redirects, so relative playlist entries resolve), fetch a fresh link (signing in again when the
+     * server refused the session), try the next create_link way, and finally show the bottom bar (auto-skip on zap).
+     */
+    fun liveError(error: PlaybackException) {
+        val ch = cur
+        val url = lastUrl
+        val code0 = (error.cause as? HttpDataSource.InvalidResponseCodeException)?.responseCode
+        scope.launch {
+            val p = if (url.isNotEmpty()) withContext(Dispatchers.IO) { repo.api.probe(url) } else null
+            if (cur.key != ch.key) return@launch
+            val fmt = p?.takeIf { it.error.isEmpty() }?.let { LiveLink.sniff(it.contentType, it.head) }
+            val code = code0 ?: p?.http
+            val why = LiveLink.classify(code, fmt)
+            LinkDiag.update(ch.key) { it.copy(http = code, format = fmt?.name ?: p?.error.orEmpty(), result = "failed: $why · ${error.errorCodeName}") }
+            val force = LiveLink.forceFor(fmt)
+            val parse = error.cause is UnrecognizedInputFormatException ||
+                error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED ||
+                error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED
+            when {
+                force > 0 && force != mimeTry && formatTries < 2 && p != null -> {
+                    formatTries++; mimeTry = force; LinkDiag.learnFormat(ch.key, force)
+                    lastUrl = p.finalUrl
+                    exo.setMediaItem(mediaItemFor(p.finalUrl, force)); exo.prepare(); exo.playWhenReady = true
+                }
+                force == 0 && parse && mimeTry < 2 && url.isNotEmpty() && formatTries < 2 -> {
+                    formatTries++; mimeTry++
+                    exo.setMediaItem(mediaItemFor(url, mimeTry)); exo.prepare(); exo.playWhenReady = true
+                }
+                autoRetries < 2 -> {
+                    autoRetries++
+                    if (LiveLink.needsResign(code, fmt)) withContext(Dispatchers.IO) { repo.api.forceResign() }
+                    attempt++
+                }
+                strategyTries < 3 && linkUsed + 1 < repo.api.linkTries(ch) -> {
+                    strategyTries++; autoRetries = 0; linkFrom = linkUsed + 1; attempt++
+                }
+                else -> err = friendly(error) + "\n" + why
+            }
+        }
+    }
+
     // Player events -> state. Errors are shown with Retry instead of failing silently.
     DisposableEffect(Unit) {
         val l = object : Player.Listener {
@@ -366,7 +422,8 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
                 if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
                     exo.seekToDefaultPosition(); exo.prepare(); return
                 }
-                // Live: a link that played as the wrong container (no .m3u8 / .ts in the address): same link, other format
+                // Live: find out what the stream server really answered (status, type, first bytes) and pick the retry
+                if (cur.kind == "itv") { liveError(error); return }
                 val parse = error.cause is UnrecognizedInputFormatException ||
                     error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED ||
                     error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED
@@ -392,7 +449,10 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
             }
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 playing = isPlaying
-                if (isPlaying) autoRetries = 0
+                if (isPlaying) {
+                    autoRetries = 0; skipped = 0; formatTries = 0
+                    if (cur.kind == "itv") LinkDiag.update(cur.key) { it.copy(result = "playing" + (if (mimeTry > 0) " (as ${if (mimeTry == 1) "HLS" else "TS"})" else "")) }
+                }
             }
             override fun onPlayWhenReadyChanged(p: Boolean, reason: Int) { playWhenReady = p }
             override fun onPlaybackStateChanged(state: Int) {
@@ -434,7 +494,8 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
     LaunchedEffect(idx, attempt) {
         err = ""
         resolving = true
-        mimeTry = 0
+        mimeTry = if (item.kind == "itv") LinkDiag.formatOf(item.key) else 0   // a format learned from sniffing this channel
+        if (linkFrom == 0) strategyTries = 0
         exo.stop()
         try {
             // Interruptible: zapping on cancels this channel's link requests instead of letting them run in the background
@@ -458,7 +519,7 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
             // Headers are read now so a token obtained during link() is included.
             http.setDefaultRequestProperties(repo.api.streamHeaders())
             lastUrl = url
-            exo.setMediaItem(mediaItemFor(url))
+            exo.setMediaItem(mediaItemFor(url, mimeTry))
             exo.prepare()
             if (item.kind == "vod") {
                 val (p, d) = repo.store.resumeInfo(item)
@@ -474,6 +535,23 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
         } finally {
             resolving = false
         }
+    }
+
+    // Live guide while watching: this channel and its neighbours first (zapping shows now / next at once), and this
+    // channel's day schedule for the schedule list (Right)
+    LaunchedEffect(idx) {
+        if (item.kind == "itv") repo.epg.watching(item.id, Epg.neighbours(idx, list.size).mapNotNull { list.getOrNull(it)?.id })
+    }
+
+    // Live: a dead channel reached by zapping is skipped (same direction) after a short note; at most 5 in a row
+    var skipIn by remember { mutableStateOf(false) }
+    LaunchedEffect(err, idx) {
+        skipIn = false
+        if (item.kind != "itv" || err.isEmpty()) return@LaunchedEffect
+        val step = LiveLink.skipStep(zapDir, skipped) ?: return@LaunchedEffect
+        skipIn = true
+        delay(2_500)
+        if (err.isNotEmpty() && dialog == null && !panel) { skipped++; skipIn = false; go(idx + step) }
     }
 
     // Position ticker + periodic resume save.
@@ -494,6 +572,9 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
             delay(HIDE_AFTER_MS)
             controls = false
         }
+    }
+    LaunchedEffect(layer, infoTick) {
+        if (layer == LiveOverlay.Layer.INFO) { delay(LiveOverlay.INFO_MS); if (layer == LiveOverlay.Layer.INFO) layer = LiveOverlay.Layer.NONE }
     }
     LaunchedEffect(flashTick) { if (flash.isNotEmpty()) { delay(700); flash = "" } }
 
@@ -523,6 +604,8 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
     BackHandler(isTv && controls && dialog == null && !showUpNext && !Popups.any) { controls = false }
     BackHandler(showUpNext) { upNextCancelled = item.key }
     BackHandler(dialog != null) { dialog = null; touch() }
+    // Live: Back first hides the info bar (the side panels close themselves), then leaves the player
+    BackHandler(live && layer == LiveOverlay.Layer.INFO && dialog == null && !Popups.any) { layer = LiveOverlay.Layer.NONE }
 
     // Keys that are swallowed on KeyDown also have their KeyUp swallowed,
     // so the button that receives focus does not get a stray click.
@@ -551,9 +634,27 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
                 }
                 if (handled) { swallowUp += k; return@onPreviewKeyEvent true }
                 if (dialog != null || panel || showUpNext || Popups.any) { touch(); return@onPreviewKeyEvent false }
-                // Live: Up / Down change channel at once, also while the info overlay or the error bar shows
-                if (live && list.size > 1 && (k == Key.DirectionUp || k == Key.DirectionDown)) {
-                    if (k == Key.DirectionUp) go(idx + 1) else go(idx - 1)
+                // Live: no player controls. Up / Down zap at once (also with the info bar or the error bar showing),
+                // OK shows the info bar (or retries a failed link), Left the category's channels, Right the schedule.
+                if (live) {
+                    val pad = when (k) {
+                        Key.DirectionUp -> LiveOverlay.Pad.UP
+                        Key.DirectionDown -> LiveOverlay.Pad.DOWN
+                        Key.DirectionLeft -> LiveOverlay.Pad.LEFT
+                        Key.DirectionRight -> LiveOverlay.Pad.RIGHT
+                        Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> LiveOverlay.Pad.OK
+                        Key.Menu -> LiveOverlay.Pad.MENU
+                        else -> null
+                    } ?: return@onPreviewKeyEvent false
+                    val (nl, fx) = LiveOverlay.press(layer, pad, hasError = err.isNotEmpty(), channels = list.size)
+                    layer = nl
+                    when (fx) {
+                        is LiveOverlay.Effect.Zap -> go(idx + fx.step)
+                        LiveOverlay.Effect.Retry -> { autoRetries = 0; linkFrom = 0; attempt++ }
+                        LiveOverlay.Effect.Menu -> dialog = "menu"
+                        else -> {}
+                    }
+                    if (nl == LiveOverlay.Layer.INFO) infoTick++
                     swallowUp += k; return@onPreviewKeyEvent true
                 }
                 if (controls) { touch(); return@onPreviewKeyEvent false }
@@ -562,8 +663,8 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
                     Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> {
                         if (err.isNotEmpty()) { autoRetries = 0; linkFrom = 0; attempt++ } else showControls(); true
                     }
-                    Key.DirectionLeft -> { if (live) { panel = true; repo.epg.wantFirst(item.id) } else { seekBy(-SEEK_MS); showControls(true) }; true }
-                    Key.DirectionRight -> { if (live) showControls() else { seekBy(SEEK_MS); showControls(true) }; true }
+                    Key.DirectionLeft -> { seekBy(-SEEK_MS); showControls(true); true }
+                    Key.DirectionRight -> { seekBy(SEEK_MS); showControls(true); true }
                     Key.DirectionUp -> { if (list.size > 1) go(idx + 1) else showControls(); true }
                     Key.DirectionDown -> { if (list.size > 1) go(idx - 1) else showControls(); true }
                     Key.Menu -> { dialog = "menu"; true }
@@ -624,7 +725,7 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
                 .pointerInput(live) {
                     if (live) {
                         detectTapGestures(
-                            onTap = { if (controls) controls = false else showControls() },
+                            onTap = { layer = if (layer == LiveOverlay.Layer.INFO) LiveOverlay.Layer.NONE else { infoTick++; LiveOverlay.Layer.INFO } },
                             onLongPress = { dialog = "menu" }
                         )
                     } else {
@@ -687,7 +788,7 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
         // Channel / episode banner after zapping, even when controls are hidden.
         var showZap by remember { mutableStateOf(false) }
         LaunchedEffect(zapTick) { if (zapTick > 0) { showZap = true; delay(3500); showZap = false } }
-        if (showZap && !controls) {
+        if (showZap && !controls && !live) {
             Column(Modifier.align(Alignment.TopStart).padding(24.dp).background(Color(0xCC000000), RoundedCornerShape(10.dp)).padding(14.dp)) {
                 Text((if (live && item.num > 0) "${item.num}  " else "") + (if (live) ChannelTitle.pretty(item.name) else item.name), color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
                 if (list.size > 1) Text("${idx + 1} / ${list.size}", color = Pal.Dim, fontSize = 14.sp)
@@ -695,12 +796,20 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
             }
         }
 
-        if (controls && live) {
-            LaunchedEffect(item.key) { repo.epg.wantFirst(item.id) }
-            Box(Modifier.align(Alignment.TopStart).padding(if (isTv) 40.dp else 16.dp).widthIn(max = 460.dp)
-                .background(Color(0xCC0E0E14), RoundedCornerShape(14.dp)).padding(16.dp)) { NowNext(repo, item) }
+        // Live: the floating info bar (now with progress, next), never the player controls
+        androidx.compose.animation.AnimatedVisibility(
+            visible = live && layer == LiveOverlay.Layer.INFO && err.isEmpty() && dialog == null,
+            enter = androidx.compose.animation.fadeIn(Motion.spec()) + androidx.compose.animation.slideInVertically(Motion.spec()) { it / 3 },
+            exit = androidx.compose.animation.fadeOut(Motion.spec()),
+            modifier = Modifier.align(Alignment.BottomCenter)
+        ) {
+            LiveInfoBar(repo, item, idx, list.size, isTv, actions = if (isTv) null else ({
+                PillButton("☰  Channels", { layer = LiveOverlay.Layer.CHANNELS }, size = 13)
+                PillButton("Schedule", { layer = LiveOverlay.Layer.GUIDE }, size = 13)
+                PillButton("⋮", { dialog = "menu" }, size = 13)
+            }))
         }
-        if (controls) {
+        if (controls && !live) {
             key(favTick) {
                 Controls(
                     item = item, live = live, list = list, idx = idx, playing = playWhenReady, pos = pos, dur = dur,
@@ -748,7 +857,8 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
                 Column(Modifier.weight(1f)) {
                     Text("Can't play ${if (live) ChannelTitle.pretty(item.name) else item.name}", color = Color.White, fontSize = 15.sp,
                         fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(err.lineSequence().firstOrNull().orEmpty() + if (isTv) (if (live && list.size > 1) "  ·  OK retry  ·  ▲▼ other channel" else "  ·  OK retry") else "",
+                    Text(if (skipIn) "Not working · skipping to the next channel…" else
+                        err.lineSequence().firstOrNull().orEmpty() + if (isTv) (if (live && list.size > 1) "  ·  OK retry  ·  ▲▼ other channel" else "  ·  OK retry") else "",
                         color = Pal.Dim, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 if (!isTv) {
@@ -758,7 +868,13 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
             }
         }
 
-        if (panel && live) ChannelPanel(repo, list, idx, onPlay = { n -> panel = false; if (n != idx) go(n) }) { panel = false }
+        if (live && layer == LiveOverlay.Layer.CHANNELS) {
+            val (ix, at) = remember(list, idx) { LiveOverlay.categoryList(list, idx) }
+            val catName = repo.liveCats.firstOrNull { it.id == item.cat }?.title?.let { LiveKind.sectionLabel(it) }.orEmpty()
+            ChannelPanel(repo, ix.map { list[it] }, at, title = catName.ifBlank { "Channels" },
+                onPlay = { n -> layer = LiveOverlay.Layer.NONE; ix.getOrNull(n)?.let { if (it != idx) go(it) } }) { layer = LiveOverlay.Layer.NONE }
+        }
+        if (live && layer == LiveOverlay.Layer.GUIDE) GuidePanel(repo, item) { layer = LiveOverlay.Layer.NONE }
 
         dialog?.let { d ->
             val opts: List<Pair<String, () -> Unit>> = when (d) {
@@ -842,10 +958,11 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
             }
             val title = when (d) { "audio" -> "Audio"; "subs" -> "Subtitles"; "subdl" -> "Download subtitles: language"; "aspect" -> "Picture"; else -> item.name }
             when {
-                d == "details" -> InfoDialog("Stream details", (if (err.isNotEmpty()) err + "\n\n" else "") + repo.api.debugLog()) { dialog = null }
+                d == "details" -> InfoDialog("Stream details", (if (err.isNotEmpty()) err + "\n\n" else "") +
+                    (if (live) LinkDiag.of(item.key)?.line()?.let { it + "\n\n" }.orEmpty() else "") + repo.api.debugLog()) { dialog = null }
                 // Live: the shared channel menu (play, hide, modes, rename, guide …) with the player entries below it
                 live && d !in setOf("audio", "subs", "subdl", "aspect") -> ChannelMenu(repo, item, null, opts, null, inPlayer = true,
-                    onGuide = { dialog = null; panel = true }) { favTick++; dialog = null }
+                    onGuide = { dialog = null; layer = LiveOverlay.Layer.GUIDE }) { favTick++; dialog = null }
                 else -> ChoiceDialog(title, opts) { dialog = null }
             }
         }

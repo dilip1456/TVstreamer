@@ -15,6 +15,38 @@ previous/next channel or episode, audio track, subtitles, Fit / Fill / Zoom, fav
 Controls hide after 5 seconds. If a stream fails you get the reason on screen with Retry / Next / Back.
 The next episode plays automatically.
 
+## 1.53: clean live player, faster guide, simpler Settings
+
+**Live TV player**
+- No player controls for live channels: no seek bar, play / pause or arrows. Just the picture. Movies and series keep the normal controls.
+- Up / Down change channel at once.
+- OK shows a slim bar along the bottom: number and name, what's on now with a progress line and times, and what's next. It hides after 5 seconds. The old top-left box is gone.
+- Left: the channels of the playing channel's category (Up / Down browse, OK plays).
+- Right: this channel's schedule as a list (now, next, later). OK on a later show sets a reminder.
+- Back closes the top overlay first, then returns to the list.
+- On a phone, tap shows the bar with Channels, Schedule and ⋮.
+- A dead channel you zapped onto shows a short note at the bottom and is skipped in the same direction (at most 5 in a row).
+
+**Back to the same list**
+- Back from a channel returns to the same Live TV view: same mode, languages, All channels on or off, scroll position, and focus on the playing channel. This is also remembered after a restart.
+- Cause (1.52): All channels was a screen-local switch, lost when the player opened. Back also always re-scrolled the list.
+
+**Live links**
+- More ways to ask the portal for a live link: no-temp-link direct cmds first, every create_link form, the channel's alternate cmds, and placeholders by channel id and by the cmds ch_id.
+- After a failure the app reads the first bytes of the stream (following redirects) to tell HLS from TS from an HTML error page. It then replays the stream in the right format, or signs in again for 401 / 403, or tries the next way.
+- Settings > Troubleshooting > Live link diagnostics and Channel info show the last attempt per channel: which way was used, HTTP status, real format and a masked link. Host kind only; ids, user names, passwords and tokens are never shown.
+
+**Guide (EPG)**
+- The guide is saved on the device and shows at once. It refreshes in the background.
+- Entries are kept until their shows run out (at most 12 h), not 15 minutes.
+- Guide data loads for the visible rows plus 6 ahead, and for the channels next to the one playing.
+- The schedule list loads today's full schedule (get_simple_data_table, at most 3 pages, else a longer get_short_epg) when a channel starts.
+- Still one request at a time through the portal limiter.
+
+**Look and navigation**
+- The top tab bar stays pinned while the page scrolls beneath it.
+- Settings is a Netflix-style split: short sections on the left (Account, Portal, Content, Player, Languages, API keys, Hidden, Troubleshooting) and big one-line rows on the right. There are no paragraphs; API key notes moved to Learn more. Back goes from a section's rows up to the section list.
+
 ## 1.52: Live TV rework, Netflix-style look
 
 **Live TV**

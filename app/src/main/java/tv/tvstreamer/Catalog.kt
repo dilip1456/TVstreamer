@@ -334,59 +334,63 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
     Box(Modifier.fillMaxSize().background(Pal.Bg)) {
         // Soft gold glow at the top (one static gradient: no blur, cheap on Fire TV)
         if (Theme.dark) Box(Modifier.fillMaxWidth().height(420.dp).background(Brush.verticalGradient(listOf(Pal.Gold.copy(alpha = 0.10f), Color.Transparent))))
-        LazyColumn(state = state, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 48.dp)) {
-            item(key = "nav") {
-                val tabs = if (!AppUi.phoneNav) listOf<Triple<String, String, () -> Unit>>(
-                    Triple("🔍", "search") { go(Screen.Search) },
-                    Triple("Home", "home") { go(Screen.Home) },
-                    Triple("Movies", "movies") { go(Screen.MoviesTab) },
-                    Triple("Series", "series") { go(Screen.SeriesTab) },
-                    Triple("Live TV", "live") { go(Screen.Live) },
-                    Triple("Categories", "cats") { go(Screen.Categories) }
-                ) else listOf<Triple<String, String, () -> Unit>>(
-                    Triple("Home", "home") { go(Screen.Home) },
-                    Triple("Movies", "movies") { go(Screen.MoviesTab) },
-                    Triple("Series", "series") { go(Screen.SeriesTab) },
-                    Triple("Live TV", "live") { go(Screen.Live) },
-                    Triple("Categories", "cats") { go(Screen.Categories) },
-                    Triple("Search", "search") { go(Screen.Search) },
-                    Triple("Settings", "settings") { go(Screen.Settings) },
-                    Triple("Update", "update") {
-                        updateMsg = "Checking for updates..."
-                        scope.launch {
-                            val code = try { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionCode } catch (e: Exception) { 1 }
-                            updateMsg = Updater.checkAndUpdate(ctx, code)
-                        }
+        // The top menu is pinned (1.53): it stays on screen while the page scrolls beneath it
+        Column(Modifier.fillMaxSize()) {
+            val tabs = if (!AppUi.phoneNav) listOf<Triple<String, String, () -> Unit>>(
+                Triple("🔍", "search") { go(Screen.Search) },
+                Triple("Home", "home") { go(Screen.Home) },
+                Triple("Movies", "movies") { go(Screen.MoviesTab) },
+                Triple("Series", "series") { go(Screen.SeriesTab) },
+                Triple("Live TV", "live") { go(Screen.Live) },
+                Triple("Categories", "cats") { go(Screen.Categories) }
+            ) else listOf<Triple<String, String, () -> Unit>>(
+                Triple("Home", "home") { go(Screen.Home) },
+                Triple("Movies", "movies") { go(Screen.MoviesTab) },
+                Triple("Series", "series") { go(Screen.SeriesTab) },
+                Triple("Live TV", "live") { go(Screen.Live) },
+                Triple("Categories", "cats") { go(Screen.Categories) },
+                Triple("Search", "search") { go(Screen.Search) },
+                Triple("Settings", "settings") { go(Screen.Settings) },
+                Triple("Update", "update") {
+                    updateMsg = "Checking for updates..."
+                    scope.launch {
+                        val code = try { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionCode } catch (e: Exception) { 1 }
+                        updateMsg = Updater.checkAndUpdate(ctx, code)
                     }
-                )
-                Column(Modifier.padding(horizontal = hPad, vertical = if (isTv) 18.dp else 10.dp)) {
-                    if (AppUi.phoneNav || !isTv) Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("TVSTREAMER", color = Pal.GoldText, fontSize = if (isTv) 28.sp else 22.sp, fontWeight = FontWeight.Black)
-                    }
-                    // TV / tablet menu (Netflix style): profile on the left, text tabs centred; the focused tab is a soft
-                    // light pill, the current one bold. Left / Right stay inside the menu, Down goes to the page.
-                    // Settings, Preferences and Update live in the profile menu.
-                    if (!AppUi.phoneNav) Row(
-                        Modifier.fillMaxWidth().menuRow({ navIx }, { tabs.size + 1 })
-                            .onFocusChanged { navFocused = it.hasFocus; if (!it.hasFocus) navIx = -1 }.focusRestorer(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(Modifier.onFocusChanged { if (it.hasFocus) navIx = 0 }) { AvatarButton { AppUi.accountMenu = true } }
-                        Spacer(Modifier.weight(1f))
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                            tabs.forEachIndexed { ti, (t, k, a) ->
-                                val at = Modifier.onFocusChanged { if (it.isFocused) navIx = ti + 1 }
-                                val m = at then when (k) {
-                                    mode -> Modifier.focusRequester(navFr).onFocusChanged { if (it.isFocused) repo.lastFocus[screenKey] = "nav" }
-                                    "search" -> Modifier.focusRequester(searchFr).onFocusChanged { if (it.isFocused) repo.lastFocus[screenKey] = "search" }
-                                    else -> Modifier
-                                }
-                                NavTab(t, a, m, selected = k == mode)
+                }
+            )
+            Column(Modifier.fillMaxWidth().padding(start = hPad, end = hPad, top = if (isTv) 18.dp else 10.dp, bottom = if (isTv) 10.dp else 6.dp)) {
+                if (AppUi.phoneNav || !isTv) Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("TVSTREAMER", color = Pal.GoldText, fontSize = if (isTv) 28.sp else 22.sp, fontWeight = FontWeight.Black)
+                }
+                // TV / tablet menu (Netflix style): profile on the left, text tabs centred; the focused tab is a soft
+                // light pill, the current one bold. Left / Right stay inside the menu, Down goes to the page.
+                // Settings, Preferences and Update live in the profile menu.
+                if (!AppUi.phoneNav) Row(
+                    Modifier.fillMaxWidth().menuRow({ navIx }, { tabs.size + 1 })
+                        .onFocusChanged { navFocused = it.hasFocus; if (!it.hasFocus) navIx = -1 }.focusRestorer(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(Modifier.onFocusChanged { if (it.hasFocus) navIx = 0 }) { AvatarButton { AppUi.accountMenu = true } }
+                    Spacer(Modifier.weight(1f))
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        tabs.forEachIndexed { ti, (t, k, a) ->
+                            val at = Modifier.onFocusChanged { if (it.isFocused) navIx = ti + 1 }
+                            val m = at then when (k) {
+                                mode -> Modifier.focusRequester(navFr).onFocusChanged { if (it.isFocused) repo.lastFocus[screenKey] = "nav" }
+                                "search" -> Modifier.focusRequester(searchFr).onFocusChanged { if (it.isFocused) repo.lastFocus[screenKey] = "search" }
+                                else -> Modifier
                             }
+                            NavTab(t, a, m, selected = k == mode)
                         }
-                        Spacer(Modifier.weight(1f))
-                        Text("TV", color = Pal.GoldText, fontSize = 22.sp, fontWeight = FontWeight.Black)
                     }
+                    Spacer(Modifier.weight(1f))
+                    Text("TV", color = Pal.GoldText, fontSize = 22.sp, fontWeight = FontWeight.Black)
+                }
+            }
+        LazyColumn(state = state, modifier = Modifier.fillMaxWidth().weight(1f), contentPadding = PaddingValues(bottom = 48.dp)) {
+            item(key = "nav") {
+                Column(Modifier.padding(horizontal = hPad)) {
                     if (tabbed) {
                         Spacer(Modifier.height(8.dp))
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(vertical = 4.dp), modifier = Modifier.focusRestorer()) {
@@ -457,6 +461,7 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                     onSeeAll = shelf.cat?.let { c -> { go(Screen.Grid(c, Screen.Home)) } } ?: shelf.pool?.let { p -> { go(p) } }
                 )
             }
+        }
         }
 
         menu?.let { (shelf, item) ->

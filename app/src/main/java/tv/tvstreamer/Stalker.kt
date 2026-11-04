@@ -187,6 +187,9 @@ class Stalker(private val store: Store) {
         return h
     }
 
+    /** Per channel: alternate cmds, use_http_tmp_link and cmds ch_id from the channel list (for [LiveLink.tries]). */
+    val liveMeta = java.util.concurrent.ConcurrentHashMap<String, LiveLink.Meta>()
+
     fun channels(): List<Item> {
         val resp = call("type=itv&action=get_all_channels")
         val js = resp.opt("js")
@@ -201,6 +204,8 @@ class Stalker(private val store: Store) {
             val nm = ChannelTitle.pick(o.optString("name"), o.optString("o_name"), o.optString("xmltv_id"), o.optString("cmd"), o.optInt("number"))
             val cmds = o.optJSONArray("cmds")?.let { a2 -> (0 until a2.length()).mapNotNull { a2.optJSONObject(it)?.optString("url") } }.orEmpty()
             val cmd = o.optString("cmd").ifBlank { cmds.firstOrNull { it.isNotBlank() } ?: "" }
+            val chIds = o.optJSONArray("cmds")?.let { a2 -> (0 until a2.length()).mapNotNull { a2.optJSONObject(it)?.optString("ch_id")?.takeIf { x -> x.isNotBlank() } } }.orEmpty()
+            liveMeta[o.optString("id")] = LiveLink.Meta(cmds.filter { it.isNotBlank() }, o.optString("use_http_tmp_link") != "0", chIds)
             Item("itv", o.optString("id"), nm.ifEmpty { o.optString("name") }, cmd,
                 o.optString("tv_genre_id"), o.optInt("number"), o.optInt("censored") == 1,
                 img = absUrl(o.optString("logo"), logoDir = true))
@@ -413,11 +418,40 @@ class Stalker(private val store: Store) {
         lastReply = line
     }
 
+    private fun diag(i: Item, label: String, idx: Int, n: Int, url: String, resigned: Boolean) {
+        if (i.kind != "itv") return
+        LinkDiag.record(i.key, LinkDiag.Attempt(System.currentTimeMillis(), ChannelTitle.pretty(i.name), label, idx, n,
+            url = LiveLink.maskUrl(url, portalOrigin()), resigned = resigned, result = "link received"))
+    }
+
+    /** Sign in again (new token) before asking for a link once more: the stream server refused the old session. */
+    fun forceResign() = synchronized(this) { token = ""; runCatching { connect() } }
+
+    /** What the stream server answers at [url] (status, type, first bytes, final URL after redirects). */
+    data class Probe(val http: Int?, val contentType: String?, val head: ByteArray?, val finalUrl: String, val error: String = "")
+
+    /** Reads the first 2 KB of a stream with the player's headers, following redirects. Never throws. */
+    fun probe(url: String): Probe = try {
+        val req = okhttp3.Request.Builder().url(url).header("User-Agent", UA).header("Range", "bytes=0-2047").apply {
+            streamHeaders().forEach { (k, v) -> header(k, v) }
+        }.build()
+        val c = http.newBuilder().followRedirects(true).followSslRedirects(true)
+            .connectTimeout(6, java.util.concurrent.TimeUnit.SECONDS).readTimeout(6, java.util.concurrent.TimeUnit.SECONDS).build()
+        c.newCall(req).execute().use { r ->
+            val bytes = r.body?.byteStream()?.use { s -> val b = ByteArray(2048); var n = 0
+                while (n < b.size) { val k = s.read(b, n, b.size - n); if (k < 0) break; n += k }
+                b.copyOf(n) }
+            Probe(r.code, r.header("Content-Type"), bytes, r.request.url.toString())
+        }
+    } catch (e: Exception) { Probe(null, null, null, url, e.javaClass.simpleName) }
+
+    fun portalOriginPublic(): String = portalOrigin()
+
     fun debugLog(): String = synchronized(log) { log.joinToString("\n\n") }.ifEmpty { "No portal replies yet. Play something first." }
 
     /** One way of asking the portal for a stream. */
     private class LinkTry(val label: String, val type: String, val cmd: String, val series: String, val lookup: String? = null,
-                          val storage: String = "undefined", val query: String? = null)
+                          val storage: String = "undefined", val query: String? = null, val direct: Boolean = false)
 
     private fun portalOrigin(): String {
         val portal = store.portal.trim().let { if (it.startsWith("http")) it else "http://$it" }
@@ -430,14 +464,9 @@ class Stalker(private val store: Store) {
     private fun tries(i: Item): List<LinkTry> {
         val out = mutableListOf<LinkTry>()
         if (i.kind == "itv") {
-            // Exactly the requests 1.36 used (live works there)
-            val lc = StreamLink.liveCmd(i.cmd, emptyList(), i.id)
-            if (lc.isNotEmpty()) {
-                val c = enc(lc)
-                out += LinkTry("live cmd", "itv", lc, "", query = "type=itv&action=create_link&cmd=$c&series=&forced_storage=&disable_ad=0&download=0")
-                out += LinkTry("live cmd 2", "itv", lc, "", query = "type=itv&action=create_link&cmd=$c&series=0&forced_storage=0&disable_ad=0&download=0")
-                out += LinkTry("live cmd 3", "itv", lc, "", query = "type=itv&action=create_link&cmd=$c")
-            }
+            // Every create_link dialect worth asking, most likely first (see LiveLink)
+            for (t in LiveLink.tries(i.cmd, i.id, liveMeta[i.id] ?: LiveLink.Meta(), ::enc))
+                out += LinkTry(t.label, "itv", t.cmd, "", query = t.query, direct = t.direct)
             return out
         }
         val ep = i.series
@@ -492,7 +521,7 @@ class Stalker(private val store: Store) {
 
     /** Number of strategies for an item (the player moves on to the next one when a link does not play). */
     fun linkTries(i: Item): Int = tries(i).size +
-        (if (clean(i.cmd).let { (it.startsWith("http://") || it.startsWith("https://")) && !it.contains("localhost") && !it.contains("127.0.0.1") }) 1 else 0)
+        (if (i.kind != "itv" && clean(i.cmd).let { (it.startsWith("http://") || it.startsWith("https://")) && !it.contains("localhost") && !it.contains("127.0.0.1") }) 1 else 0)
 
     /**
      * Ask the portal for a playable URL. Strategies are tried in order starting at [from];
@@ -513,6 +542,28 @@ class Stalker(private val store: Store) {
     fun shortEpg(chId: String): Map<String, List<Prog>> =
         Epg.parse(call("type=itv&action=get_short_epg&ch_id=${enc(chId)}&size=10"), chId)
 
+    /**
+     * A channel's schedule for today (the player's schedule list): the MAG guide's get_simple_data_table, at most 3
+     * pages, one request at a time through the limiter. Portals without it: a longer get_short_epg.
+     */
+    fun dayEpg(chId: String): Map<String, List<Prog>> {
+        val day = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+        val out = ArrayList<Prog>()
+        try {
+            for (pg in 1..3) {
+                val r = call("type=epg&action=get_simple_data_table&ch_id=${enc(chId)}&date=$day&p=$pg")
+                val got = Epg.parse(r, chId)[chId].orEmpty()
+                out += got
+                val js = r.optJSONObject("js")
+                val total = js?.optInt("total_items") ?: 0
+                val per = js?.optInt("max_page_items")?.takeIf { it > 0 } ?: 10
+                if (got.isEmpty() || pg * per >= total) break
+            }
+        } catch (e: PortalBusyException) { throw e } catch (_: Exception) { }
+        if (out.isEmpty()) return Epg.parse(call("type=itv&action=get_short_epg&ch_id=${enc(chId)}&size=30"), chId)
+        return mapOf(chId to out.distinctBy { it.start }.sortedBy { it.start })
+    }
+
     private fun linkNow(i: Item, from: Int): Pair<String, Int> {
         val list = tries(i)
         val fails = mutableListOf<String>()
@@ -522,6 +573,11 @@ class Stalker(private val store: Store) {
             if (idx < from) continue
             try {
                 var cmd = t.cmd
+                if (t.direct) {
+                    val u = usable(cmd, vod = true)
+                    if (u.isNotEmpty()) { note(t.label, u); diag(i, t.label, idx, list.size, u, resigned); return u to idx }
+                    fails += "${t.label}: unusable"; continue
+                }
                 if (t.lookup != null) {
                     val r = call(t.lookup)
                     note(t.label, r.toString())
@@ -558,7 +614,7 @@ class Stalker(private val store: Store) {
                     }
                     url = usable(got2, i.kind != "itv")
                 }
-                if (url.isNotEmpty()) return url to idx
+                if (url.isNotEmpty()) { diag(i, t.label, idx, list.size, url, resigned); return url to idx }
                 val err = (js as? JSONObject)?.let { o -> o.optString("error").ifEmpty { o.optString("msg") } }.orEmpty()
                 fails += "${t.label}: " + when {
                     err.isNotEmpty() -> err
@@ -573,7 +629,7 @@ class Stalker(private val store: Store) {
             }
         }
         // Some items carry a direct stream URL; use it when the portal gave nothing usable
-        if (from <= list.size) {
+        if (from <= list.size && i.kind != "itv") {
             val c = clean(i.cmd)
             val direct = if (c.startsWith("http://") || c.startsWith("https://")) usable(i.cmd, i.kind != "itv") else ""
             if (direct.isNotEmpty() && !c.contains("localhost") && !c.contains("127.0.0.1")) {
@@ -581,6 +637,9 @@ class Stalker(private val store: Store) {
                 return direct to list.size
             }
         }
+        if (i.kind == "itv") LinkDiag.record(i.key, LinkDiag.Attempt(System.currentTimeMillis(), ChannelTitle.pretty(i.name),
+            list.getOrNull(list.size - 1)?.label ?: "none", (list.size - 1).coerceAtLeast(0), list.size, resigned = resigned,
+            result = "no playable link: " + fails.distinct().takeLast(2).joinToString("; ") { mask(it).take(80) }))
         throw NoLinkException(
             "The portal gave no playable link (${fails.size} tries).\n" +
             fails.distinct().takeLast(4).joinToString("\n") +
