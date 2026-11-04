@@ -456,6 +456,12 @@ class Repo(private val ctx: Context) {
         if (f != folders) applyFolders(f)
         if (h != hidden) { hidden = h; store.hidden = h }
     }
+    /** Select mode: show (true) or hide every channel in [chs] in the current mode, in one save. */
+    fun setOn(chs: List<Item>, on: Boolean) {
+        val (f, h) = LiveSelect.apply(chs.map { named(rawByKey[it.key] ?: it) }, on, mode(), folders, hidden)
+        if (f != folders) applyFolders(f)
+        if (h != hidden) { hidden = h; store.hidden = h }
+    }
     fun toTopOfMode(ch: Item) { val m = mode(); if (m != LiveModes.DEFAULT) applyFolders(LiveModes.toTop(ch, m, folders)) }
 
     /** Live TV languages: null = all; else only these are listed (synced with the other language choices). */

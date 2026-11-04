@@ -27,6 +27,11 @@ The next episode plays automatically.
 - On a phone, tap shows the bar with Channels, Schedule and ⋮.
 - A dead channel you zapped onto shows a short note at the bottom and is skipped in the same direction (at most 5 in a row).
 
+**Hide and unhide quickly**
+- Select mode: Select in the left nav (TV), long-press a channel (phone), or ⋮ > Select channels. OK / tap checks channels. A slim bar at the bottom shows the count and Hide, Unhide, Select section and Cancel. In a custom mode these are Remove from mode / Add to mode. On TV, Menu jumps to the bar. Back leaves Select mode first.
+- Double OK on the remote (two presses within 0.3 s) hides a channel, or unhides it in All channels. A short "Hidden" / "Unhidden" toast appears. A single OK plays after that short window.
+- In the live player a single OK only shows the info bar. Double OK hides or unhides the playing channel; it keeps playing, marked Hidden.
+
 **Back to the same list**
 - Back from a channel returns to the same Live TV view: same mode, languages, All channels on or off, scroll position, and focus on the playing channel. This is also remembered after a restart.
 - Cause (1.52): All channels was a screen-local switch, lost when the player opened. Back also always re-scrolled the list.

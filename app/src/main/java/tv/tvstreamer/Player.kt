@@ -162,6 +162,8 @@ private fun choices(tracks: Tracks, type: Int): List<TrackChoice> {
 @Composable
 fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit) {
     val ctx = LocalContext.current
+    var lastOkKey by remember { mutableStateOf<String?>(null) }
+    var lastOkAt by remember { mutableStateOf(0L) }
     DisposableEffect(Unit) { Theme.forceDark = true; onDispose { Theme.forceDark = false } }
     val isTv = rememberIsTv()
     // The play list can grow: the next season's first episode is appended when an episode ends
@@ -646,6 +648,18 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
                         Key.Menu -> LiveOverlay.Pad.MENU
                         else -> null
                     } ?: return@onPreviewKeyEvent false
+                    // OK twice quickly: hide / unhide this channel (it keeps playing, marked Hidden in the bar)
+                    if (pad == LiveOverlay.Pad.OK && err.isEmpty()) {
+                        if (e.nativeKeyEvent.repeatCount > 0) { swallowUp += k; return@onPreviewKeyEvent true }
+                        val now = android.os.SystemClock.uptimeMillis()
+                        if (DoublePress.isDouble(lastOkKey, lastOkAt, item.key, now)) {
+                            lastOkKey = null; repo.toggleOn(item)
+                            toast(ctx, if (repo.isOn(item)) "Unhidden" else "Hidden")
+                            layer = LiveOverlay.Layer.INFO; infoTick++
+                            swallowUp += k; return@onPreviewKeyEvent true
+                        }
+                        lastOkKey = item.key; lastOkAt = now
+                    }
                     val (nl, fx) = LiveOverlay.press(layer, pad, hasError = err.isNotEmpty(), channels = list.size)
                     layer = nl
                     when (fx) {

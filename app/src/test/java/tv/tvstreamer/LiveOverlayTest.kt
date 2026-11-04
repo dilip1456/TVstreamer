@@ -17,7 +17,7 @@ class LiveOverlayTest {
         assertEquals(Layer.CHANNELS, LiveOverlay.press(Layer.NONE, Pad.LEFT).first)
         assertEquals(Layer.GUIDE, LiveOverlay.press(Layer.INFO, Pad.RIGHT).first)
         assertEquals(Layer.INFO to Effect.None, LiveOverlay.press(Layer.NONE, Pad.OK))
-        assertEquals(Layer.NONE to Effect.None, LiveOverlay.press(Layer.INFO, Pad.OK))
+        assertEquals(Layer.INFO to Effect.None, LiveOverlay.press(Layer.INFO, Pad.OK))   // OK never hides or pauses
         assertEquals(Effect.Retry, LiveOverlay.press(Layer.NONE, Pad.OK, hasError = true).second)
         assertEquals(Effect.Menu, LiveOverlay.press(Layer.NONE, Pad.MENU).second)
     }

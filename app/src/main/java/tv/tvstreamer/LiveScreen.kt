@@ -30,6 +30,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Job
+import androidx.activity.compose.BackHandler
 import kotlinx.coroutines.launch
 
 /**
@@ -100,6 +102,22 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, onSearch: () -> Unit = {})
     val restoreFr = remember { FocusRequester() }   // the last focused channel when nothing played yet
     val firstFr = remember { FocusRequester() }
     var navOpen by remember { mutableStateOf(false) }
+    val ctx = LocalContext.current
+    // Select mode (bulk hide / unhide): null = off, else the selected channel keys
+    var sel by remember { mutableStateOf<Set<String>?>(null) }
+    var focusSec by remember { mutableStateOf("") }
+    val barFr = remember { FocusRequester() }
+    BackHandler(sel != null && !Popups.any) { sel = null }
+    fun bulk(on: Boolean) {
+        val s0 = sel ?: return
+        val chs = LiveSelect.targets(rows, s0, on).map { repo.named(it) }
+        if (chs.isNotEmpty()) repo.setOn(chs, on)
+        toast(ctx, LiveSelect.summary(chs.size, on, mode)); sel = null
+    }
+    // OK twice quickly on a row hides / unhides it; a single OK plays after the double-press window
+    var pendingPlay by remember { mutableStateOf<Job?>(null) }
+    var lastOkKey by remember { mutableStateOf<String?>(null) }
+    var lastOkAt by remember { mutableStateOf(0L) }
 
     // Guide for the rows on screen only (debounced in EpgLoader)
     LaunchedEffect(state, flat) {
@@ -128,6 +146,18 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, onSearch: () -> Unit = {})
     }
 
     fun playAt(ch: Item) { focusKey = ch.key; saveView(); val i = flatPos[ch.key] ?: return; val e = repo.gate(ch.locked); if (e == null) play(flat, i) else repo.status = e }
+    fun keyOk(ch: Item) {
+        sel?.let { sel = LiveSelect.toggle(it, ch.key); return }
+        val now = android.os.SystemClock.uptimeMillis()
+        if (DoublePress.isDouble(lastOkKey, lastOkAt, ch.key, now)) {
+            pendingPlay?.cancel(); pendingPlay = null; lastOkKey = null
+            repo.toggleOn(ch); toast(ctx, if (repo.isOn(ch)) "Unhidden" else "Hidden")
+            return
+        }
+        lastOkKey = ch.key; lastOkAt = now
+        pendingPlay?.cancel()
+        pendingPlay = scope.launch { delay(DoublePress.WINDOW_MS); pendingPlay = null; playAt(ch) }
+    }
     fun jumpTo(type: String) { layout.second[type]?.let { scope.launch { runCatching { state.animateScrollToItem(it) } } } }
 
     @Composable
@@ -152,19 +182,29 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, onSearch: () -> Unit = {})
                         items(s.rows, key = { r -> "${s.key}|${r.ch.key}" }) { r ->
                             val ch = r.ch
                             val first = si == 0 && r === s.rows.first()
-                            ChannelRow(repo, ch, r.on, browseAll, ch.key == repo.nowPlaying, tv,
+                            ChannelRow(repo, ch, r.on, browseAll, ch.key == repo.nowPlaying, tv, sel?.let { ch.key in it },
                                 Modifier
                                     .then(if (ch.key == repo.nowPlaying) Modifier.focusRequester(playingFr)
                                         else if (ch.key == focusKey && repo.nowPlaying.isEmpty()) Modifier.focusRequester(restoreFr) else Modifier)
-                                    .onFocusChanged { if (it.isFocused) focusKey = ch.key }
+                                    .onFocusChanged { if (it.isFocused) { focusKey = ch.key; focusSec = s.key } }
                                     .then(if (first) Modifier.focusRequester(firstFr) else Modifier)
                                     .then(if (rail) Modifier.focusProperties { left = navReq("t:" + s.type) } else Modifier),
-                                onClick = { playAt(ch) },
-                                onToggle = { repo.toggleOn(ch) },
-                                onMenu = { menuCh = ch })
+                                onClick = { sel?.let { sel = LiveSelect.toggle(it, ch.key) } ?: playAt(ch) },
+                                onKeyOk = { keyOk(ch) },
+                                onToggle = { if (!tv) { focusSec = s.key; sel = LiveSelect.toggle(sel ?: emptySet(), ch.key) } else repo.toggleOn(ch) },
+                                onMenu = { if (sel != null) runCatching { barFr.requestFocus() } else menuCh = ch })
                         }
                     }
                 }
+            }
+            sel?.let { cur ->
+                val secKeys = sections.firstOrNull { it.key == focusSec }?.rows?.map { it.ch.key }.orEmpty()
+                SelectBar(cur.size, mode, tv, barFr,
+                    canHide = LiveSelect.targets(rows, cur, false).isNotEmpty(),
+                    canShow = LiveSelect.targets(rows, cur, true).isNotEmpty(),
+                    allLabel = if (secKeys.isNotEmpty() && cur.containsAll(secKeys)) "Clear section" else "Select section",
+                    onHide = { bulk(false) }, onShow = { bulk(true) },
+                    onAll = { sel = LiveSelect.selectAll(cur, secKeys) }, onCancel = { sel = null })
             }
         }
     }
@@ -186,6 +226,8 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, onSearch: () -> Unit = {})
                 NavEntry("◉", if (mode == LiveModes.DEFAULT) "Mode: Default" else "Mode: $mode", navOpen, toList, onClick = { popup = "modes" })
                 NavEntry(if (browseAll) "◎" else "◌", if (browseAll) "All channels (on)" else "All channels", navOpen, toList, selected = browseAll,
                     onClick = { browseAll = !browseAll })
+                NavEntry("☑", if (sel == null) "Select" else "Selecting (${sel?.size ?: 0})", navOpen, toList, selected = sel != null,
+                    onClick = { sel = if (sel == null) emptySet() else null; if (sel != null) scope.launch { delay(120); runCatching { (if (repo.nowPlaying.isNotEmpty()) playingFr else firstFr).requestFocus() } } })
                 NavEntry("🌐", if (langs == null) "Languages: all" else "Languages: ${langs.size}", navOpen, toList, onClick = { popup = "langs" })
                 Spacer(Modifier.height(10.dp))
                 // A plain column (all entries composed) so Left from any channel always finds its section entry
@@ -230,6 +272,7 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, onSearch: () -> Unit = {})
         } }, focusKey = "sections", onClose = { popup = null })
         "more" -> ChoiceDialog("Live TV", listOf(
             "Languages…" to { popup = "langs" },
+            "Select channels…" to { sel = emptySet(); popup = null },
             (if (browseAll) "Hide hidden channels" else "Show all channels (incl. hidden)") to { browseAll = !browseAll; popup = null },
             "Search" to { popup = null; onSearch() }
         ), focusKey = "more", onClose = { popup = null })
@@ -279,9 +322,10 @@ private fun NavEntry(icon: String, label: String, open: Boolean, modifier: Modif
  * current mode (All channels). OK plays; hold OK / long-press: show or hide (All channels) or the menu; Menu = menu.
  */
 @Composable
-private fun ChannelRow(repo: Repo, ch: Item, on: Boolean, browseAll: Boolean, playing: Boolean, tv: Boolean, modifier: Modifier,
-                       onClick: () -> Unit, onToggle: () -> Unit, onMenu: () -> Unit) {
+private fun ChannelRow(repo: Repo, ch: Item, on: Boolean, browseAll: Boolean, playing: Boolean, tv: Boolean, checked: Boolean?, modifier: Modifier,
+                       onClick: () -> Unit, onKeyOk: () -> Unit, onToggle: () -> Unit, onMenu: () -> Unit) {
     var f by remember { mutableStateOf(false) }
+    var held by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(12.dp)
     val local = remember(ch.cat, repo.liveCats) { LiveKind.isLocalNews(repo.liveCats.firstOrNull { it.id == ch.cat }?.title.orEmpty()) }
     val name = remember(ch.name, local) { ChannelTitle.pretty(ch.name, local) }
@@ -293,14 +337,28 @@ private fun ChannelRow(repo: Repo, ch: Item, on: Boolean, browseAll: Boolean, pl
         modifier.fillMaxWidth().popupOpener()
             .onFocusChanged { f = it.isFocused; if (it.isFocused) Keys.focused = ch }
             .onKeyEvent { e -> if (e.type == KeyEventType.KeyUp && e.key == Key.Menu) { onMenu(); true } else false }
+            // Remote OK: a press goes to onKeyOk (double press = hide / unhide); holding it is the long press
+            .onPreviewKeyEvent { e ->
+                if (e.key != Key.DirectionCenter && e.key != Key.Enter && e.key != Key.NumPadEnter) return@onPreviewKeyEvent false
+                when (e.type) {
+                    KeyEventType.KeyDown -> {
+                        val rc = e.nativeKeyEvent.repeatCount
+                        if (rc == 0) held = false
+                        else if (!held && rc >= 8) { held = true; if (checked == null && browseAll) onToggle() else onMenu() }
+                    }
+                    KeyEventType.KeyUp -> if (!held) onKeyOk() else held = false
+                }
+                true
+            }
             .clip(shape)
             .background(when { f -> Pal.FocusBg; playing -> Pal.Soft; else -> Color.Transparent })
             .then(if (f) Modifier.border(2.dp, Pal.Gold, shape) else Modifier)
-            .combinedClickable(onClick = onClick, onLongClick = if (browseAll) onToggle else onMenu)
+            .combinedClickable(onClick = onClick, onLongClick = if (!tv || browseAll) onToggle else onMenu)
             .padding(horizontal = 12.dp, vertical = if (tv) 10.dp else 8.dp)
-            .alpha(if (on) 1f else 0.45f),
+            .alpha(if (on || checked == true) 1f else 0.45f),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)
     ) {
+        if (checked != null) CheckDot(checked)
         Box(Modifier.widthIn(min = 38.dp), contentAlignment = Alignment.CenterEnd) {
             if (ch.num > 0) Label("${ch.num}", if (tv) 15 else 13, if (playing) Pal.GoldText else Pal.Dim)
         }
@@ -322,6 +380,33 @@ private fun ChannelRow(repo: Repo, ch: Item, on: Boolean, browseAll: Boolean, pl
             }
         }
         if (tv && next != null) Label("Next ${hhmm(next.start)} · ${next.title}", 12, Pal.Dim, Modifier.widthIn(max = 260.dp))
+    }
+}
+
+/** Round check for Select mode: gold filled when selected, a soft ring otherwise. */
+@Composable
+private fun CheckDot(on: Boolean) {
+    val c by androidx.compose.animation.animateColorAsState(if (on) Pal.Gold else Color.Transparent, tween(160), label = "check")
+    Box(Modifier.size(22.dp).clip(RoundedCornerShape(11.dp)).background(c).border(2.dp, if (on) Pal.Gold else Pal.Dim, RoundedCornerShape(11.dp)),
+        contentAlignment = Alignment.Center) { if (on) Label("✓", 13, Color.Black) }
+}
+
+/** Slim Select-mode bar at the bottom: count and soft pill actions. */
+@Composable
+private fun SelectBar(n: Int, mode: String, tv: Boolean, fr: FocusRequester, canHide: Boolean, canShow: Boolean, allLabel: String,
+                      onHide: () -> Unit, onShow: () -> Unit, onAll: () -> Unit, onCancel: () -> Unit) {
+    val custom = mode != LiveModes.DEFAULT
+    Row(
+        Modifier.fillMaxWidth().padding(top = 6.dp).clip(RoundedCornerShape(16.dp)).background(Pal.Surface.copy(alpha = 0.94f))
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Label(if (n == 0) "Select channels" else "$n selected", 14, Pal.Text, Modifier.weight(1f))
+        if (tv) Label("OK check · Menu actions", 11, Pal.Dim)
+        if (canHide) PillButton(if (custom) "Remove from mode" else "Hide", onHide, Modifier.focusRequester(fr), size = 13)
+        if (canShow) PillButton(if (custom) "Add to mode" else "Unhide", onShow, if (canHide) Modifier else Modifier.focusRequester(fr), size = 13)
+        PillButton(allLabel, onAll, if (canHide || canShow) Modifier else Modifier.focusRequester(fr), size = 13)
+        PillButton("Cancel", onCancel, size = 13)
     }
 }
 

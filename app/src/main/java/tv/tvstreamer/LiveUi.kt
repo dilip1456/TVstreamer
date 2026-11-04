@@ -383,6 +383,8 @@ fun LiveInfoBar(repo: Repo, ch: Item, pos: Int, count: Int, isTv: Boolean, modif
                 fontSize = if (isTv) 14.sp else 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             if (next != null) Text("Next ${hhmm(next.start)}  ${next.title}", color = Pal.Dim, fontSize = 12.sp, maxLines = 1,
                 overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = if (isTv) 340.dp else 160.dp))
+            if (!repo.isOn(ch)) Text("Hidden", color = Pal.Dim, fontSize = 11.sp,
+                modifier = Modifier.background(Color(0x33FFFFFF), RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 1.dp))
             if (count > 1 && isTv) Text("${pos + 1}/$count", color = Pal.Dim, fontSize = 11.sp)
         }
         if (now != null) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {

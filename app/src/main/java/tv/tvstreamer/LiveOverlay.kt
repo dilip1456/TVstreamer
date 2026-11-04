@@ -32,7 +32,7 @@ object LiveOverlay {
             Pad.DOWN -> if (channels > 1) Layer.INFO to Effect.Zap(-1) else layer to Effect.None
             Pad.LEFT -> Layer.CHANNELS to Effect.None
             Pad.RIGHT -> Layer.GUIDE to Effect.None
-            Pad.OK -> if (hasError) layer to Effect.Retry else (if (layer == Layer.INFO) Layer.NONE else Layer.INFO) to Effect.None
+            Pad.OK -> if (hasError) layer to Effect.Retry else Layer.INFO to Effect.None   // only shows details; never pauses
             Pad.MENU -> Layer.NONE to Effect.Menu
             Pad.BACK -> if (layer == Layer.INFO) Layer.NONE to Effect.None else Layer.NONE to Effect.Exit
         }
