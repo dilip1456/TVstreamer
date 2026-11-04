@@ -48,4 +48,32 @@ object LiveOverlay {
         val use = if (ix.size > 1) ix else list.indices.toList()
         return use to use.indexOf(idx)
     }
+
+    /** One section of the Live TV list as the player sees it: its title and range in the flat channel list (1.55). */
+    data class Span(val title: String, val from: Int, val until: Int)
+
+    /** Section title as shown in the Left panel: "Sports › Cricket" (just "Sports" when the label is the type). */
+    fun title(type: String, label: String): String = if (label.isBlank() || label.equals(type, true)) type else "$type › $label"
+
+    /** Spans from (title, size) pairs in list order. */
+    fun spans(sections: List<Pair<String, Int>>): List<Span> {
+        var at = 0
+        return sections.map { (t, n) -> Span(t, at, at + n).also { at += n } }
+    }
+
+    /**
+     * The Left panel's list: the playing channel's section of the Live TV list (same tree, names and order as the
+     * list behind), when [spans] describe this very list; otherwise the portal category ([categoryList]).
+     * Returns (indices into list, position of the playing one, title or "").
+     */
+    /** Identity of a channel list (the spans only apply to the list they were made for). */
+    fun keysOf(list: List<Item>): Int = list.map { it.key }.hashCode()
+
+    fun sectionList(spans: List<Span>, spanKeys: Int, idx: Int, list: List<Item>): Triple<List<Int>, Int, String> {
+        val fits = spans.isNotEmpty() && spans.last().until == list.size && spans.first().from == 0 && spanKeys == keysOf(list)
+        val sp = if (fits) spans.firstOrNull { idx >= it.from && idx < it.until } else null
+        if (sp != null) { val ix = (sp.from until sp.until).toList(); return Triple(ix, ix.indexOf(idx), sp.title) }
+        val (ix, at) = categoryList(list, idx)
+        return Triple(ix, at, "")
+    }
 }

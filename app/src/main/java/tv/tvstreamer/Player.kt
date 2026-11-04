@@ -917,8 +917,9 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
         }
 
         if (live && layer == LiveOverlay.Layer.CHANNELS) {
-            val (ix, at) = remember(list, idx) { LiveOverlay.categoryList(list, idx) }
-            val catName = repo.liveCats.firstOrNull { it.id == item.cat }?.title?.let { LiveKind.sectionLabel(it) }.orEmpty()
+            // Same sections as the Live TV list behind (e.g. "Sports › Cricket"), not the portal's language groups (1.55)
+            val (ix, at, secTitle) = remember(list, idx) { LiveOverlay.sectionList(repo.liveSpans, repo.liveSpanKeys, idx, list) }
+            val catName = secTitle.ifBlank { repo.liveCats.firstOrNull { it.id == item.cat }?.title?.let { LiveKind.sectionLabel(it) }.orEmpty() }
             ChannelPanel(repo, ix.map { list[it] }, at, title = catName.ifBlank { "Channels" },
                 onPlay = { n -> layer = LiveOverlay.Layer.NONE; ix.getOrNull(n)?.let { if (it != idx) go(it) } }) { layer = LiveOverlay.Layer.NONE }
         }

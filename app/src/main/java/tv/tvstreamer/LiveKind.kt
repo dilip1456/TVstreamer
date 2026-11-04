@@ -9,6 +9,20 @@ data class ChInfo(val type: String, val lang: String)
 
 object LiveKind {
     private val SPACES = Regex("\\s+")  // first: norm() needs it while the tables below are built
+    /** Words that make a channel / category an actor or collection movie channel. */
+    val ACTOR_WORDS = listOf("actor", "actors", "actress", "actresses", "by actor", "by star", "stars collection",
+        "collection", "collections", "saga", "franchise", "filmography")
+
+    private val PERSON = Regex("^([a-z]+(?: [a-z]+){1,2}) (?:movies|movie|films|film|collection|collections|cinema)$")
+    private val NOT_PERSON = setOf("action", "comedy", "horror", "classic", "classics", "family", "kids", "best", "top", "new",
+        "hit", "hits", "world", "love", "romance", "romantic", "thriller", "drama", "sci", "fi", "war", "western", "crime",
+        "star", "zee", "sony", "sky", "hbo", "fox", "disney", "utv", "b4u", "colors", "sun", "gemini", "south", "north",
+        "hollywood", "bollywood", "tollywood", "kollywood", "indian", "korean", "chinese", "japanese", "asian", "african", "latin",
+        "english", "hindi", "tamil", "telugu", "malayalam", "kannada", "bangla", "bengali", "marathi", "punjabi", "urdu",
+        "arabic", "turkish", "spanish", "french", "german", "italian", "portuguese", "russian", "old", "gold", "golden",
+        "retro", "vintage", "christmas", "holiday", "animated", "animation", "anime", "mega", "super", "premium", "plus",
+        "the", "all", "my", "tv", "channel", "24", "7", "247", "box", "office", "blockbuster", "cinema", "music", "dubbed", "hd", "fhd", "uhd", "4k")
+
     const val NEWS = "News"
     const val SPORTS = "Sports"
     const val MUSIC = "Music"
@@ -41,16 +55,21 @@ object LiveKind {
             "nba", "nfl", "nhl", "mlb", "ufc", "wwe", "golf", "cricket", "football", "soccer", "f1", "formula 1", "racing",
             "tennis", "deportes", "futbol", "fútbol", "boxing", "premier league", "laliga", "la liga", "serie a", "bundesliga",
             "ligue 1", "ipl", "astro cricket", "sport tv", "arena sport", "match", "setanta", "dsport", "sports18", "eleven sports"),
-        MUSIC to listOf("music", "musik", "musica", "música", "musique", "mtv", "vh1", "9xm", "9x jalwa", "9x tashan",
-            "b4u music", "zoom", "mastiii", "mastii", "sangeet", "sangeet bangla", "hits", "trace", "4music", "kiss",
-            "box hits", "clubland", "sony mix", "mtv beats", "music india", "music india", "zing", "e24", "radio", "jalwa",
-            "isaiaruvi", "sun music", "raj musix", "kappa tv", "mh one", "pitaara", "balle balle"),
+        // 1.55: clear music words first ("B4U Music", "MTV Hits"), then movie channels per actor / star / franchise
+        // ("English Actors", "Actors | Brad Pitt", "Bond Collection"), and the other Movies words before the loose music
+        // words ("hits", "kiss", "zoom", "trace"), so an actor's movie channel never lands in Music
+        MUSIC to listOf("music", "musik", "musica", "música", "musique", "mtv", "vh1", "9xm", "sangeet", "music india"),
+        MOVIES to ACTOR_WORDS,
         MOVIES to listOf("movie", "movies", "cinema", "cine", "cinemas", "film", "films", "filmy", "hbo", "cinemax",
             "showtime", "starz", "sky cinema", "amc", "tcm", "mgm", "max", "sony max", "star gold", "zee cinema",
             "zee action", "zee bollywood", "&pictures", "and pictures", "utv movies", "utv action", "b4u movies",
             "sony pix", "movies now", "mn+", "romedy", "peliculas", "películas", "cine+", "colors cineplex", "star movies",
             "ktv", "sun movies", "zee talkies", "gemini movies", "manoranjan", "goldmines", "dhinchaak", "epix", "paramount network",
-            "flix", "action", "thriller", "classic movies", "hallmark movies", "lifetime movies"),
+            "flix", "action", "thriller", "cinema by actor", "movies by actor", "box office", "blockbuster", "classic movies", "hallmark movies", "lifetime movies"),
+        MUSIC to listOf("9x jalwa", "9x tashan",
+            "b4u music", "zoom", "mastiii", "mastii", "sangeet", "sangeet bangla", "hits", "trace", "4music", "kiss",
+            "box hits", "clubland", "sony mix", "mtv beats", "music india", "music india", "zing", "e24", "radio", "jalwa",
+            "isaiaruvi", "sun music", "raj musix", "kappa tv", "mh one", "pitaara", "balle balle"),
         DOCS to listOf("documentary", "documentaries", "docu", "docs", "discovery", "national geographic", "nat geo",
             "natgeo", "history", "animal planet", "travel", "travelxp", "food", "foodfood", "food food", "tlc", "lifestyle",
             "living", "hgtv", "fashion", "nature", "science", "investigation", "smithsonian", "viceland", "curiosity",
@@ -75,7 +94,14 @@ object LiveKind {
     fun typeOf(text: String): String {
         val n = " " + norm(text) + " "
         for ((t, al) in PHRASES) if (al.any { n.contains(it) }) return t
+        if (isPersonMovies(text)) return MOVIES
         return ""
+    }
+
+    /** "Tom Cruise Movies", "Shah Rukh Khan Films": a person's name (2-3 plain words) followed by movies / films. */
+    fun isPersonMovies(name: String): Boolean {
+        val m = PERSON.find(norm(name).replace(Regex(" (hd|fhd|uhd|4k)$"), "")) ?: return false
+        return m.groupValues[1].split(' ').none { it in NOT_PERSON }
     }
 
     /**

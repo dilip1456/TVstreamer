@@ -93,6 +93,10 @@ private fun RestoreFocus(repo: Repo, screen: String, key: String, fr: FocusReque
     LaunchedEffect(Unit) {
         if (repo.lastFocus[screen] == key) { delay(80); runCatching { fr.requestFocus() } }
     }
+    // Search closed (Back): back to the poster / channel focused before Search opened (1.55)
+    LaunchedEffect(AppUi.searchClosed) {
+        if (AppUi.searchClosed > 0 && SearchReturn.target(repo.lastFocus, screen) == key) { delay(80); runCatching { fr.requestFocus() } }
+    }
 }
 
 /** The series an episode in Continue watching belongs to (for "See all episodes"). */
@@ -311,7 +315,11 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
     var navIx by remember { mutableIntStateOf(-1) }
     // Search closed (Back): focus returns to the Search tab it was opened from
     LaunchedEffect(AppUi.searchClosed) {
-        if (isTv && AppUi.searchClosed > 0 && repo.lastFocus[screenKey] == "search") { delay(80); runCatching { searchFr.requestFocus() } }
+        // The item focused before Search takes focus itself (RestoreFocus); the Search tab only when there is none
+        // or it is scrolled away (then nothing has claimed focus after a moment)
+        if (isTv && AppUi.searchClosed > 0 && repo.lastFocus[screenKey] == "search") {
+            delay(250); if (repo.lastFocus[screenKey] == "search") runCatching { searchFr.requestFocus() }
+        }
     }
     // Focus the banner once when it first appears (not on every slide change)
     LaunchedEffect(hero != null) {
@@ -630,10 +638,10 @@ private fun ShelfRow(repo: Repo, screen: String, shelf: Shelf, isTv: Boolean, hP
                 val fr = remember { FocusRequester() }
                 RestoreFocus(repo, screen, k, fr)
                 if (shelf.kind == "itv") {
-                    ChannelTile(it, tileW, repo.isFav(it), Modifier.focusRequester(fr), { onOpen(it) }, { onMenu(it) }) { repo.lastFocus[screen] = k; Keys.focused = it }
+                    ChannelTile(it, tileW, repo.isFav(it), Modifier.focusRequester(fr), { onOpen(it) }, { onMenu(it) }) { repo.focusItem(screen, k); Keys.focused = it }
                 } else {
                     PosterCard(it, posterW, shelf.progress[it.key], Modifier.focusRequester(fr), { onOpen(it) }, { onMenu(it) },
-                        fav = repo.isFav(it), versions = shelf.versions[it.key] ?: 0) { repo.lastFocus[screen] = k; Keys.focused = it }
+                        fav = repo.isFav(it), versions = shelf.versions[it.key] ?: 0) { repo.focusItem(screen, k); Keys.focused = it }
                 }
             }
             if (onSeeAll != null && shelf.items.isNotEmpty()) {
@@ -1113,7 +1121,7 @@ fun GridScreen(repo: Repo, cat: Cat, open: (Item) -> Unit, play: (List<Item>, In
                 RestoreFocus(repo, screenKey, k, fr)
                 PosterCard(it, posterW, null, Modifier.then(if (i == 0) Modifier.focusRequester(firstFr) else Modifier).focusRequester(fr)
                     .then(if (isTv) Modifier.gridWrap(i, shownItems.size, state, wrap) else Modifier),
-                    { if (it.isEpisode()) play(listOf(it), 0) else open(it) }, { menu = it }, fav = repo.isFav(it), versions = vcount[it.key] ?: 0) { repo.lastFocus[screenKey] = k; Keys.focused = it }
+                    { if (it.isEpisode()) play(listOf(it), 0) else open(it) }, { menu = it }, fav = repo.isFav(it), versions = vcount[it.key] ?: 0) { repo.focusItem(screenKey, k); Keys.focused = it }
             }
             if (busy && more) items(if (items.isEmpty()) 12 else 6) { _ ->
                 Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(8.dp)).shimmer())
@@ -1203,7 +1211,7 @@ fun PoolScreen(repo: Repo, tab: String, lang: String, genre: String, title: Stri
                 val fr = remember { FocusRequester() }
                 RestoreFocus(repo, screenKey, k, fr)
                 PosterCard(it, posterW, null, Modifier.focusRequester(fr).then(if (isTv) Modifier.gridWrap(i, cards.size, state, wrap) else Modifier),
-                    { open(it) }, { menu = it }, fav = repo.isFav(it), versions = g.items.size) { repo.lastFocus[screenKey] = k; Keys.focused = it }
+                    { open(it) }, { menu = it }, fav = repo.isFav(it), versions = g.items.size) { repo.focusItem(screenKey, k); Keys.focused = it }
             }
         }
         menu?.let { m -> TitleMenu(repo, m, cards.firstOrNull { it.best.key == m.key }?.items?.size ?: 0, open, null) { menu = null } }
@@ -1337,7 +1345,7 @@ fun CategoriesScreen(repo: Repo, go: (Screen) -> Unit) {
                 val k = "$kind:${c.id}"
                 RestoreFocus(repo, screenKey, k, fr)
                 Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).focusRequester(fr)
-                    .focusCard({ openCat(c) }, { menu = c }, { repo.lastFocus[screenKey] = k }, scale = 1.05f)) {
+                    .focusCard({ openCat(c) }, { menu = c }, { repo.focusItem(screenKey, k) }, scale = 1.05f)) {
                     Poster(sample, label, Modifier.fillMaxSize(), if (kind == "vod") ContentScale.Crop else ContentScale.Fit, initialsSize = 30)
                     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.35f to Color.Transparent, 1f to Color(0xEE000000))))
                     Column(Modifier.align(Alignment.BottomStart).padding(10.dp)) {

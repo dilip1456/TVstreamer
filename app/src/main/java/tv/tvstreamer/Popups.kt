@@ -8,7 +8,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
+import androidx.compose.foundation.focusGroup
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
@@ -70,6 +72,7 @@ fun PopupFrame(onClose: () -> Unit, alignment: Alignment = Alignment.Center, scr
         Modifier.fillMaxSize()
             .graphicsLayer { alpha = shown.value }
             .background(scrim)
+            .focusTrap()
             .pointerInput(Unit) { detectTapGestures { if (Popups.isTop(id)) close() } }
             .onPreviewKeyEvent { e ->
                 if (e.key != Key.Back && e.key != Key.Escape) return@onPreviewKeyEvent false
@@ -81,4 +84,19 @@ fun PopupFrame(onClose: () -> Unit, alignment: Alignment = Alignment.Center, scr
     ) {
         Box(Modifier.graphicsLayer { translationY = (1f - shown.value) * 24f }.pointerInput(Unit) { detectTapGestures { } }) { content() }
     }
+}
+
+/**
+ * Focus trap (1.55), shared by every popup, menu, dialog, side panel and the search overlay: D-pad moves stay inside
+ * this element; at the first / last item focus stops instead of jumping to the tabs or the list behind.
+ */
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
+fun Modifier.focusTrap(): Modifier = this
+    .focusProperties { exit = { FocusTrap.exit() } }
+    .focusGroup()
+
+/** The trap's rule, kept separate so it is unit tested: leaving the group is always cancelled. */
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
+object FocusTrap {
+    fun exit(): FocusRequester = FocusRequester.Cancel
 }

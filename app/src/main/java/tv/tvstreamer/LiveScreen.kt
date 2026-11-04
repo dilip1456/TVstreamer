@@ -147,7 +147,18 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
         } else if (tv) { delay(150); runCatching { firstFr.requestFocus() } }
     }
 
-    fun playAt(ch: Item) { focusKey = ch.key; saveView(); val i = flatPos[ch.key] ?: return; val e = repo.gate(ch.locked); if (e == null) play(flat, i) else repo.status = e }
+    // Search closed (Back): back to the channel focused last (else the one playing), scrolled into view (1.55)
+    LaunchedEffect(AppUi.searchClosed) {
+        if (AppUi.searchClosed == 0 || !tv) return@LaunchedEffect
+        val k = SearchReturn.liveTarget(focusKey, repo.nowPlaying).ifEmpty { return@LaunchedEffect }
+        val sec = sections.firstOrNull { s -> s.rows.any { it.ch.key == k } } ?: return@LaunchedEffect
+        val at = (layout.first[sec.key] ?: 0) + 1 + sec.rows.indexOfFirst { it.ch.key == k }
+        LiveView.scrollFor(state.firstVisibleItemIndex, at)?.let { runCatching { state.scrollToItem(it) } }
+        delay(120)
+        runCatching { (if (k == repo.nowPlaying) playingFr else restoreFr).requestFocus() }
+    }
+
+    fun playAt(ch: Item) { focusKey = ch.key; saveView(); val i = flatPos[ch.key] ?: return; val e = repo.gate(ch.locked); if (e == null) { repo.liveSpans = LiveOverlay.spans(sections.map { sectionTitle(it) to it.rows.size }); repo.liveSpanKeys = LiveOverlay.keysOf(flat); play(flat, i) } else repo.status = e }
     fun keyOk(ch: Item) {
         sel?.let { sel = LiveSelect.toggle(it, ch.key); return }
         val now = android.os.SystemClock.uptimeMillis()
@@ -208,7 +219,7 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
                             ChannelRow(repo, ch, r.on, browseAll, ch.key == repo.nowPlaying, tv, sel?.let { ch.key in it },
                                 Modifier
                                     .then(if (ch.key == repo.nowPlaying) Modifier.focusRequester(playingFr)
-                                        else if (ch.key == focusKey && repo.nowPlaying.isEmpty()) Modifier.focusRequester(restoreFr) else Modifier)
+                                        else if (ch.key == focusKey) Modifier.focusRequester(restoreFr) else Modifier)
                                     .onFocusChanged { if (it.isFocused) { focusKey = ch.key; focusSec = s.key } }
                                     .then(if (first) Modifier.focusRequester(firstFr) else Modifier)
                                     .then(if (rail) Modifier.focusProperties { left = navReq("t:" + s.type) } else Modifier),
@@ -330,7 +341,7 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
     }
 }
 
-private fun sectionTitle(s: LiveModes.Section): String = if (s.label.equals(s.type, true)) s.type else "${s.type} · ${s.label}"
+private fun sectionTitle(s: LiveModes.Section): String = LiveOverlay.title(s.type, s.label)
 
 @Composable
 private fun SectionHeader(s: LiveModes.Section) {

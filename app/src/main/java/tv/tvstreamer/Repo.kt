@@ -63,6 +63,8 @@ class Repo(private val ctx: Context) {
     val listStates = mutableMapOf<String, LazyListState>()
     val gridStates = mutableMapOf<String, LazyGridState>()
     val lastFocus = mutableMapOf<String, String>()
+    /** An item (poster / channel tile) got focus on [screen]: remembered separately so closing Search returns to it. */
+    fun focusItem(screen: String, key: String) { lastFocus[screen] = key; lastFocus[SearchReturn.itemKey(screen)] = key }
     var catFilter by mutableStateOf("")
 
     private fun setLive(lc: List<Cat>, ch: List<Item>) {
@@ -353,6 +355,9 @@ class Repo(private val ctx: Context) {
 
     /** Key of the channel playing now (Live TV marks it). */
     var nowPlaying by mutableStateOf("")
+    /** Sections of the Live TV list last handed to the player (Left panel mirrors them). */
+    var liveSpans: List<LiveOverlay.Span> = emptyList()
+    var liveSpanKeys = 0
     fun markPlayed(i: Item) { if (i.kind == "itv") { store.addRecent(i); nowPlaying = i.key } }
 
     /** Returns an error message, or null when access is allowed. */

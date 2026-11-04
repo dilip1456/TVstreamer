@@ -3,6 +3,13 @@
 Android TV client for Stalker/MAG portals, built for Fire Stick.
 No portal, MAC or password is stored in this repo. Enter them in the app under Settings.
 
+
+## 1.55
+- Focus stays inside every open menu, popup, dialog, side panel and the search overlay (shared focus trap in PopupFrame): Up on the first item no longer jumps to the tabs or list behind.
+- Back from Search returns focus to the channel / poster focused before Search (Live TV scrolls to it).
+- Live player Left panel lists the playing channel's Live TV section (same tree, names and order as the list, e.g. "Sports › Cricket"), not the portal's language group.
+- Movies › By Actor & Collections: actor / star / collection channels ("English Actors", "Actors | Brad Pitt", "Tom Cruise Movies") go to Movies, never Music. Loose words (hits, gold, love, id, ram, top, now) no longer mis-file channels.
+
 ## Install on Fire Stick
 1. Push to main. GitHub Actions builds and publishes tvstreamer.apk to Releases.
 2. On the Fire Stick install the Downloader app, enable "Install unknown apps" for it.

@@ -170,7 +170,7 @@ fun SearchOverlay(repo: Repo, st: SearchState, open: (Item) -> Unit, play: (List
     }
     val posterW = posterWidth(isTv)
     val hPad = if (isTv) 48.dp else 12.dp
-    Box(Modifier.fillMaxSize().background(Pal.Bg.copy(alpha = 0.97f))) {
+    Box(Modifier.fillMaxSize().background(Pal.Bg.copy(alpha = 0.97f)).focusTrap()) {
         LazyVerticalGrid(
             columns = GridCells.Adaptive(posterW),
             contentPadding = PaddingValues(horizontal = hPad, vertical = if (isTv) 24.dp else 12.dp),

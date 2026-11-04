@@ -11,6 +11,7 @@ package tv.tvstreamer
  */
 object Taxonomy {
     const val OTHER = "Other"
+    const val BY_ACTOR = "By Actor & Collections"
     private val SPACES = Regex("\\s+")   // these three first: norm() runs while the tables below are built
     private val MARKS = Regex("\\p{M}+")
     private val NON = Regex("[^\\p{L}\\p{N}]+")
@@ -43,18 +44,20 @@ object Taxonomy {
             "National" to "news,cnn,msnbc,fox news,newsmax,ndtv,aaj tak,aajtak,times now,republic,abp,news18,tv9,india today,geo news,ary news,dunya,samaa,headlines,noticias,nachrichten,khabar,samachar"
         ),
         LiveKind.MOVIES to rules(
+            // Checked on the portal category first (see subOf): "English Actors" > Tom Cruise is By Actor, not Action
+            BY_ACTOR to LiveKind.ACTOR_WORDS.joinToString(",") + ",cinema by actor,movies by actor",
             "Premium" to "hbo,showtime,starz,cinemax,epix,mgm,sky cinema,paramount plus,movieplex",
             "Action" to "action,thriller,adrenaline,zee action,utv action",
-            "Comedy & Romance" to "comedy,romedy,romance,love,rom com",
+            "Comedy & Romance" to "comedy,romedy,romance,romantic,love stories,rom com",
             "Horror" to "horror,scream,shudder,fright,terror",
-            "Classic" to "classic,classics,tcm,retro,gold,golden,old,vintage,star gold,sony max 2",
+            "Classic" to "classic,classics,tcm,retro,golden,old movies,old films,vintage,star gold,sony max 2,goldmines,gold movies",
             "Family" to "family,hallmark,lifetime movies,kids movies,disney movies",
             "Indie & World" to "indie,independent,sundance,ifc,world cinema,arthouse"
         ),
         LiveKind.ENT to rules(
             "Shopping" to "shop,shopping,qvc,hsn,jewelry,jewellery,ideal world,tv shop,teleshopping,shop lc",
             "Comedy" to "comedy,comedy central,sitcom,laugh,funny",
-            "Reality" to "reality,bravo,e!,e entertainment,tlc,we tv,oxygen,real",
+            "Reality" to "reality,bravo,e entertainment,tlc,we tv,oxygen,real lives",
             "Drama & Series" to "drama,series,serial,serials,soap,novela,novelas,telenovela,dizi,dramas,amc,fx,syfy,tnt,usa network,hallmark",
             "Networks" to "abc,nbc,cbs,fox,the cw,cw,pbs,itv,bbc one,bbc two,bbc three,bbc,channel 4,channel 5,e4,sky one,sky max,tf1,rai,zdf,ard,star plus,colors,sony,zee tv,sun tv,hum tv,ary digital,geo entertainment,star jalsha,zee bangla,star vijay,star maa,asianet",
             "Talk & Game shows" to "talk,game show,quiz,gsn,game"
@@ -73,13 +76,13 @@ object Taxonomy {
             "Dance & Electronic" to "dance,edm,electronic,clubland,house,techno,club",
             "Film & Folk songs" to "9xm,b4u music,zoom,mastiii,mastii,sangeet,music india,sun music,isaiaruvi,balle balle,pitaara,mtv beats,9x jalwa,9x tashan,jalwa,raj musix,folk,bhojpuri music,punjabi music,filmi",
             "Radio" to "radio,fm",
-            "Pop & Hits" to "pop,hits,mtv,vh1,4music,kiss,box hits,top,chart,now,music"
+            "Pop & Hits" to "pop,hits,mtv,vh1,4music,kiss,box hits,top 40,top hits,chart,charts,now 70s,now 80s,now 90s,music"
         ),
         LiveKind.DOCS to rules(
             "Cooking & Food" to "food,foodfood,food food,cooking,kitchen,chef,cuisine,living foodz,tastemade,recipe",
             "Travel" to "travel,travelxp,travel xp,voyage,explore,adventure",
             "Home & Fashion" to "hgtv,home,fashion,style,lifestyle,living,diy,garden,makeover,zee zest,fox life,magnolia",
-            "Crime & Investigation" to "investigation,crime,id,true crime,cops,justice,forensic",
+            "Crime & Investigation" to "investigation,crime,investigation discovery,true crime,cops,justice,forensic",
             "Nature & Wildlife" to "nature,wild,wildlife,animal,animal planet,nat geo wild,bbc earth,love nature,earth,ocean,planet",
             "History" to "history,smithsonian,military,war,heritage,ancient",
             "Science & Tech" to "science,discovery science,curiosity,nasa,tech,technology,space,knowledge",
@@ -88,7 +91,7 @@ object Taxonomy {
         LiveKind.RELIGIOUS to rules(
             "Sikh" to "gurbani,sikh,ptc simran,sangat,harmandir,golden temple,akaal",
             "Islamic" to "islam,islamic,quran,madani,peace tv,iqraa,paigam,makkah,madina,sunnah,huda,noor",
-            "Hindu" to "aastha,sanskar,bhakti,satsang,sadhna,darshan,shubh,vedic,krishna,ram,shiv,iskcon,devotional,arihant,hindu",
+            "Hindu" to "aastha,sanskar,bhakti,satsang,sadhna,darshan,shubh,vedic,krishna,shri ram,shiv,iskcon,devotional,arihant,hindu",
             "Jain & Buddhist" to "jinvani,jain,paras,buddhist,buddha,dharma",
             "Christian" to "christian,church,gospel,ewtn,daystar,tbn,god tv,catholic,jesus,faith,bible,hillsong,cbn,word network,3abn,trinity,angel"
         ),
@@ -114,6 +117,12 @@ object Taxonomy {
         val rs = RULES[type] ?: return OTHER
         val n = " " + norm(name) + " "
         val c = " " + norm(cat) + " "
+        // Movies: a portal category about actors / collections decides ("ENGLISH ACTORS" > "Die Hard Action"); a
+        // person's movie channel ("Tom Cruise Movies") is By Actor too (1.55)
+        if (type == LiveKind.MOVIES) {
+            val actor = rs.first { it.first == BY_ACTOR }.second
+            if (actor.any { c.contains(it) || n.contains(it) } || LiveKind.isPersonMovies(name)) return BY_ACTOR
+        }
         // The channel name first ("Sky Sports Cricket" in "UK SPORTS"), then the portal category ("USA | NBA")
         for (text in listOf(n, c)) for ((s, words) in rs) if (words.any { text.contains(it) }) return s
         return OTHER
