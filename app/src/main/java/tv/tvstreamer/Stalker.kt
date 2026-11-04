@@ -199,7 +199,9 @@ class Stalker(private val store: Store) {
             val o = a.optJSONObject(i) ?: return@mapNotNull null
             // Best readable name of the portal's fields (many portals put only the number in "name")
             val nm = ChannelTitle.pick(o.optString("name"), o.optString("o_name"), o.optString("xmltv_id"), o.optString("cmd"), o.optInt("number"))
-            Item("itv", o.optString("id"), nm.ifEmpty { o.optString("name") }, o.optString("cmd"),
+            val cmds = o.optJSONArray("cmds")?.let { a2 -> (0 until a2.length()).mapNotNull { a2.optJSONObject(it)?.optString("url") } }.orEmpty()
+            val cmd = o.optString("cmd").ifBlank { cmds.firstOrNull { it.isNotBlank() } ?: "" }
+            Item("itv", o.optString("id"), nm.ifEmpty { o.optString("name") }, cmd,
                 o.optString("tv_genre_id"), o.optInt("number"), o.optInt("censored") == 1,
                 img = absUrl(o.optString("logo"), logoDir = true))
         }
@@ -382,12 +384,7 @@ class Stalker(private val store: Store) {
         return out
     }
 
-    private fun clean(cmd: String): String {
-        var raw = cmd.trim()
-        for (p in listOf("ffmpeg ", "ffrt ", "ffrt2 ", "ffrt3 ", "ffrt4 ", "auto ")) raw = raw.removePrefix(p).trim()
-        if (raw.contains(" ")) raw = raw.substringAfterLast(" ").trim()
-        return raw
-    }
+    private fun clean(cmd: String): String = StreamLink.clean(cmd)
 
     // ---------- Stream links ----------
 
@@ -427,37 +424,19 @@ class Stalker(private val store: Store) {
         return Regex("^(https?://[^/]+)").find(portal)?.value ?: ""
     }
 
-    /** Turns a create_link answer into a playable URL, or "" when it is not usable. */
-    private fun usable(rawCmd: String, vod: Boolean = true): String {
-        val raw = clean(rawCmd)
-        if (raw.isEmpty()) return ""
-        val l = raw.lowercase()
-        if (l.startsWith("http://") || l.startsWith("https://") || l.startsWith("rtsp://") || l.startsWith("rtmp://") || l.startsWith("udp://") || l.startsWith("rtp://")) {
-            // Some portals answer with http://localhost/... meaning "the portal's own host"
-            if (!vod) return raw
-            val host = Regex("^[a-z]+://([^/:]+)").find(l)?.groupValues?.get(1) ?: ""
-            if (host == "localhost" || host == "127.0.0.1") {
-                val origin = portalOrigin()
-                if (origin.isEmpty()) return ""
-                return origin + raw.substringAfter("://").let { r -> "/" + r.substringAfter("/", "") }
-            }
-            // An URL that ends with an empty stream id ("...stream=&" or ".../.mpg") cannot play
-            if (Regex("(?i)[?&]stream=(&|$)").containsMatchIn(raw)) return ""
-            return raw
-        }
-        if (raw.startsWith("/") && vod) return portalOrigin().takeIf { it.isNotEmpty() }?.let { it + raw } ?: ""
-        return ""
-    }
+    /** Turns a create_link answer into a playable URL, or "" when it is not usable (see [StreamLink]). */
+    private fun usable(rawCmd: String, vod: Boolean = true): String = StreamLink.usable(rawCmd, portalOrigin(), vod)
 
     private fun tries(i: Item): List<LinkTry> {
         val out = mutableListOf<LinkTry>()
         if (i.kind == "itv") {
             // Exactly the requests 1.36 used (live works there)
-            if (i.cmd.isNotEmpty()) {
-                val c = enc(i.cmd)
-                out += LinkTry("live cmd", "itv", i.cmd, "", query = "type=itv&action=create_link&cmd=$c&series=&forced_storage=&disable_ad=0&download=0")
-                out += LinkTry("live cmd 2", "itv", i.cmd, "", query = "type=itv&action=create_link&cmd=$c&series=0&forced_storage=0&disable_ad=0&download=0")
-                out += LinkTry("live cmd 3", "itv", i.cmd, "", query = "type=itv&action=create_link&cmd=$c")
+            val lc = StreamLink.liveCmd(i.cmd, emptyList(), i.id)
+            if (lc.isNotEmpty()) {
+                val c = enc(lc)
+                out += LinkTry("live cmd", "itv", lc, "", query = "type=itv&action=create_link&cmd=$c&series=&forced_storage=&disable_ad=0&download=0")
+                out += LinkTry("live cmd 2", "itv", lc, "", query = "type=itv&action=create_link&cmd=$c&series=0&forced_storage=0&disable_ad=0&download=0")
+                out += LinkTry("live cmd 3", "itv", lc, "", query = "type=itv&action=create_link&cmd=$c")
             }
             return out
         }
@@ -520,9 +499,25 @@ class Stalker(private val store: Store) {
      * returns the URL and the index of the strategy that produced it.
      */
     fun link(i: Item, from: Int = 0): Pair<String, Int> {
+        linkBusy.incrementAndGet()
+        try { return linkNow(i, from) } finally { linkBusy.decrementAndGet() }
+    }
+
+    /** Link requests in flight; background work (EPG) waits while the user is zapping. */
+    val linkBusy = java.util.concurrent.atomic.AtomicInteger(0)
+
+    /**
+     * Now / next for one channel (get_short_epg, a handful of programmes). Some portals answer for several channels at
+     * once; [Epg.parse] files every entry under its own ch_id.
+     */
+    fun shortEpg(chId: String): Map<String, List<Prog>> =
+        Epg.parse(call("type=itv&action=get_short_epg&ch_id=${enc(chId)}&size=10"), chId)
+
+    private fun linkNow(i: Item, from: Int): Pair<String, Int> {
         val list = tries(i)
         val fails = mutableListOf<String>()
         var lastRaw = ""
+        var resigned = false
         for ((idx, t) in list.withIndex()) {
             if (idx < from) continue
             try {
@@ -548,7 +543,21 @@ class Stalker(private val store: Store) {
                     is String -> js
                     else -> ""
                 }
-                val url = usable(got, i.kind != "itv")
+                var url = usable(got, i.kind != "itv")
+                if (url.isEmpty() && StreamLink.needsFreshToken(got) && !resigned) {
+                    // Empty stream id / token: the session went stale. Sign in again once and repeat this request.
+                    resigned = true
+                    synchronized(this) { token = ""; connect() }
+                    val again = call(q)
+                    note("${t.label} (after new sign-in)", again.toString())
+                    val j2 = again.opt("js")
+                    val got2 = when (j2) {
+                        is JSONObject -> j2.optString("cmd").ifEmpty { j2.optString("url") }.ifEmpty { j2.optString("link") }
+                        is String -> j2
+                        else -> ""
+                    }
+                    url = usable(got2, i.kind != "itv")
+                }
                 if (url.isNotEmpty()) return url to idx
                 val err = (js as? JSONObject)?.let { o -> o.optString("error").ifEmpty { o.optString("msg") } }.orEmpty()
                 fails += "${t.label}: " + when {

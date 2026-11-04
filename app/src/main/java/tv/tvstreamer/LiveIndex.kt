@@ -105,7 +105,7 @@ class LiveIndex(private val store: Store?) {
         const val FILE = "live_index.json"
         const val TIMEOUT_MS = 45_000L
         /** Bump when LiveKind's rules change, so saved results are worked out again. */
-        private const val RULES = 1
+        private const val RULES = 2
 
         /** Identity of a channel list: same channels in the same categories with the same names give the same key. */
         fun keyOf(channels: List<Item>, cats: List<Cat>): String {

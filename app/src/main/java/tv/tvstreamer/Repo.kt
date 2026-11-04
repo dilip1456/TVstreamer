@@ -23,7 +23,7 @@ private val SERIES_CAT = Regex("(?i)(series|serie|séries|tv ?shows?|\\bshows?\\
 
 fun squash(s: String) = s.lowercase().filter { it.isLetterOrDigit() }
 
-class Repo(ctx: Context) {
+class Repo(private val ctx: Context) {
     val store = Store(ctx)
     val api = Stalker(store)
     /** Movies / series of the selected languages, loaded in the background (see Library). */
@@ -224,6 +224,21 @@ class Repo(ctx: Context) {
         store.hidden = hidden
     }
     fun isChannelHidden(i: Item) = "ch:${i.key}" in hidden
+    /** A single movie / series hidden from every row and grid (synced with the hidden set). */
+    fun isTitleHidden(i: Item) = "title:${i.key}" in hidden
+    fun toggleHideTitle(i: Item) {
+        val k = "title:${i.key}"
+        hidden = if (k in hidden) hidden - k else hidden + k
+        store.hidden = hidden; lib.version++
+    }
+    fun hiddenTitleCount() = hidden.count { it.startsWith("title:") }
+    fun unhideAllTitles() { hidden = hidden.filterNot { it.startsWith("title:") }.toSet(); store.hidden = hidden; lib.version++ }
+    /** Watched = played to the end (kept in the resume list at 100 %, so it leaves Continue watching). */
+    fun isWatched(i: Item): Boolean { val (p, d) = store.resumeInfo(i); return d > 0 && p >= d * 0.95 }
+    fun setWatched(i: Item, on: Boolean) {
+        if (on) { val d = store.resumeInfo(i).second.takeIf { it > 0 } ?: 1L; store.saveResume(i, d, d) } else store.removeResume(i.key)
+        lib.version++
+    }
     fun hiddenChannelCount() = hidden.count { it.startsWith("ch:") }
     fun unhideAllChannels() { hidden = hidden.filterNot { it.startsWith("ch:") }.toSet(); store.hidden = hidden }
     fun toggleHide(kind: String, id: String) {
@@ -252,6 +267,7 @@ class Repo(ctx: Context) {
         vodOrder = store.catOrder("vod")
         liveOrder = store.catOrder("itv")
         Theme.mode = store.theme
+        liveLangs = store.langs("live")?.takeIf { it.isNotEmpty() }
         syncTick++
     }
     /** Bumped after a cloud sync changed local data. */
@@ -396,5 +412,91 @@ class Repo(ctx: Context) {
                 .filter { "vod:${it.cat}" !in hid && (!it.locked || unlocked) }
         }
         return live to vod
+    }
+
+    // ---- Live TV guide, modes, languages, reminders (v1.52) ----
+
+    /** Now / next, loaded only for the channels on screen (see EpgLoader). */
+    val epg = EpgLoader({ id -> api.shortEpg(id) }, { api.linkBusy.get() > 0 })
+
+    /** Current Live TV mode: "" = Default (every channel not hidden), else a custom mode's name. */
+    var liveMode by mutableStateOf(store.sort("live_mode", LiveModes.DEFAULT))
+        private set
+    fun selectMode(name: String) {
+        liveMode = if (name in folders.folders) name else LiveModes.DEFAULT
+        store.saveSort("live_mode", liveMode)
+    }
+    /** The mode actually used ("" when the saved one was deleted, e.g. on another device). */
+    fun mode(): String = liveMode.takeIf { it in folders.folders } ?: LiveModes.DEFAULT
+    val modes: List<String> get() = folders.names
+
+    fun createMode(name: String, current: List<Item>?): String? {
+        val n = FolderSet.clean(name)
+        if (n.isEmpty()) return null
+        applyFolders(LiveModes.create(folders, n, current?.map { named(rawByKey[it.key] ?: it) }))
+        selectMode(n); return n
+    }
+    fun renameMode(old: String, new: String) {
+        val n = FolderSet.clean(new); if (n.isEmpty()) return
+        renameFolder(old, n); if (liveMode == old) selectMode(n)
+    }
+    fun deleteMode(name: String) { deleteFolder(name); if (liveMode == name) selectMode(LiveModes.DEFAULT) }
+
+    /** Is [ch] listed in the current mode? */
+    fun isOn(ch: Item): Boolean = LiveModes.isOn(ch, mode(), folders, hidden)
+    /** Long-press / "Hide channel": enable or disable in the current mode (Default: unhide / hide). */
+    fun toggleOn(ch: Item) {
+        val (f, h) = LiveModes.toggle(named(rawByKey[ch.key] ?: ch), mode(), folders, hidden)
+        if (f != folders) applyFolders(f)
+        if (h != hidden) { hidden = h; store.hidden = h }
+    }
+    fun toTopOfMode(ch: Item) { val m = mode(); if (m != LiveModes.DEFAULT) applyFolders(LiveModes.toTop(ch, m, folders)) }
+
+    /** Live TV languages: null = all; else only these are listed (synced with the other language choices). */
+    var liveLangs by mutableStateOf(store.langs("live"))
+        private set
+    fun chooseLiveLangs(v: Set<String>?) { liveLangs = v?.takeIf { it.isNotEmpty() }; store.saveLangs("live", liveLangs) }
+
+    /** Reminders for upcoming programmes (on this device): a toast at the start time. */
+    data class Reminder(val chKey: String, val chName: String, val title: String, val start: Long)
+    val reminders = mutableStateListOf<Reminder>().apply {
+        runCatching {
+            val a = org.json.JSONArray(store.cacheRead("reminders.json") ?: "[]")
+            for (i in 0 until a.length()) a.getJSONObject(i).let { o ->
+                add(Reminder(o.getString("k"), o.getString("c"), o.getString("t"), o.getLong("s")))
+            }
+        }
+    }
+    private fun saveReminders() {
+        val a = org.json.JSONArray()
+        reminders.forEach { a.put(JSONObject().put("k", it.chKey).put("c", it.chName).put("t", it.title).put("s", it.start)) }
+        store.cacheWrite("reminders.json", a.toString())
+    }
+    fun hasReminder(ch: Item, p: Prog) = reminders.any { it.chKey == ch.key && it.start == p.start }
+    /** Sets (or, when set already, removes) a reminder; returns true when one is set now. */
+    fun toggleReminder(ch: Item, p: Prog): Boolean {
+        val r = reminders.firstOrNull { it.chKey == ch.key && it.start == p.start }
+        if (r != null) { reminders.remove(r); saveReminders(); return false }
+        reminders.add(Reminder(ch.key, ChannelTitle.pretty(ch.name), p.title, p.start)); saveReminders()
+        startReminderTicker(); return true
+    }
+    private var ticker: kotlinx.coroutines.Job? = null
+    @Synchronized fun startReminderTicker() {
+        if (ticker?.isActive == true || reminders.isEmpty()) return
+        ticker = bg.launch {
+            while (reminders.isNotEmpty()) {
+                val now = System.currentTimeMillis()
+                val due = reminders.filter { it.start <= now + 15_000 }
+                if (due.isNotEmpty()) {
+                    withContext(Dispatchers.Main) {
+                        reminders.removeAll(due); saveReminders()
+                        due.filter { now - it.start < 30 * 60_000 }.forEach {
+                            android.widget.Toast.makeText(ctx, "⏰ Starting now on ${it.chName}: ${it.title}", android.widget.Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
+                kotlinx.coroutines.delay(15_000)
+            }
+        }
     }
 }

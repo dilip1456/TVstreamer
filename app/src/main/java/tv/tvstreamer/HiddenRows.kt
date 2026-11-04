@@ -36,9 +36,10 @@ fun HiddenRowsPanel(repo: Repo, modifier: Modifier = Modifier) {
     val cats = repo.hidden.filter { it.startsWith("vod:") }.mapNotNull { k -> repo.vodCats.find { "vod:${it.id}" == k } }
     val liveCats = repo.hidden.filter { it.startsWith("itv:") }.mapNotNull { k -> repo.liveCats.find { "itv:${it.id}" == k } }
     val channels = repo.hiddenChannelCount()
+    val titles = repo.hiddenTitleCount()
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Label("Hidden", 18)
-        if (rows.isEmpty() && cats.isEmpty() && liveCats.isEmpty() && channels == 0) Label("Nothing hidden", 13, Pal.Dim)
+        if (rows.isEmpty() && cats.isEmpty() && liveCats.isEmpty() && channels == 0 && titles == 0) Label("Nothing hidden", 13, Pal.Dim)
         rows.forEach { e ->
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Label("${HomeHide.title(e)}  ·  ${HomeHide.tabLabel(HomeHide.tab(e))}", 14, Pal.Text, Modifier.weight(1f))
@@ -60,6 +61,10 @@ fun HiddenRowsPanel(repo: Repo, modifier: Modifier = Modifier) {
         if (channels > 0) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Label("$channels hidden channel" + (if (channels > 1) "s" else ""), 14, Pal.Text, Modifier.weight(1f))
             PillButton("Show again", { repo.unhideAllChannels() }, size = 13)
+        }
+        if (titles > 0) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Label("$titles hidden title" + (if (titles > 1) "s" else ""), 14, Pal.Text, Modifier.weight(1f))
+            PillButton("Show again", { repo.unhideAllTitles() }, size = 13)
         }
         if (rows.size + cats.size > 1) PillButton("Show all rows again", { repo.unhideAllRows() }, size = 13)
     }

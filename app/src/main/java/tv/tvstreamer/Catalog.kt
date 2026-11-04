@@ -195,6 +195,7 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
     val cont = remember(tick, contVer) { repo.store.continueList() }
     val recent = remember(tick) { repo.store.list("recent").filter { !it.locked }.map(repo::named) }
     var menu by remember { mutableStateOf<Pair<Shelf, Item?>?>(null) }
+    var fixItem by remember { mutableStateOf<Item?>(null) }
     var sortMenu by remember { mutableStateOf(false) }
     var updateMsg by remember { mutableStateOf("") }
     val tabbed = mode == "movies" || mode == "series"
@@ -327,13 +328,22 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
     val hPad = if (isTv) 48.dp else 14.dp
     val state = remember(mode) { repo.listStates.getOrPut(screenKey) { LazyListState() } }
     // TV Back inside the page: first back to the top menu; Back on the menu then leaves the tab as before
-    androidx.activity.compose.BackHandler(enabled = isTv && !AppUi.phoneNav && !navFocused) {
+    androidx.activity.compose.BackHandler(enabled = isTv && !AppUi.phoneNav && !navFocused && !Popups.any) {
         scope.launch { runCatching { state.scrollToItem(0) }; delay(30); runCatching { navFr.requestFocus() } }
     }
     Box(Modifier.fillMaxSize().background(Pal.Bg)) {
+        // Soft gold glow at the top (one static gradient: no blur, cheap on Fire TV)
+        if (Theme.dark) Box(Modifier.fillMaxWidth().height(420.dp).background(Brush.verticalGradient(listOf(Pal.Gold.copy(alpha = 0.10f), Color.Transparent))))
         LazyColumn(state = state, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 48.dp)) {
             item(key = "nav") {
-                val tabs = listOf<Triple<String, String, () -> Unit>>(
+                val tabs = if (!AppUi.phoneNav) listOf<Triple<String, String, () -> Unit>>(
+                    Triple("🔍", "search") { go(Screen.Search) },
+                    Triple("Home", "home") { go(Screen.Home) },
+                    Triple("Movies", "movies") { go(Screen.MoviesTab) },
+                    Triple("Series", "series") { go(Screen.SeriesTab) },
+                    Triple("Live TV", "live") { go(Screen.Live) },
+                    Triple("Categories", "cats") { go(Screen.Categories) }
+                ) else listOf<Triple<String, String, () -> Unit>>(
                     Triple("Home", "home") { go(Screen.Home) },
                     Triple("Movies", "movies") { go(Screen.MoviesTab) },
                     Triple("Series", "series") { go(Screen.SeriesTab) },
@@ -350,23 +360,32 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                     }
                 )
                 Column(Modifier.padding(horizontal = hPad, vertical = if (isTv) 18.dp else 10.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (AppUi.phoneNav || !isTv) Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("TVSTREAMER", color = Pal.GoldText, fontSize = if (isTv) 28.sp else 22.sp, fontWeight = FontWeight.Black)
                     }
-                    Spacer(Modifier.height(10.dp))
-                    // TV menu: Left / Right stay inside the menu (no jumping out of either end), Down goes to the page
-                    if (!AppUi.phoneNav) LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(vertical = 4.dp),
-                        modifier = Modifier.menuRow({ navIx }, { tabs.size + 1 }).onFocusChanged { navFocused = it.hasFocus; if (!it.hasFocus) navIx = -1 }.focusRestorer()) {
-                        itemsIndexed(tabs, key = { _, it -> it.second }) { ti, (t, k, a) ->
-                            val at = Modifier.onFocusChanged { if (it.isFocused) navIx = ti }
-                            val m = at then when (k) {
-                                mode -> Modifier.focusRequester(navFr).onFocusChanged { if (it.isFocused) repo.lastFocus[screenKey] = "nav" }
-                                "search" -> Modifier.focusRequester(searchFr).onFocusChanged { if (it.isFocused) repo.lastFocus[screenKey] = "search" }
-                                else -> Modifier
+                    // TV / tablet menu (Netflix style): profile on the left, text tabs centred; the focused tab is a soft
+                    // light pill, the current one bold. Left / Right stay inside the menu, Down goes to the page.
+                    // Settings, Preferences and Update live in the profile menu.
+                    if (!AppUi.phoneNav) Row(
+                        Modifier.fillMaxWidth().menuRow({ navIx }, { tabs.size + 1 })
+                            .onFocusChanged { navFocused = it.hasFocus; if (!it.hasFocus) navIx = -1 }.focusRestorer(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(Modifier.onFocusChanged { if (it.hasFocus) navIx = 0 }) { AvatarButton { AppUi.accountMenu = true } }
+                        Spacer(Modifier.weight(1f))
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                            tabs.forEachIndexed { ti, (t, k, a) ->
+                                val at = Modifier.onFocusChanged { if (it.isFocused) navIx = ti + 1 }
+                                val m = at then when (k) {
+                                    mode -> Modifier.focusRequester(navFr).onFocusChanged { if (it.isFocused) repo.lastFocus[screenKey] = "nav" }
+                                    "search" -> Modifier.focusRequester(searchFr).onFocusChanged { if (it.isFocused) repo.lastFocus[screenKey] = "search" }
+                                    else -> Modifier
+                                }
+                                NavTab(t, a, m, selected = k == mode)
                             }
-                            PillButton(t, a, m, selected = k == mode, size = 15)
                         }
-                        item(key = "avatar") { Box(Modifier.onFocusChanged { if (it.hasFocus) navIx = tabs.size }) { AvatarButton { AppUi.accountMenu = true } } }
+                        Spacer(Modifier.weight(1f))
+                        Text("TV", color = Pal.GoldText, fontSize = 22.sp, fontWeight = FontWeight.Black)
                     }
                     if (tabbed) {
                         Spacer(Modifier.height(8.dp))
@@ -452,7 +471,11 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                         }
                     }
                     if (item.kind == "vod" && !item.isEpisode() && shelf.key != "cont") add("Details" to { menu = null; open(item) })
-                    if (!item.isEpisode()) add((if (repo.isFav(item)) "★  Remove from My List" else "☆  Add to My List") to { repo.toggleFav(item); menu = null })
+                    if (!item.isEpisode()) add((if (repo.isFav(item)) "✓  Remove from My List" else "+  Add to My List") to { repo.toggleFav(item); menu = null })
+                    if (item.kind == "vod" && !item.isSeries) add((if (repo.isWatched(item)) "Mark as unwatched" else "Mark as watched") to { repo.setWatched(item, !repo.isWatched(item)); contVer++; menu = null })
+                    if (item.kind == "vod" && !item.isEpisode()) add("Fix match…" to { menu = null; fixItem = item })
+                    if (item.kind == "vod" && (shelf.versions[item.key] ?: 0) > 1) add("Versions (${shelf.versions[item.key]})…" to { menu = null; open(item) })
+                    if (item.kind == "vod" && !item.isEpisode() && shelf.key != "cont") add("Hide this title" to { repo.toggleHideTitle(item); menu = null })
                     if (shelf.key == "cont") add("✕  Remove from Continue watching" to { repo.store.removeResume(item.key); menu = null; contVer++ })
                     if (item.kind == "itv") add("Hide channel" to { repo.toggleHideChannel(item); menu = null })
                 }
@@ -478,6 +501,7 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
             } ?: shelf.title
             ChoiceDialog(title, opts, focusKey = shelf.key + (item?.key ?: "")) { menu = null }
         }
+        fixItem?.let { f -> FixMatchDialog(f) { fixItem = null } }
         if (sortMenu) {
             ChoiceDialog("Sort genre rows", Sorts.all.map { s ->
                 ((if (s == sort) "✓  " else "") + Sorts.label(s)) to { sort = s; repo.store.saveSort("tab:$mode", s); sortMenu = false; if (s != Sorts.ADDED) lib.more(mode, langs) }
@@ -495,7 +519,9 @@ private fun Hero(repo: Repo, raw: Item, isTv: Boolean, hPad: Dp, playLabel: Stri
     val name = meta?.title?.ifEmpty { null } ?: Names.title(item.name)
     // Any key press inside the banner pauses the rotation for a while; the buttons stay the same composables, so a
     // slide change never moves D-pad focus
-    Box(Modifier.fillMaxWidth().height(if (isTv) 320.dp else 260.dp)
+    // A rounded hero card (Netflix TV style) inset from the screen edges; full-bleed on phones
+    val card = if (isTv) Modifier.padding(horizontal = hPad).clip(RoundedCornerShape(20.dp)) else Modifier
+    Box(Modifier.fillMaxWidth().then(card).height(if (isTv) 340.dp else 260.dp)
         .onPreviewKeyEvent { if (it.type == KeyEventType.KeyDown) onTouch(); false }) {
         androidx.compose.animation.Crossfade(meta?.backdrop?.ifEmpty { null } ?: item.img, animationSpec = androidx.compose.animation.core.tween(450), label = "hero") { url ->
             Poster(url, name, Modifier.fillMaxSize(), ContentScale.Crop, initialsSize = 1)
@@ -503,7 +529,7 @@ private fun Hero(repo: Repo, raw: Item, isTv: Boolean, hPad: Dp, playLabel: Stri
         Box(Modifier.fillMaxSize().background(Color(0x66000000)))
         Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Pal.Bg, Pal.Bg.copy(alpha = 0.55f), Color.Transparent))))
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.5f to Color.Transparent, 1f to Pal.Bg)))
-        Row(Modifier.fillMaxSize().padding(horizontal = hPad, vertical = 16.dp), verticalAlignment = Alignment.Bottom) {
+        Row(Modifier.fillMaxSize().padding(horizontal = if (isTv) 32.dp else hPad, vertical = if (isTv) 24.dp else 16.dp), verticalAlignment = Alignment.Bottom) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(name, color = Pal.Text, fontSize = if (isTv) 34.sp else 24.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 MetaLine(item)
@@ -954,18 +980,19 @@ private fun FixMatchDialog(item: Item, onClose: () -> Unit) {
     val fr = remember { FocusRequester() }
     fun run() { busy = true; scope.launch { results = Tmdb.search(q, type); busy = false } }
     LaunchedEffect(Unit) { run(); delay(150); runCatching { fr.requestFocus() } }
-    // System / remote Back closes the dialog (not the details page behind it)
-    androidx.activity.compose.BackHandler { onClose() }
-    Box(Modifier.fillMaxSize().background(Color(0xCC000000)), contentAlignment = Alignment.Center) {
+    // One Back closes the dialog (not the details page behind it); focus returns to "Fix match"
+    PopupFrame(onClose, scrim = Color(0xCC000000)) {
         Column(Modifier.widthIn(max = 640.dp).fillMaxWidth(0.9f).heightIn(max = 560.dp).background(Pal.Surface, RoundedCornerShape(14.dp)).padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Fix match: ${Names.title(item.name)}", color = Pal.Text, fontSize = 20.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             val kb = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
-            TextField(value = q, onValueChange = { q = it }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+            KeyboardGate(Modifier.fillMaxWidth()) { inner ->
+            TextField(value = q, onValueChange = { q = it }, singleLine = true, modifier = inner.fillMaxWidth(),
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
                 keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { kb?.hide(); run(); runCatching { fr.requestFocus() } }),
                 colors = TextFieldDefaults.colors(focusedContainerColor = Pal.FieldFocus, unfocusedContainerColor = Pal.Field,
                     focusedTextColor = Pal.Text, unfocusedTextColor = Pal.Text))
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 PillButton("Search", { run() }, Modifier.focusRequester(fr), primary = true, size = 14)
                 PillButton("Movie", { type = "movie"; run() }, selected = type == "movie", size = 14)
@@ -1027,16 +1054,29 @@ fun GridScreen(repo: Repo, cat: Cat, open: (Item) -> Unit, play: (List<Item>, In
     var sortMenu by remember { mutableStateOf(false) }
     val screenKey = "grid:${cat.id}"
     // Same title in several qualities shows once (best version first); sorted on what is loaded so far
-    val cards = remember(items, sort, Tmdb.version) { repo.lib.sort(repo.lib.cards(items), sort) }
+    // Stable: titles already on screen keep their place when a page arrives (no jump back / repeats, see Paging)
+    val order = remember(cat.id, sort) { arrayOf(emptyList<String>()) }
+    val cards = remember(items, sort, Tmdb.version) {
+        Paging.stable(order[0], repo.lib.sort(repo.lib.cards(items), sort)) { it.best.key }.also { c -> order[0] = c.map { it.best.key } }
+    }
     val vcount = remember(cards) { cards.associate { it.best.key to it.items.size } }
     val shownItems = remember(cards) { cards.map { it.best } }
 
     fun next() { if (more && !busy) lib.moreInCat(cat.id) }
     LaunchedEffect(cat.id) { if (items.isEmpty()) next() }
+    // Paging: once per list size, when the last few posters come into view
+    var askedAt by remember(cat.id) { mutableIntStateOf(-1) }
 
     val posterW = posterWidth(isTv)
     val hPad = if (isTv) 48.dp else 14.dp
     val state = remember(cat.id) { repo.gridStates.getOrPut(screenKey) { LazyGridState() } }
+    val wrap = remember(cat.id) { GridFocus() }
+    LaunchedEffect(state, shownItems.size, more, busy) {
+        snapshotFlow { state.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }.collect { last ->
+            // grid index 0 is the header
+            if (Paging.shouldLoad(last - 1, shownItems.size, more, busy, askedAt)) { askedAt = shownItems.size; next() }
+        }
+    }
     val firstFr = remember { FocusRequester() }
     LaunchedEffect(items.isNotEmpty()) { if (isTv && items.isNotEmpty() && repo.lastFocus[screenKey] == null) { delay(100); runCatching { firstFr.requestFocus() } } }
 
@@ -1062,27 +1102,46 @@ fun GridScreen(repo: Repo, cat: Cat, open: (Item) -> Unit, play: (List<Item>, In
                     }
                 }
             }
-            gridItemsIndexed(shownItems, key = { i, it -> "$i|${it.key}" }) { i, it ->
+            gridItemsIndexed(shownItems, key = { _, it -> it.key }) { i, it ->
                 val k = it.key
                 val fr = remember { FocusRequester() }
                 RestoreFocus(repo, screenKey, k, fr)
-                PosterCard(it, posterW, null, Modifier.then(if (i == 0) Modifier.focusRequester(firstFr) else Modifier).focusRequester(fr),
+                PosterCard(it, posterW, null, Modifier.then(if (i == 0) Modifier.focusRequester(firstFr) else Modifier).focusRequester(fr)
+                    .then(if (isTv) Modifier.gridWrap(i, shownItems.size, state, wrap) else Modifier),
                     { if (it.isEpisode()) play(listOf(it), 0) else open(it) }, { menu = it }, fav = repo.isFav(it), versions = vcount[it.key] ?: 0) { repo.lastFocus[screenKey] = k; Keys.focused = it }
-                // Paging: ask for the next page when the last few posters come into view
-                if (i >= shownItems.size - 6 && more && !busy) LaunchedEffect(items.size) { next() }
             }
             if (busy && more) items(if (items.isEmpty()) 12 else 6) { _ ->
                 Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(8.dp)).shimmer())
             }
         }
-        menu?.let { m ->
-            ChoiceDialog(Names.title(m.name), listOf(
-                "Details" to { menu = null; open(m) },
-                (if (repo.isFav(m)) "★  Remove from My List" else "☆  Add to My List") to { repo.toggleFav(m); menu = null }
-            ), onClose = { menu = null })
-        }
+        menu?.let { m -> TitleMenu(repo, m, vcount[m.key] ?: 0, open, { play(listOf(it), 0) }) { menu = null } }
         if (sortMenu) SortDialog(sort, { sort = it; repo.store.saveSort("grid", it); sortMenu = false }) { sortMenu = false }
     }
+}
+
+/**
+ * Movie / series menu: only valid options, Close last (ChoiceDialog). Play / Episodes, My List, Mark watched,
+ * Fix match, Versions (when there are several), Hide this title.
+ */
+@Composable
+fun TitleMenu(repo: Repo, m: Item, versions: Int, open: (Item) -> Unit, play: ((Item) -> Unit)?, onClose: () -> Unit) {
+    var fix by remember(m.key) { mutableStateOf(false) }
+    if (fix) { FixMatchDialog(m) { fix = false; onClose() }; return }
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    ChoiceDialog(Names.title(m.name), buildList {
+        when {
+            m.isSeries -> add("▶  Episodes" to { onClose(); open(m) })
+            play != null -> add("▶  Play" to { onClose(); play(m) })
+        }
+        add("ⓘ  Details" to { onClose(); open(m) })
+        if (!m.isEpisode()) add((if (repo.isFav(m)) "✓  Remove from My List" else "+  Add to My List") to { repo.toggleFav(m); onClose() })
+        if (!m.isSeries) add((if (repo.isWatched(m)) "Mark as unwatched" else "Mark as watched") to { repo.setWatched(m, !repo.isWatched(m)); onClose() })
+        if (m.kind == "vod" && !m.isEpisode()) add("Fix match…" to { fix = true })
+        if (versions > 1) add("Versions ($versions)…" to { onClose(); open(m) })
+        if (!m.isEpisode()) add("Hide this title" to {
+            repo.toggleHideTitle(m); onClose(); toast(ctx, "Hidden. Show it again in Settings > Hidden.")
+        })
+    }, focusKey = "title" + m.key, onClose = onClose)
 }
 
 @Composable
@@ -1099,16 +1158,26 @@ fun PoolScreen(repo: Repo, tab: String, lang: String, genre: String, title: Stri
     var sort by remember { mutableStateOf(repo.store.sort("pool:$title", sort0)) }
     var sortMenu by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf<Item?>(null) }
+    val order = remember(lang, genre, sort) { arrayOf(emptyList<String>()) }
     val cards by produceState(emptyList<Group>(), lang, genre, sort, lib.version, Tmdb.version) {
         value = withContext(Dispatchers.Default) {
             val g = lib.cards(lib.pool(tab, setOf(lang)))
-            lib.sort(if (genre.isEmpty()) g else g.filter { genre in lib.genresOf(it.best) }, sort)
+            // Stable order: new titles are appended, what is on screen stays put (see Paging)
+            Paging.stable(order[0], lib.sort(if (genre.isEmpty()) g else g.filter { genre in lib.genresOf(it.best) }, sort)) { it.key }
+                .also { c -> order[0] = c.map { it.key } }
         }
     }
+    var askedAt by remember(lang, genre) { mutableIntStateOf(-1) }
     val screenKey = "pool:$tab:$title"
     val posterW = posterWidth(isTv)
     val hPad = if (isTv) 48.dp else 14.dp
     val state = remember(screenKey) { repo.gridStates.getOrPut(screenKey) { LazyGridState() } }
+    val wrap = remember(screenKey) { GridFocus() }
+    LaunchedEffect(state, cards.size, lib.loading) {
+        snapshotFlow { state.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }.collect { last ->
+            if (Paging.shouldLoad(last - 1, cards.size, !lib.complete, lib.loading, askedAt)) { askedAt = cards.size; lib.more(tab, setOf(lang)) }
+        }
+    }
     val firstFr = remember { FocusRequester() }
     LaunchedEffect(cards.isNotEmpty()) { if (isTv && cards.isNotEmpty() && repo.lastFocus[screenKey] == null) { delay(100); runCatching { firstFr.requestFocus() } } }
     Box(Modifier.fillMaxSize().background(Pal.Bg)) {
@@ -1123,22 +1192,16 @@ fun PoolScreen(repo: Repo, tab: String, lang: String, genre: String, title: Stri
                     PillButton("⇅  Sort: " + Sorts.label(sort), { sortMenu = true }, Modifier.focusRequester(firstFr), size = 14)
                 }
             }
-            gridItemsIndexed(cards, key = { i, g -> "$i|${g.key}" }) { i, g ->
+            gridItemsIndexed(cards, key = { _, g -> g.key }) { i, g ->
                 val it = g.best
                 val k = g.key
                 val fr = remember { FocusRequester() }
                 RestoreFocus(repo, screenKey, k, fr)
-                PosterCard(it, posterW, null, Modifier.focusRequester(fr), { open(it) }, { menu = it }, fav = repo.isFav(it),
-                    versions = g.items.size) { repo.lastFocus[screenKey] = k; Keys.focused = it }
-                if (i >= cards.size - 6) LaunchedEffect(cards.size) { lib.more(tab, setOf(lang)) }
+                PosterCard(it, posterW, null, Modifier.focusRequester(fr).then(if (isTv) Modifier.gridWrap(i, cards.size, state, wrap) else Modifier),
+                    { open(it) }, { menu = it }, fav = repo.isFav(it), versions = g.items.size) { repo.lastFocus[screenKey] = k; Keys.focused = it }
             }
         }
-        menu?.let { m ->
-            ChoiceDialog(Names.title(m.name), listOf(
-                "Details" to { menu = null; open(m) },
-                (if (repo.isFav(m)) "★  Remove from My List" else "☆  Add to My List") to { repo.toggleFav(m); menu = null }
-            ), onClose = { menu = null })
-        }
+        menu?.let { m -> TitleMenu(repo, m, cards.firstOrNull { it.best.key == m.key }?.items?.size ?: 0, open, null) { menu = null } }
         if (sortMenu) SortDialog(sort, { sort = it; repo.store.saveSort("pool:$title", it); sortMenu = false; if (it != Sorts.ADDED) lib.more(tab, setOf(lang)) }) { sortMenu = false }
     }
 }
@@ -1242,17 +1305,19 @@ fun CategoriesScreen(repo: Repo, go: (Screen) -> Unit) {
                     }
                     val kb = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
                     val fm = androidx.compose.ui.platform.LocalFocusManager.current
+                    KeyboardGate(Modifier.fillMaxWidth(if (isTv) 0.5f else 1f)) { inner ->
                     TextField(
                         value = repo.catFilter, onValueChange = { repo.catFilter = it }, singleLine = true,
                         keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
                         keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { kb?.hide(); fm.moveFocus(androidx.compose.ui.focus.FocusDirection.Down) }),
                         placeholder = { Text("Filter categories…", color = Pal.Dim) },
-                        modifier = Modifier.fillMaxWidth(if (isTv) 0.5f else 1f),
+                        modifier = inner.fillMaxWidth(),
                         colors = TextFieldDefaults.colors(
                             focusedContainerColor = Pal.Surface, unfocusedContainerColor = Pal.Surface,
                             focusedTextColor = Pal.Text, unfocusedTextColor = Pal.Text
                         )
                     )
+                    }
                     Text("${cats.size} of ${all.size}" + (if (q.isNotEmpty()) " match \"$q\"" else ""), color = Pal.Dim, fontSize = 12.sp)
                 }
             }

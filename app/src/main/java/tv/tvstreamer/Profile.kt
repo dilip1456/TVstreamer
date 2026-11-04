@@ -150,9 +150,7 @@ fun AccountMenu(store: Store, go: (Screen) -> Unit, onClose: () -> Unit) {
     var msg by remember { mutableStateOf("") }
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { delay(80); runCatching { first.requestFocus() } }
-    androidx.activity.compose.BackHandler { onClose() }
-    Box(Modifier.fillMaxSize().background(Color(0x99000000)).clickable(indication = null, interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }) { onClose() },
-        contentAlignment = if (AppUi.phoneNav) Alignment.BottomCenter else Alignment.TopEnd) {
+    PopupFrame(onClose, alignment = if (AppUi.phoneNav) Alignment.BottomCenter else Alignment.TopEnd, scrim = Color(0x99000000)) {
         Column(
             Modifier.then(if (AppUi.phoneNav) Modifier.fillMaxWidth().navigationBarsPadding() else Modifier.padding(24.dp).width(420.dp))
                 .clip(if (AppUi.phoneNav) RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp) else RoundedCornerShape(16.dp))
@@ -183,6 +181,7 @@ fun AccountMenu(store: Store, go: (Screen) -> Unit, onClose: () -> Unit) {
             if (Cloud.signedIn) Row1("Sign out", { Cloud.signOut(); msg = "Signed out. Data on this device is kept." })
             else Row1("Sign in with Google", { onClose(); go(Screen.Account) })
             if (msg.isNotEmpty()) Label(msg, 14, Pal.Warn, maxLines = 3)
+            Row1("Close", onClose)
         }
     }
 }

@@ -77,6 +77,7 @@ class Library(private val repo: Repo) {
     private val catNext = ConcurrentHashMap<String, Int>()      // next page to fetch per category
     private val catEnd = ConcurrentHashMap.newKeySet<String>()  // every page fetched
     private val fewSpent = ConcurrentHashMap<String, Int>()
+    private val emptyPages = ConcurrentHashMap<String, Int>()  // pages in a row that brought nothing new, per category
     private val queued = ConcurrentHashMap.newKeySet<String>()
     @Volatile private var sessionPages = 0
     @Volatile private var current: Job? = null
@@ -133,7 +134,7 @@ class Library(private val repo: Repo) {
 
     private fun visible(i: Item, unlocked: Boolean): Boolean {
         val c = catOf(i.cat)
-        return "vod:${i.cat}" !in repo.hidden && (unlocked || (!i.locked && c?.locked != true))
+        return "vod:${i.cat}" !in repo.hidden && "title:${i.key}" !in repo.hidden && (unlocked || (!i.locked && c?.locked != true))
     }
 
     /** Language -> count for the tab's picker: titles in the local catalog, or categories before it has loaded. */
@@ -299,10 +300,13 @@ class Library(private val repo: Repo) {
         val p = catNext[id] ?: 1
         val pg = page(id, p) ?: return false
         val known = all.map { it.key }.toHashSet()
-        val add = pg.items.filter { it.key !in known }
-        publish(if (front) add + all else all + add)
+        val add = pg.items.filter { it.key !in known }.distinctBy { it.key }
+        if (add.isNotEmpty()) publish(if (front) add + all else all + add)
         catNext[id] = p + 1
-        if (pg.items.isEmpty() || p >= pg.pages) catEnd += id
+        // A page with nothing new twice in a row = the portal repeats itself (answers page 1 again): stop paging
+        val empty = if (add.isEmpty()) (emptyPages[id] ?: 0) + 1 else 0
+        emptyPages[id] = empty
+        if (pg.items.isEmpty() || p >= pg.pages || Paging.endAfterEmpty(empty)) catEnd += id
         return true
     }
 

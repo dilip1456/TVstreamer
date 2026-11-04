@@ -34,11 +34,10 @@ fun NameDialog(title: String, initial: String, confirm: String, onDone: (String)
     var text by remember { mutableStateOf(initial) }
     val fr = remember { FocusRequester() }
     LaunchedEffect(Unit) { delay(80); runCatching { fr.requestFocus() } }
-    androidx.activity.compose.BackHandler { onClose() }
-    Box(Modifier.fillMaxSize().background(Color(0x99000000)).pointerInput(Unit) { detectTapGestures { onClose() } }, contentAlignment = Alignment.Center) {
+    PopupFrame(onClose) {
         Column(
-            Modifier.widthIn(min = 300.dp, max = 480.dp).background(Pal.Surface.copy(alpha = 0.98f), RoundedCornerShape(14.dp))
-                .pointerInput(Unit) { detectTapGestures { } }.padding(18.dp),
+            Modifier.widthIn(min = 300.dp, max = 480.dp).background(Pal.Surface.copy(alpha = 0.98f), RoundedCornerShape(18.dp))
+                .padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Label(title, 20)
@@ -46,94 +45,5 @@ fun NameDialog(title: String, initial: String, confirm: String, onDone: (String)
             PillButton(confirm, { if (text.isNotBlank()) onDone(text) }, primary = true, size = 15)
         }
     }
-}
-
-/**
- * Pick the My Channels folders for one or more channels. Selecting a folder adds them (or, when all are in it already,
- * takes them out) at once; several folders can be ticked. "New folder…" makes one and adds the channels to it.
- */
-@Composable
-fun FolderPicker(repo: Repo, chans: List<Item>, onClose: () -> Unit) {
-    var naming by remember { mutableStateOf(false) }
-    val keys = remember(chans) { chans.map { it.key }.toSet() }
-    if (naming) {
-        NameDialog("New folder", "", "Create and add", { n ->
-            repo.createFolder(n)?.let { repo.addToFolder(it, chans) }
-            naming = false
-        }) { naming = false }
-        return
-    }
-    val f = repo.folders
-    val mem = f.membership(keys)
-    val anyFav = chans.any { repo.isFav(it) }
-    val title = if (chans.size == 1) "My Channels: ${chans[0].name}" else "My Channels: ${chans.size} channels"
-    ChoiceDialog(title, buildList {
-        f.names.forEach { n ->
-            val m = mem[n] ?: FolderSet.Member.NONE
-            val box = when (m) { FolderSet.Member.ALL -> "☑"; FolderSet.Member.SOME -> "◪"; else -> "☐" }
-            add("$box  $n  (${f.items(n).size})" to {
-                if (m == FolderSet.Member.ALL) repo.removeFromFolder(n, chans) else repo.addToFolder(n, chans)
-            })
-        }
-        add("＋  New folder…" to { naming = true })
-        if (f.names.isEmpty()) add("＋  Add to \"${FolderSet.DEFAULT}\"" to { repo.addToFolder(FolderSet.DEFAULT, chans) })
-        if (anyFav) add("★  Remove from all folders" to { repo.removeFromFavorites(chans); onClose() })
-    }, focusKey = "picker", onClose = onClose)
-}
-
-/**
- * The channel menu used in Live TV and in the player: favourites (folders), rename, folder order, plus [extra] entries.
- * [folder] = the My Channels folder the channel was opened from (adds move / remove there).
- */
-@Composable
-fun ChannelMenu(repo: Repo, ch: Item, folder: String?, extra: List<Pair<String, () -> Unit>>, onSelect: (() -> Unit)?, onClose: () -> Unit) {
-    var page by remember(ch.key) { mutableStateOf("main") }
-    when (page) {
-        "folders" -> { FolderPicker(repo, listOf(ch)) { onClose() }; return }
-        "rename" -> {
-            NameDialog("Rename channel", ch.name, "Save name", { repo.renameChannel(ch, it); onClose() }) { page = "main" }
-            return
-        }
-    }
-    val fav = repo.isFav(ch)
-    val inFolders = repo.folders.foldersOf(ch.key)
-    ChoiceDialog(ch.name, buildList {
-        if (fav) {
-            add("★  Remove from favorites" to { repo.removeFromFavorites(listOf(ch)); onClose() })
-            add("📁  Folders… (${inFolders.joinToString(", ")})" to { page = "folders" })
-        } else add("☆  Add to favorites…" to { page = "folders" })
-        if (folder != null && ch.key in repo.folders.items(folder).map { it.key }) {
-            add("▲  Move earlier in \"$folder\"" to { repo.moveInFolder(folder, ch, -1) })
-            add("▼  Move later in \"$folder\"" to { repo.moveInFolder(folder, ch, 1) })
-            add("✕  Remove from \"$folder\"" to { repo.removeFromFolder(folder, listOf(ch)); onClose() })
-        }
-        add("✎  Rename channel" to { page = "rename" })
-        if (repo.isRenamed(ch)) add("↺  Reset name (${repo.portalName(ch)})" to {
-            repo.renameChannel(ch, null); onClose()
-        })
-        if (onSelect != null) add("☑  Select several channels" to { onSelect(); onClose() })
-        addAll(extra)
-    }, focusKey = ch.key + page, onClose = onClose)
-}
-
-/** Folder actions: rename, move earlier / later, delete (asks first). */
-@Composable
-fun FolderMenu(repo: Repo, name: String, onRenamed: (String) -> Unit, onClose: () -> Unit) {
-    var page by remember(name) { mutableStateOf("main") }
-    if (page == "rename") {
-        NameDialog("Rename folder", name, "Save name", { n -> repo.renameFolder(name, n); onRenamed(FolderSet.clean(n)); onClose() }) { page = "main" }
-        return
-    }
-    val n = repo.folders.items(name).size
-    val opts = if (page == "delete") listOf(
-        "Yes, delete \"$name\"" to { repo.deleteFolder(name); onClose() },
-        "No, keep it" to { page = "main" }
-    ) else listOf(
-        "✎  Rename folder" to { page = "rename" },
-        "◀  Move earlier" to { repo.moveFolder(name, -1) },
-        "▶  Move later" to { repo.moveFolder(name, 1) },
-        "🗑  Delete folder ($n channels)" to { page = "delete" }
-    )
-    ChoiceDialog(if (page == "delete") "Delete folder? The channels stay in Live TV." else "Folder: $name", opts, focusKey = name + page, onClose = onClose)
 }
 

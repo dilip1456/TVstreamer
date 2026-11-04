@@ -220,13 +220,15 @@ fun SearchOverlay(repo: Repo, st: SearchState, open: (Item) -> Unit, play: (List
                         }
                     } else {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            TextField(
-                                value = st.query, onValueChange = onType, singleLine = true,
-                                placeholder = { Text(hint) },
-                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                                keyboardActions = KeyboardActions(onSearch = { kb?.hide(); runCatching { firstResFr.requestFocus() } }),
-                                modifier = Modifier.weight(1f).clip(RoundedCornerShape(28.dp)).focusRequester(fieldFr)
-                            )
+                            KeyboardGate(Modifier.weight(1f).focusRequester(fieldFr), shape = RoundedCornerShape(28.dp)) { inner ->
+                                TextField(
+                                    value = st.query, onValueChange = onType, singleLine = true,
+                                    placeholder = { Text(hint + "  (OK to type)") },
+                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                    keyboardActions = KeyboardActions(onSearch = { kb?.hide(); runCatching { firstResFr.requestFocus() } }),
+                                    modifier = inner.fillMaxWidth().clip(RoundedCornerShape(28.dp))
+                                )
+                            }
                             Spacer(Modifier.width(8.dp))
                             PillButton(if (voice.listening) "■" else "🎤", { if (voice.listening) voice.stop() else voice.start() }, selected = voice.listening, size = 14)
                             if (Gemini.enabled) { Spacer(Modifier.width(8.dp)); PillButton("✨ Ask AI", askAi, size = 14) }

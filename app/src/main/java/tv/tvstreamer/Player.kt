@@ -102,9 +102,11 @@ private fun Context.findActivity(): Activity? {
 }
 
 /** Give the player a hint when the URL does not end in a recognisable extension (e.g. live.php?...&extension=m3u8). */
-private fun mediaItemFor(url: String): MediaItem {
+private fun mediaItemFor(url: String, force: Int = 0): MediaItem {
     val l = url.lowercase(Locale.US)
     val mime = when {
+        force == 1 -> MimeTypes.APPLICATION_M3U8
+        force == 2 -> MimeTypes.VIDEO_MP2T
         ".m3u8" in l || "extension=m3u8" in l || "type=m3u8" in l || "/hls/" in l -> MimeTypes.APPLICATION_M3U8
         ".mpd" in l || "extension=mpd" in l -> MimeTypes.APPLICATION_MPD
         else -> null
@@ -171,6 +173,10 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
     var linkFrom by remember { mutableIntStateOf(0) }
     var linkUsed by remember { mutableIntStateOf(0) }
     var showLog by remember { mutableStateOf(false) }
+    // Live streams whose address does not say HLS / TS: play the same link again as HLS, then as plain TS
+    var mimeTry by remember { mutableIntStateOf(0) }
+    var lastUrl by remember { mutableStateOf("") }
+    var panel by remember { mutableStateOf(false) }   // TV live: channel panel with now / next and schedule
     var err by remember { mutableStateOf("") }
     var resolving by remember { mutableStateOf(true) }
     var buffering by remember { mutableStateOf(false) }
@@ -360,6 +366,15 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
                 if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
                     exo.seekToDefaultPosition(); exo.prepare(); return
                 }
+                // Live: a link that played as the wrong container (no .m3u8 / .ts in the address): same link, other format
+                val parse = error.cause is UnrecognizedInputFormatException ||
+                    error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED ||
+                    error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED
+                if (cur.kind == "itv" && parse && mimeTry < 2 && lastUrl.isNotEmpty()) {
+                    mimeTry++
+                    exo.setMediaItem(mediaItemFor(lastUrl, mimeTry)); exo.prepare(); exo.playWhenReady = true
+                    return
+                }
                 // Movies / episodes: when the link itself does not play, try the next way of asking the portal
                 if (cur.kind == "vod" && error.errorCode in 2000..3999 && linkUsed + 1 < repo.api.linkTries(cur)) {
                     linkFrom = linkUsed + 1
@@ -374,7 +389,6 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
                 }
                 if (cur.kind == "vod") repo.lib.reportFailure()
                 err = friendly(error) + (if (cur.kind == "vod") "\nLink: ${repo.api.mask(exo.currentMediaItem?.localConfiguration?.uri?.toString() ?: "").take(160)}" else "")
-                controls = true
             }
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 playing = isPlaying
@@ -420,6 +434,7 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
     LaunchedEffect(idx, attempt) {
         err = ""
         resolving = true
+        mimeTry = 0
         exo.stop()
         try {
             // Interruptible: zapping on cancels this channel's link requests instead of letting them run in the background
@@ -442,6 +457,7 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
                 .build()
             // Headers are read now so a token obtained during link() is included.
             http.setDefaultRequestProperties(repo.api.streamHeaders())
+            lastUrl = url
             exo.setMediaItem(mediaItemFor(url))
             exo.prepare()
             if (item.kind == "vod") {
@@ -455,7 +471,6 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
         } catch (e: Exception) {
             if (item.kind == "vod") repo.lib.reportFailure()
             err = "Could not get a stream link from the portal.\n${e.message ?: ""}".trim()
-            controls = true
         } finally {
             resolving = false
         }
@@ -483,12 +498,12 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
     LaunchedEffect(flashTick) { if (flash.isNotEmpty()) { delay(700); flash = "" } }
 
     // Move focus to the right place whenever the overlay changes.
-    LaunchedEffect(controls, err, dialog) {
+    LaunchedEffect(controls, err, dialog, panel) {
         delay(60)
         runCatching {
             when {
-                dialog != null -> {}
-                err.isNotEmpty() -> retryFr.requestFocus()
+                dialog != null || panel -> {}
+                err.isNotEmpty() && !controls -> rootFr.requestFocus()   // the error is a quiet bar: keep zapping
                 controls -> if (focusSeekBar && canSeek) seekFr.requestFocus() else playFr.requestFocus()
                 else -> rootFr.requestFocus()
             }
@@ -501,11 +516,11 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
     val showUpNext = upNextIn != null && dialog == null
     LaunchedEffect(showUpNext) {
         if (showUpNext) { controls = false; delay(80); runCatching { upNextFr.requestFocus() } }
-        else { delay(60); runCatching { if (dialog == null && err.isEmpty() && !controls) rootFr.requestFocus() } }
+        else { delay(60); runCatching { if (dialog == null && !panel && !controls) rootFr.requestFocus() } }
     }
 
     // TV: Back first hides the controls, then leaves the player
-    BackHandler(isTv && controls && dialog == null && err.isEmpty() && !showUpNext) { controls = false }
+    BackHandler(isTv && controls && dialog == null && !showUpNext && !Popups.any) { controls = false }
     BackHandler(showUpNext) { upNextCancelled = item.key }
     BackHandler(dialog != null) { dialog = null; touch() }
 
@@ -516,6 +531,7 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
     Box(
         Modifier.fillMaxSize().background(Color.Black)
             .focusRequester(rootFr)
+            .onFocusChanged { if (it.isFocused) Popups.focused(rootFr) }
             .focusable()
             .onPreviewKeyEvent { e ->
                 if (e.type == KeyEventType.KeyUp) return@onPreviewKeyEvent swallowUp.remove(e.key)
@@ -534,12 +550,19 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
                     else -> false
                 }
                 if (handled) { swallowUp += k; return@onPreviewKeyEvent true }
-                if (dialog != null || err.isNotEmpty() || showUpNext) { touch(); return@onPreviewKeyEvent false }
+                if (dialog != null || panel || showUpNext || Popups.any) { touch(); return@onPreviewKeyEvent false }
+                // Live: Up / Down change channel at once, also while the info overlay or the error bar shows
+                if (live && list.size > 1 && (k == Key.DirectionUp || k == Key.DirectionDown)) {
+                    if (k == Key.DirectionUp) go(idx + 1) else go(idx - 1)
+                    swallowUp += k; return@onPreviewKeyEvent true
+                }
                 if (controls) { touch(); return@onPreviewKeyEvent false }
                 // Controls hidden: remote shortcuts
                 val used = when (k) {
-                    Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> { showControls(); true }
-                    Key.DirectionLeft -> { if (live) showControls() else { seekBy(-SEEK_MS); showControls(true) }; true }
+                    Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> {
+                        if (err.isNotEmpty()) { autoRetries = 0; linkFrom = 0; attempt++ } else showControls(); true
+                    }
+                    Key.DirectionLeft -> { if (live) { panel = true; repo.epg.wantFirst(item.id) } else { seekBy(-SEEK_MS); showControls(true) }; true }
                     Key.DirectionRight -> { if (live) showControls() else { seekBy(SEEK_MS); showControls(true) }; true }
                     Key.DirectionUp -> { if (list.size > 1) go(idx + 1) else showControls(); true }
                     Key.DirectionDown -> { if (list.size > 1) go(idx - 1) else showControls(); true }
@@ -666,12 +689,18 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
         LaunchedEffect(zapTick) { if (zapTick > 0) { showZap = true; delay(3500); showZap = false } }
         if (showZap && !controls) {
             Column(Modifier.align(Alignment.TopStart).padding(24.dp).background(Color(0xCC000000), RoundedCornerShape(10.dp)).padding(14.dp)) {
-                Text((if (live && item.num > 0) "${item.num}  " else "") + item.name, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                Text((if (live && item.num > 0) "${item.num}  " else "") + (if (live) ChannelTitle.pretty(item.name) else item.name), color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
                 if (list.size > 1) Text("${idx + 1} / ${list.size}", color = Pal.Dim, fontSize = 14.sp)
+                if (live) NowNext(repo, item, Modifier.widthIn(max = 420.dp))
             }
         }
 
-        if (controls && err.isEmpty()) {
+        if (controls && live) {
+            LaunchedEffect(item.key) { repo.epg.wantFirst(item.id) }
+            Box(Modifier.align(Alignment.TopStart).padding(if (isTv) 40.dp else 16.dp).widthIn(max = 460.dp)
+                .background(Color(0xCC0E0E14), RoundedCornerShape(14.dp)).padding(16.dp)) { NowNext(repo, item) }
+        }
+        if (controls) {
             key(favTick) {
                 Controls(
                     item = item, live = live, list = list, idx = idx, playing = playWhenReady, pos = pos, dur = dur,
@@ -708,24 +737,28 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
             }
         }
 
-        if (err.isNotEmpty()) {
-            Column(
-                Modifier.align(Alignment.Center).widthIn(max = 560.dp).padding(24.dp)
-                    .background(Color(0xEE15151C), RoundedCornerShape(14.dp)).padding(24.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+        // Link / playback failure: a small bar at the bottom, never a blocking popup. Up / Down keep zapping, OK retries.
+        if (err.isNotEmpty() && !controls) {
+            Row(
+                Modifier.align(Alignment.BottomCenter).padding(bottom = if (isTv) 36.dp else 20.dp, start = 16.dp, end = 16.dp)
+                    .widthIn(max = 720.dp).background(Color(0xE6141419), RoundedCornerShape(12.dp))
+                    .padding(horizontal = 18.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                Text(item.name, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text("Can't play this stream", color = Pal.Error, fontSize = 18.sp)
-                Text(err, color = Pal.Dim, fontSize = 13.sp, maxLines = 14, overflow = TextOverflow.Ellipsis)
-                if (showLog) Text(repo.api.debugLog(), color = Pal.Dim, fontSize = 11.sp, maxLines = 30, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.heightIn(max = 260.dp).verticalScroll(rememberScrollState()))
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    PillButton("Retry", { autoRetries = 0; linkFrom = 0; attempt++ }, Modifier.focusRequester(retryFr), primary = true)
-                    PillButton(if (showLog) "Hide details" else "Details", { showLog = !showLog })
-                    if (list.size > 1) PillButton(if (live) "Next channel" else "Next", { go(idx + 1) })
+                Column(Modifier.weight(1f)) {
+                    Text("Can't play ${if (live) ChannelTitle.pretty(item.name) else item.name}", color = Color.White, fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(err.lineSequence().firstOrNull().orEmpty() + if (isTv) (if (live && list.size > 1) "  ·  OK retry  ·  ▲▼ other channel" else "  ·  OK retry") else "",
+                        color = Pal.Dim, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                if (!isTv) {
+                    PillButton("Retry", { autoRetries = 0; linkFrom = 0; attempt++ }, size = 13)
+                    if (list.size > 1) PillButton("Next", { go(idx + 1) }, size = 13)
                 }
             }
         }
+
+        if (panel && live) ChannelPanel(repo, list, idx, onPlay = { n -> panel = false; if (n != idx) go(n) }) { panel = false }
 
         dialog?.let { d ->
             val opts: List<Pair<String, () -> Unit>> = when (d) {
@@ -803,38 +836,66 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
                     add("Subtitles" to { dialog = "subs" })
                     add("Picture: Fit / Fill / Zoom" to { dialog = "aspect" })
                     if (!isTv) add("Move control bar (now: $barPos)" to { barPos = when (barPos) { "bottom" -> "left"; "left" -> "right"; else -> "bottom" }; repo.store.barPos = barPos; dialog = null })
-                    add("Reload stream" to { autoRetries = 0; linkFrom = 0; attempt++; dialog = null })
+                    add((if (live) "Not working? Retry link" else "Reload stream") to { autoRetries = 0; linkFrom = 0; attempt++; dialog = null })
+                    if (err.isNotEmpty() || live) add("Stream details" to { dialog = "details" })
                 }
             }
             val title = when (d) { "audio" -> "Audio"; "subs" -> "Subtitles"; "subdl" -> "Download subtitles: language"; "aspect" -> "Picture"; else -> item.name }
-            // Live: the shared channel menu (favourites / folders, rename) with the player entries below it
-            if (live && d !in setOf("audio", "subs", "subdl", "aspect")) ChannelMenu(repo, item, null, opts, null) { favTick++; dialog = null }
-            else ChoiceDialog(title, opts) { dialog = null }
+            when {
+                d == "details" -> InfoDialog("Stream details", (if (err.isNotEmpty()) err + "\n\n" else "") + repo.api.debugLog()) { dialog = null }
+                // Live: the shared channel menu (play, hide, modes, rename, guide …) with the player entries below it
+                live && d !in setOf("audio", "subs", "subdl", "aspect") -> ChannelMenu(repo, item, null, opts, null, inPlayer = true,
+                    onGuide = { dialog = null; panel = true }) { favTick++; dialog = null }
+                else -> ChoiceDialog(title, opts) { dialog = null }
+            }
         }
     }
 }
 
+/**
+ * A short menu: title, the options valid for the item, Close last. One Back closes it and focus returns to the item that
+ * opened it (see PopupFrame).
+ */
 @Composable
 fun ChoiceDialog(title: String, opts: List<Pair<String, () -> Unit>>, focusKey: Any? = title, onClose: () -> Unit) {
     val first = remember { FocusRequester() }
     LaunchedEffect(focusKey, opts.size) { delay(60); runCatching { first.requestFocus() } }
-    androidx.activity.compose.BackHandler { onClose() }
-    Box(Modifier.fillMaxSize().background(Color(0x99000000)).pointerInput(Unit) { detectTapGestures { onClose() } }, contentAlignment = Alignment.Center) {
+    PopupFrame(onClose) {
         Column(
-            Modifier.widthIn(min = 280.dp, max = 460.dp).heightIn(max = 420.dp)
-                .background(Pal.Surface.copy(alpha = 0.97f), RoundedCornerShape(14.dp))
-                .pointerInput(Unit) { detectTapGestures { } }
-                .padding(18.dp),
+            Modifier.widthIn(min = 300.dp, max = 480.dp).heightIn(max = 460.dp)
+                .background(Pal.Surface.copy(alpha = 0.98f), RoundedCornerShape(18.dp))
+                .padding(horizontal = 22.dp, vertical = 20.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Text(title, color = Pal.Text, fontSize = 20.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Spacer(Modifier.height(6.dp))
             LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 itemsIndexed(opts) { i, (label, action) ->
-                    PillButton(label, action, Modifier.fillMaxWidth().then(if (i == 0) Modifier.focusRequester(first) else Modifier), size = 16)
+                    MenuEntry(label, action, if (i == 0) Modifier.focusRequester(first) else Modifier)
                 }
-                item { PillButton("Close", onClose, Modifier.fillMaxWidth()) }
+                item {
+                    Spacer(Modifier.height(4.dp))
+                    MenuEntry("Close", onClose, if (opts.isEmpty()) Modifier.focusRequester(first) else Modifier, dim = true)
+                }
             }
         }
+    }
+}
+
+/** One menu line: quiet until focused, then a soft gold highlight (Netflix-like, no heavy buttons). */
+@Composable
+fun MenuEntry(label: String, onClick: () -> Unit, modifier: Modifier = Modifier, dim: Boolean = false) {
+    var f by remember { mutableStateOf(false) }
+    val bg by androidx.compose.animation.animateColorAsState(if (f) Pal.Gold else Color.Transparent, Motion.colorSpec(), label = "menuBg")
+    Box(
+        modifier.fillMaxWidth().popupOpener().onFocusChanged { f = it.isFocused }
+            .clip(RoundedCornerShape(50))
+            .background(bg)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 11.dp)
+    ) {
+        Text(label, color = when { f -> Color.Black; dim -> Pal.Dim; else -> Pal.Text }, fontSize = 16.sp,
+            fontWeight = if (f) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -843,7 +904,7 @@ private fun CtrlButton(icon: ImageVector, desc: String, onClick: () -> Unit, mod
     var f by remember { mutableStateOf(false) }
     val sz = if (big) 72.dp else 52.dp
     Box(
-        modifier.size(sz).onFocusChanged { f = it.isFocused }.clip(CircleShape)
+        modifier.size(sz).popupOpener().onFocusChanged { f = it.isFocused }.clip(CircleShape)
             .background(if (f) Color.White else Color(0x40FFFFFF))
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center

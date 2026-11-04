@@ -15,6 +15,29 @@ previous/next channel or episode, audio track, subtitles, Fit / Fill / Zoom, fav
 Controls hide after 5 seconds. If a stream fails you get the reason on screen with Retry / Next / Back.
 The next episode plays automatically.
 
+## 1.52: Live TV rework, Netflix-style look
+
+**Live TV**
+- One clean list, grouped by the portal's type and category only (no A-Z letter groups, no grid / icon view). Each row shows the channel number, logo, a cleaned name ("|UK| BBC ONE FHD" -> "BBC One"), what is on now with a progress bar, and what is next.
+- "US Local" categories are local news: they sit under News, labelled "Local News", with names like "WABC New York".
+- TV: a left menu (icons; labels open while it has focus, it closes when you move right) with Search, Mode, All channels, Languages and the sections. Left on a channel goes to its section in the menu.
+- Modes replace My Channels folders and Recently watched. "Default" lists every channel that is not hidden. Custom modes (create, rename, delete) list only their channels. A new mode starts either with everything hidden or with the channels listed now. Old folders, including Favorites, become modes. Modes sync with Google like folders did.
+- All channels: hidden channels are listed dimmed with a "Hidden" mark. Hold OK (or long-press) to show or hide one.
+- Languages: pick one or more (Menu on the left menu, its Languages entry, or ⋮ on a phone). Other languages are hidden everywhere in Live TV. The choice is remembered and synced.
+- The guide (now / next) loads only for the channels on screen, one gentle request at a time, and is cached for 15 minutes.
+- Channel menu (Menu key): Play, Hide / show, Add to a mode, Move to top of mode, Guide, Remind me, Rename, Channel info, and Close last.
+- Player: Up / Down change channel at any time, even with the info bar showing. Left opens the channel panel: Left / Right step through a channel's schedule, and OK on an upcoming show sets a reminder (a message at its start time). Back to the list lands on the channel that was playing.
+- A link that fails shows a small message at the bottom instead of a popup, so you can keep zapping. OK retries.
+- Channels that didn't load: live links now get the same checks as movies. A "localhost" answer is pointed at the portal. An empty stream or token signs in again and asks once more. Channels without a cmd use the portal's fallback. Streams that are HLS or TS without a telling URL are retried in the other format.
+
+**Everywhere**
+- One Back closes only the top popup, menu or panel, and focus returns to the item that opened it.
+- TV text fields open the keyboard only on OK, never just because focus moved onto them.
+- Movies / Series grids: no more jumping back and repeating after about 15 titles. Cards keep stable keys, new pages are appended after what is on screen, and a portal that repeats a page stops paging.
+- Grids: Right at the end of a row goes to the next row. Left at the start of a row goes to the menu on the left, or (when there is none) to the end of the previous row.
+- Movie / series menu: Play or Episodes, Details, My List, Mark watched / unwatched, Fix match, Versions, Hide this title (show it again in Settings > Troubleshooting), Close.
+- Look: a Netflix-style top menu on TV (profile left, text tabs with a soft light pill on focus; Settings and Update moved to the profile menu), a rounded hero card, rounded posters with a subtle animated scale and soft gold ring on focus, pill buttons, screens that cross-fade, and popups that fade in. No blur or shadows, to keep Fire TV smooth.
+
 ## 1.51: cleaner screens
 
 - Hidden rows, categories and channels are restored only in Settings > Hidden (no "Show hidden" buttons elsewhere).

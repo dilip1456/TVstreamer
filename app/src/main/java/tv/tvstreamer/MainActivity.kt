@@ -192,7 +192,7 @@ fun App(repo: Repo) {
         if (s === fromSearch) { search.open = true; fromSearch = null }
         tick++
     }
-    BackHandler(screen != Screen.Home) { back() }
+    BackHandler(screen != Screen.Home && !Popups.any) { back() }
     LaunchedEffect(screen) { Keys.focused = null }
 
     val play: (List<Item>, Int) -> Unit = { l, i -> if (l.isNotEmpty()) screen = Screen.Play(l, i, screen) }
@@ -262,7 +262,10 @@ fun App(repo: Repo) {
     Surface(Modifier.fillMaxSize().background(Pal.Bg), color = Pal.Bg) {
         Box(Modifier.fillMaxSize()) {
             Box(Modifier.fillMaxSize().padding(bottom = barSpace)) {
-                when (val s = screen) {
+                // Screens cross-fade (~180 ms); the player cuts in directly (no frame of two videos)
+                androidx.compose.animation.Crossfade(screen, animationSpec = if (screen is Screen.Play) androidx.compose.animation.core.snap<Float>() else Motion.spec<Float>(),
+                    label = "screen") { shown ->
+                when (val s = shown) {
                     Screen.Home -> Catalog(repo, "home", go, open, play, tick)
                     Screen.MoviesTab -> Catalog(repo, "movies", go, open, play, tick)
                     Screen.SeriesTab -> Catalog(repo, "series", go, open, play, tick)
@@ -279,10 +282,11 @@ fun App(repo: Repo) {
                     is Screen.Pool -> PoolScreen(repo, s.tab, s.lang, s.genre, s.title, s.sort, open)
                     is Screen.Play -> PlayerScreen(repo, remember(s) { s.list.map(repo::fresh) }, s.index) { back() }
                 }
+                }
                 // Floating search: on every screen except the full-screen player and the remote-learning screen
                 if (cur !is Screen.Play && cur != Screen.Remote) {
                     if (search.open) {
-                        BackHandler { search.open = false }
+                        BackHandler(!Popups.any) { search.open = false }
                         DisposableEffect(Unit) { onDispose { AppUi.searchClosed++ } }
                         SearchOverlay(repo, search, { item ->
                             search.open = false

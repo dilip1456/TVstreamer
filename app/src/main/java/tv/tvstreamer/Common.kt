@@ -119,19 +119,48 @@ fun Modifier.focusCard(
     onMenu: (() -> Unit)? = null,
     onFocused: (() -> Unit)? = null,
     scale: Float = 1.08f,
-    shape: Shape = RoundedCornerShape(8.dp)
+    shape: Shape = RoundedCornerShape(12.dp)
 ): Modifier = composed {
     var f by remember { mutableStateOf(false) }
-    val s by animateFloatAsState(if (f) scale else 1f, label = "focusScale")
+    // Subtle scale-up and a soft gold ring fading in (~180 ms ease); no shadow / blur (cheap on Fire TV)
+    val s by animateFloatAsState(if (f) scale else 1f, Motion.spec(), label = "focusScale")
+    val ring by animateFloatAsState(if (f) 1f else 0f, Motion.spec(), label = "focusRing")
     this
+        .popupOpener()
         .onFocusChanged { if (it.isFocused != f) { f = it.isFocused; if (f) onFocused?.invoke() } }
         .graphicsLayer { scaleX = s; scaleY = s }
-        .then(if (f) Modifier.border(3.dp, Pal.Focus, shape) else Modifier)
+        .then(if (ring > 0.01f) Modifier.border(2.dp, Pal.Focus.copy(alpha = 0.9f * ring), shape) else Modifier)
         .clip(shape)
         .onKeyEvent { e ->
             if (onMenu != null && e.type == KeyEventType.KeyUp && e.key == Key.Menu) { onMenu(); true } else false
         }
         .combinedClickable(onClick = onClick, onLongClick = onMenu)
+}
+
+/** Top menu tab (Netflix style): plain text; focused = soft light pill (animated), current tab = bold white. */
+@Composable
+fun NavTab(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, selected: Boolean = false) {
+    var f by remember { mutableStateOf(false) }
+    val bg by androidx.compose.animation.animateColorAsState(if (f) Color(0xF2F2F2F2) else Color.Transparent, Motion.colorSpec(), label = "tabBg")
+    val fg by androidx.compose.animation.animateColorAsState(when { f -> Color(0xFF111111); selected -> Pal.Text; else -> Pal.Dim }, Motion.colorSpec(), label = "tabFg")
+    Box(
+        modifier.popupOpener()
+            .onFocusChanged { f = it.isFocused }
+            .clip(RoundedCornerShape(50))
+            .background(bg)
+            .combinedClickable(onClick = onClick)
+            .padding(horizontal = 18.dp, vertical = 8.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(text, color = fg, fontSize = 16.sp, fontWeight = if (selected || f) FontWeight.Bold else FontWeight.Medium, maxLines = 1)
+    }
+}
+
+/** One motion language for focus and transitions: ~180 ms ease (cheap on Fire TV: no blur, no shadows). */
+object Motion {
+    const val MS = 180
+    fun <T> spec(): androidx.compose.animation.core.TweenSpec<T> = androidx.compose.animation.core.tween(MS, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+    fun colorSpec(): androidx.compose.animation.core.TweenSpec<Color> = spec()
 }
 
 /** Compact pill / text button (the "Fix match" style) with a filled gold focus state. Used for every action button in the app. */
@@ -146,20 +175,24 @@ fun PillButton(
     onMenu: (() -> Unit)? = null
 ) {
     var f by remember { mutableStateOf(false) }
-    val bg = when {
+    val target = when {
         f -> Pal.Gold
         primary -> Pal.Accent
         selected -> Pal.Selected
         else -> Pal.Soft2
     }
+    val bg by androidx.compose.animation.animateColorAsState(target, Motion.colorSpec(), label = "pillBg")
+    val s by animateFloatAsState(if (f) 1.05f else 1f, Motion.spec(), label = "pillScale")
     Box(
         modifier
+            .popupOpener()
             .onFocusChanged { f = it.isFocused }
-            .clip(RoundedCornerShape(6.dp))
+            .graphicsLayer { scaleX = s; scaleY = s }
+            .clip(RoundedCornerShape(50))
             .background(bg)
             .onKeyEvent { e -> if (onMenu != null && e.type == KeyEventType.KeyUp && e.key == Key.Menu) { onMenu(); true } else false }
             .combinedClickable(onClick = onClick, onLongClick = onMenu)
-            .padding(horizontal = 14.dp, vertical = 8.dp),
+            .padding(horizontal = 16.dp, vertical = 8.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(text, color = if (f) Color.Black else if (primary) Color.White else Pal.Text, fontSize = size.sp,

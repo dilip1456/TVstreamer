@@ -87,7 +87,18 @@ object LiveKind {
 
     /** What a category name says (type, language word, country), worked out once per category. */
     class CatFacts internal constructor(val type: String, val lang: String, val country: String)
-    fun facts(cat: String) = CatFacts(typeOf(cat), Tags.language(cat), country(cat))
+    fun facts(cat: String) = CatFacts(if (isLocalNews(cat)) NEWS else typeOf(cat), Tags.language(cat), country(cat))
+
+    private val LOCAL = Regex("(?i)(?:\\b(?:us|usa|u\\.s\\.a?|united states|america|american|canada)\\b.*\\blocals?\\b)|(?:\\blocals?\\b.*\\b(?:us|usa|news)\\b)|(?:\\blocal news\\b)|(?:\\b(?:us|usa)\\s*locals?\\b)")
+
+    /**
+     * "US Local", "USA | LOCALS", "Local News": in practice all local news stations (WABC, KTLA, …). They are filed under
+     * News and their section is labelled "Local News".
+     */
+    fun isLocalNews(cat: String): Boolean = LOCAL.containsMatchIn(cat)
+
+    /** Section label of a portal category in Live TV: "Local News" for US local stations, else the tidied name. */
+    fun sectionLabel(cat: String): String = if (isLocalNews(cat)) "Local News" else ChannelTitle.category(cat)
 
     /** Type and language of a channel in a category with [f] (same rules as [type] and [language]). */
     fun classify(f: CatFacts, name: String): ChInfo {

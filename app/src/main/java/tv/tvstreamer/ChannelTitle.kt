@@ -118,4 +118,86 @@ object ChannelTitle {
             else -> core.filter { it.isLetterOrDigit() }.take(2)
         }.uppercase()
     }
+
+    // ---- Tidy names for lists (v1.52) ----
+    private val TAG_ANY = Regex("[\\[(]\\s*[A-Za-z]{2,4}(?:[-_/][A-Za-z]{2,3})?\\s*[\\])]|\\|[A-Za-z]{2,3}\\|")
+    private val LEAD_TAG = Regex("^(?:[A-Z]{2,3}(?:[-_/][A-Z]{2,3})?)\\s*(?::|\\||-|–)\\s*")
+    private val QUALITY = Regex("(?i)(?<![\\p{L}\\d+])(?:FHD|UHD|HD|SD|4K|8K|HEVC|H\\.?26[45]|1080[pi]?|720[pi]?|2160p|576[pi]?|\\d{2}\\s?FPS|HDR|VIP|RAW|BACKUP|BACK ?UP|LQ|HQ|MULTI|DIRECT|ORIG|24/7)(?![\\p{L}\\d])")
+    private val BRACKETS_EMPTY = Regex("[\\[(]\\s*[\\])]")
+    private val NUM_LEAD = Regex("^\\d{1,5}\\s+(?=\\p{L})")
+    private val NUM_TRAIL_TAG = Regex("\\s+#\\d+$")
+    private val PIPES = Regex("\\s*[|¦]+\\s*")
+    private val CALLSIGN = Regex("^[KW][A-Z]{2,3}(?:-(?:TV|DT|CD|LD|HD))?$")
+    private val NETWORKS = setOf("ABC", "NBC", "CBS", "FOX", "CW", "PBS", "MNT", "MYTV", "MY", "ION", "TELEMUNDO", "UNIVISION",
+        "UNIMAS", "IND", "US", "USA", "INDEPENDENT", "NEWS", "LOCAL", "TV", "THE", "CHANNEL", "CH", "NET", "NETWORK", "ME", "METV", "ANTENNA")
+    private val STATES = setOf("AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "DC", "FL", "GA", "HI", "ID", "IL", "IN", "IA", "KS",
+        "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK",
+        "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY")
+
+    /** A word in normal casing: "BBC" and "ESPN2" stay, "SPORTS" -> "Sports", "new york" -> "New York". */
+    private fun caseWord(w: String, allWords: Boolean): String {
+        val letters = w.filter { it.isLetter() }
+        if (letters.isEmpty()) return w
+        val upper = letters.all { it.isUpperCase() }
+        val lower = letters.all { it.isLowerCase() }
+        return when {
+            upper && !allWords && (letters.length <= 4 && letters !in COMMON || w.any { it.isDigit() }) -> w
+            upper || (lower && w.length > 1) -> w.lowercase().split('-').joinToString("-") { it.replaceFirstChar { c -> c.uppercase() } }
+            else -> w
+        }
+    }
+
+    /** Title casing only when the name is shouted (mostly capitals) or all lower case; mixed names are kept. */
+    private fun tidyCase(s: String): String {
+        val letters = s.filter { it.isLetter() }
+        if (letters.isEmpty()) return s
+        val upperShare = letters.count { it.isUpperCase() }.toFloat() / letters.length
+        if (upperShare < 0.8f && letters.any { it.isUpperCase() }) return s
+        return s.split(' ').joinToString(" ") { caseWord(it, false) }
+    }
+
+    /**
+     * The name shown in lists and the player: no country / language tags ("UK:", "|IN|", "[AR]"), no numbering, pipes
+     * or quality tags (HD, FHD, 4K, 1080p, backup, VIP…), single spaces, tidy casing. With [local] (US local stations)
+     * the callsign and city are kept: "US: ABC 7 WABC NEW YORK HD" -> "WABC New York". The number is shown as a badge.
+     */
+    fun pretty(raw: String, local: Boolean = false): String {
+        var s = clean(raw)
+        s = s.replace(LEAD_TAG, "")
+        s = s.replace(TAG_ANY) { m -> if (m.value.trim('[', ']', '(', ')', '|', ' ').uppercase() in KEEP_TAGS) m.value else " " }
+        s = s.replace(QUALITY, " ").replace(BRACKETS_EMPTY, " ").replace(PIPES, " ").replace(NUM_TRAIL_TAG, "")
+        s = s.replace(EDGE, "").replace(SPACES, " ").trim()
+        s = s.replace(NUM_LEAD, "")
+        if (local) localName(s)?.let { return it }
+        val out = tidyCase(s).replace(SPACES, " ").trim()
+        return if (out.isEmpty() || numeric(out)) clean(raw) else out
+    }
+    private val COMMON = setOf("ONE", "TWO", "NEWS", "MAX", "GOLD", "LIFE", "PLUS", "LIVE", "STAR", "SKY", "SONY", "ZEE", "MAIN",
+        "THE", "AND", "OF", "WEST", "EAST", "HITS", "KIDS", "FOOD", "HOME", "CINE", "FILM", "BOX", "ZONE", "CITY", "ARENA",
+        "TIME", "NOW", "GOLF", "BEST", "PRO", "ART", "FUN", "JAZZ", "ROCK", "POP", "TOP", "WILD", "DRAMA", "ASIA", "PRIME", "MOVIE")
+    private val KEEP_TAGS = setOf("+1", "PLUS")
+
+    /** "ABC 7 WABC New York, NY" -> "WABC New York"; null when there is no callsign. */
+    private fun localName(s: String): String? {
+        val words = s.replace(Regex("[(),/:|]"), " ").split(' ').filter { it.isNotBlank() }
+        val ci = words.indexOfFirst { CALLSIGN.matches(it) }
+        if (ci < 0) return null
+        val call = words[ci].substringBefore('-')
+        fun cityOf(ws: List<String>) = ws.filter { w ->
+            val u = w.uppercase()
+            w.any { it.isLetter() } && u !in NETWORKS && !CALLSIGN.matches(w) && w.none { it.isDigit() }
+        }
+        var city = cityOf(words.drop(ci + 1))
+        if (city.isEmpty()) city = cityOf(words.take(ci))
+        if (city.size > 1 && city.last().uppercase() in STATES && city.last().length == 2) city = city.dropLast(1)
+        val c = city.joinToString(" ") { caseWord(it, true) }
+        return if (c.isEmpty()) call else "$call $c"
+    }
+
+    /** Category name for a section header: no tags, pipes or numbering, tidy casing ("UK | ENTERTAINMENT" -> "Entertainment"). */
+    fun category(raw: String): String {
+        val p = pretty(raw).ifBlank { raw.trim() }
+        val letters = p.filter { it.isLetter() }
+        return if (letters.isNotEmpty() && letters.all { it.isUpperCase() }) p.split(' ').joinToString(" ") { caseWord(it, true) } else p
+    }
 }

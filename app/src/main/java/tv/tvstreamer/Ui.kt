@@ -58,6 +58,7 @@ private val DIM get() = Pal.Dim
 fun Modifier.tv(onClick: () -> Unit, onMenu: (() -> Unit)? = null, onFocus: (() -> Unit)? = null): Modifier = composed {
     var f by remember { mutableStateOf(false) }
     this
+        .popupOpener()
         .onFocusChanged { f = it.isFocused; if (it.isFocused) onFocus?.invoke() }
         .background(if (f) Pal.FocusBg else Pal.Row, RoundedCornerShape(8.dp))
         .then(if (f) Modifier.border(2.dp, Pal.Gold, RoundedCornerShape(8.dp)) else Modifier)
@@ -291,28 +292,30 @@ fun SettingField(label: String, value: String, password: Boolean = false, multiL
     val tv = rememberIsTv()
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Label(label, if (tv) 16 else 14, DIM, maxLines = 3)
-        TextField(
-            value = value,
-            onValueChange = onChange,
-            singleLine = !multiLine || password,
-            maxLines = if (multiLine && !password) 3 else 1,
-            visualTransformation = if (password) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
-            // "Done" on the keyboard closes it and moves focus on (no separate hide-keyboard button; Back also closes it)
-            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
-            keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = {
-                keyboard?.hide(); focus.moveFocus(androidx.compose.ui.focus.FocusDirection.Down)
-            }),
-            modifier = Modifier.fillMaxWidth().heightIn(min = if (tv) 64.dp else 56.dp)
-                .onFocusChanged { if (it.isFocused) keyboard?.show() else keyboard?.hide() },
-            colors = androidx.compose.material3.TextFieldDefaults.colors(
-                focusedContainerColor = Pal.FieldFocus,
-                unfocusedContainerColor = Pal.Field,
-                focusedTextColor = Pal.Text,
-                unfocusedTextColor = Pal.Text
-            ),
-            textStyle = androidx.compose.ui.text.TextStyle(fontSize = if (tv) 20.sp else 17.sp),
-            placeholder = { Text("Tap to enter", color = DIM, fontSize = if (tv) 18.sp else 15.sp) }
-        )
+        // TV: the keyboard opens only on OK / click, never because focus moved here (KeyboardGate)
+        KeyboardGate(Modifier.fillMaxWidth()) { inner ->
+            TextField(
+                value = value,
+                onValueChange = onChange,
+                singleLine = !multiLine || password,
+                maxLines = if (multiLine && !password) 3 else 1,
+                visualTransformation = if (password) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
+                // "Done" on the keyboard closes it and moves focus on (no separate hide-keyboard button; Back also closes it)
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+                keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = {
+                    keyboard?.hide(); focus.moveFocus(androidx.compose.ui.focus.FocusDirection.Down)
+                }),
+                modifier = inner.fillMaxWidth().heightIn(min = if (tv) 64.dp else 56.dp),
+                colors = androidx.compose.material3.TextFieldDefaults.colors(
+                    focusedContainerColor = Pal.FieldFocus,
+                    unfocusedContainerColor = Pal.Field,
+                    focusedTextColor = Pal.Text,
+                    unfocusedTextColor = Pal.Text
+                ),
+                textStyle = androidx.compose.ui.text.TextStyle(fontSize = if (tv) 20.sp else 17.sp),
+                placeholder = { Text("Tap to enter", color = DIM, fontSize = if (tv) 18.sp else 15.sp) }
+            )
+        }
     }
 }
 
