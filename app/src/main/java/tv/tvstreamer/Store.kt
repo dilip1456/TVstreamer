@@ -395,42 +395,46 @@ class Store(ctx: Context) {
         ).filterValues { it.isNotEmpty() }
         return SyncLocal(
             favs = favs, hidden = hidden, custom = custom, orders = orders, langs = langs, prefs = prefStrings(),
-            recent = p.getString("recent", "") ?: "", resume = resume, last = last, chNames = chNames(), secrets = secrets
+            recent = p.getString("recent", "") ?: "", resume = resume, lastEp = last, secrets = secrets, names = chNames()
         )
     }
 
-    /** Apply a remote sync. Returns true if secrets changed (caller should reload the portal). */
-    fun syncWrite(r: SyncRemote, withSecrets: Boolean): Boolean {
+    /** Replaces this device's synced data. Secrets are only written when [withSecrets]; they are never cleared by sync. */
+    fun syncWrite(l: SyncLocal, withSecrets: Boolean): Boolean {
         muted = true
         var secretsChanged = false
         try {
-            p.edit().also { e ->
-                e.putString("fav", JSONArray(r.favs).toString())
-                e.putStringSet("hidden", r.hidden.toSet())
-                val custom = JSONObject()
-                r.custom.forEach { (k, v) -> custom.put(k, JSONArray(v)) }
-                e.putString("custom_cats", custom.toString())
-                r.orders.forEach { (k, v) -> e.putString("order_$k", JSONArray(v).toString()) }
-                r.langs.forEach { (k, v) -> e.putStringSet("langs_$k", v.toSet()) }
-                e.putString("recent", r.recent)
-                e.putString("resume", JSONArray(r.resume).toString())
-                val last = JSONObject()
-                r.last.forEach { (k, v) -> last.put(k, JSONObject(v)) }
-                e.putString("lastep", last.toString())
-                e.putString("ch_names", JSONObject().also { o -> r.chNames.forEach { (k, v) -> o.put(k, v) } }.toString())
-                r.prefs.forEach { (k, v) -> if (k !in STRUCTURED && k !in LOCAL_ONLY) e.putString(k, v) }
-            }.apply()
+            val e = p.edit()
+            e.putString("fav", JSONArray().also { a -> l.favs.forEach { a.put(JSONObject(it)) } }.toString())
+            e.putStringSet("hidden", l.hidden.toSet())
+            val custom = JSONObject()
+            l.custom.forEach { (k, v) -> custom.put(k, JSONArray().also { a -> v.forEach { a.put(JSONObject(it)) } }) }
+            e.putString("custom_cats", custom.toString())
+            p.all.keys.filter { it.startsWith("order_") && it.removePrefix("order_") !in l.orders }.forEach { e.remove(it) }
+            l.orders.forEach { (k, v) -> e.putString("order_$k", JSONArray(v).toString()) }
+            p.all.keys.filter { it.startsWith("langs_") && it.removePrefix("langs_") !in l.langs }.forEach { e.remove(it) }
+            l.langs.forEach { (k, v) -> e.putStringSet("langs_$k", v.toSet()) }
+            prefStrings().keys.filter { it !in l.prefs }.forEach { e.remove(it) }
+            l.prefs.forEach { (k, v) -> if (k !in STRUCTURED && k !in LOCAL_ONLY) e.putString(k, v) }
+            if (l.recent.isEmpty()) e.remove("recent") else e.putString("recent", l.recent)
+            e.putString("resume", JSONArray().also { a -> l.resume.forEach { a.put(JSONObject(it)) } }.toString())
+            e.putString("lastep", JSONObject().also { o -> l.lastEp.forEach { (k, v) -> o.put(k, JSONObject(v)) } }.toString())
+            e.putString("ch_names", JSONObject().also { o -> l.names.forEach { (k, v) -> o.put(k, v) } }.toString())
+            e.commit()
             if (withSecrets) {
-                secretsChanged = r.secrets.any { (k, v) -> when (k) {
-                    "portal" -> v != portal; "mac" -> v != mac; "serial" -> v != serial; "pw" -> v != password
-                    "tmdb" -> v != tmdbKey; "omdb" -> v != omdbKey; "gemini" -> v != geminiKey
-                    "osub" -> v != osKey; "subdl" -> v != subdlKey; else -> false
-                } }
-                r.secrets.forEach { (k, v) -> when (k) {
-                    "portal" -> portal = v; "mac" -> mac = v; "serial" -> serial = v; "pw" -> password = v
-                    "tmdb" -> tmdbKey = v; "omdb" -> omdbKey = v; "gemini" -> geminiKey = v
-                    "osub" -> osKey = v; "subdl" -> subdlKey = v
-                } }
+                fun put(name: String, cur: String, set: (String) -> Unit) {
+                    val v = l.secrets[name]
+                    if (!v.isNullOrEmpty() && v != cur) { set(v); if (name != "tmdb" && name != "omdb" && name != "gemini" && name != "osub") secretsChanged = true }
+                }
+                put("portal", portal) { portal = it }
+                put("mac", mac) { mac = it }
+                put("serial", serial) { serial = it }
+                put("pw", password) { password = it }
+                put("tmdb", tmdbKey) { tmdbKey = it }
+                put("omdb", omdbKey) { omdbKey = it }
+                put("gemini", geminiKey) { geminiKey = it }
+                put("osub", osKey) { osKey = it }
+                put("subdl", subdlKey) { subdlKey = it }
             }
         } finally { muted = false }
         return secretsChanged
