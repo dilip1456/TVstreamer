@@ -44,18 +44,19 @@ object SettingsNav {
 @Composable
 fun SettingRow(title: String, value: String = "", modifier: Modifier = Modifier, selected: Boolean = false, onClick: () -> Unit) {
     var f by remember { mutableStateOf(false) }
-    val bg by animateColorAsState(when { f -> Color(0xF2F2F2F2); selected -> Pal.Soft2; else -> Pal.Soft }, Motion.colorSpec(), label = "setBg")
+    val bg by animateColorAsState(when { f -> Pal.FocusBg; selected -> Pal.ChipSel.copy(alpha = 0.55f); else -> Pal.Soft }, Motion.colorSpec(), label = "setBg")
+    val shape = RoundedCornerShape(Radii.row)
     Row(
-        modifier.fillMaxWidth().heightIn(min = 56.dp)
+        modifier.fillMaxWidth().heightIn(min = 52.dp)
             .onFocusChanged { f = it.isFocused }
-            .focusCard(onClick, scale = 1.02f, shape = RoundedCornerShape(14.dp))
+            .focusCard(onClick, scale = 1.02f, shape = shape)
             .background(bg)
-            .padding(horizontal = 20.dp, vertical = 12.dp),
+            .padding(horizontal = 18.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text(title, color = if (f) Color(0xFF111111) else Pal.Text, fontSize = 17.sp, fontWeight = if (f || selected) FontWeight.SemiBold else FontWeight.Medium,
+        Text(title, color = if (f) Pal.GoldText else Pal.Text, fontSize = Ts.ROW.sp, fontWeight = if (f || selected) FontWeight.SemiBold else FontWeight.Medium,
             maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-        if (value.isNotEmpty()) Text(value, color = if (f) Color(0xFF333333) else Pal.Dim, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+        if (value.isNotEmpty()) Text(value, color = if (f) Pal.GoldText else Pal.Dim, fontSize = Ts.HEAD.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
             modifier = Modifier.widthIn(max = 320.dp))
     }
 }
@@ -214,7 +215,7 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
                     SettingRow("Cancel") { clearHist = false }
                 }
                 val ver = remember { try { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName } catch (e: Exception) { "?" } }
-                Text("TVstreamer $ver", color = Pal.Dim, fontSize = 12.sp, modifier = Modifier.padding(start = 6.dp, top = 6.dp))
+                Text("TVstreamer $ver", color = Pal.Dim, fontSize = Ts.CAPTION.sp, modifier = Modifier.padding(start = 6.dp, top = 6.dp))
             }
         }
     }
@@ -225,8 +226,8 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
             modifier.verticalScroll(rememberScrollState()).imePadding().onFocusChanged { inDetail = it.hasFocus },
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Text(which.title, color = Pal.Text, fontSize = 26.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 6.dp))
-            if (statusText.isNotEmpty()) Text(statusText, color = Pal.Warn, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(which.title, color = Pal.Text, fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(bottom = 6.dp))
+            if (statusText.isNotEmpty()) Text(statusText, color = Pal.Warn, fontSize = Ts.SECONDARY.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Detail(which, Modifier.focusRequester(detailFr))
             Spacer(Modifier.height(40.dp))
         }
@@ -235,7 +236,7 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
     Box(Modifier.fillMaxSize().background(Pal.Bg)) {
         if (split) Row(Modifier.fillMaxSize().padding(horizontal = 40.dp, vertical = 28.dp), horizontalArrangement = Arrangement.spacedBy(36.dp)) {
             Column(Modifier.width(280.dp).fillMaxHeight().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("Settings", color = Pal.GoldText, fontSize = 28.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(start = 8.dp, bottom = 14.dp))
+                Text("Settings", color = Pal.GoldText, fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 8.dp, bottom = 14.dp))
                 SettingsNav.ALL.forEach { x ->
                     // Focusing a section shows it on the right (Netflix style); Right / OK go into it
                     SettingRow(x.title, "", Modifier.focusRequester(secFr.getValue(x)).onFocusChanged { if (it.isFocused) { sec = x; note = "" } },
@@ -246,8 +247,8 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
         } else {
             val cur = sec
             if (cur == null) Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Settings", color = Pal.GoldText, fontSize = 26.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(bottom = 8.dp))
-                if (statusText.isNotEmpty()) Text(statusText, color = Pal.Warn, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text("Settings", color = Pal.GoldText, fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(bottom = 8.dp))
+                if (statusText.isNotEmpty()) Text(statusText, color = Pal.Warn, fontSize = Ts.SECONDARY.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 SettingsNav.ALL.forEach { x -> SettingRow(x.title) { sec = x; note = "" } }
             } else DetailPane(cur, Modifier.fillMaxSize().padding(16.dp))
         }

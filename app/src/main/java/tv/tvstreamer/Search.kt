@@ -192,12 +192,12 @@ fun SearchOverlay(repo: Repo, st: SearchState, open: (Item) -> Unit, play: (List
                         // Phone: one large full-width field (52 dp, 18 sp); scope chips and mic / Ask AI / close on a tidy row below
                         TextField(
                             value = st.query, onValueChange = onType, singleLine = true,
-                            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 18.sp),
-                            placeholder = { Text(hint, fontSize = 16.sp, color = Pal.Dim, maxLines = 1) },
-                            leadingIcon = { Text("🔍", fontSize = 18.sp) },
+                            textStyle = androidx.compose.ui.text.TextStyle(fontSize = Ts.ROW.sp),
+                            placeholder = { Text(hint, fontSize = Ts.ROW.sp, color = Pal.Dim, maxLines = 1) },
+                            leadingIcon = { Text("🔍", fontSize = Ts.ROW.sp) },
                             trailingIcon = if (st.query.isNotEmpty()) ({
                                 Box(Modifier.clip(CircleShape).clickable { st.query = ""; runCatching { fieldFr.requestFocus() } }.padding(10.dp)) {
-                                    Text("✕", color = Pal.Dim, fontSize = 16.sp)
+                                    Text("✕", color = Pal.Dim, fontSize = Ts.ROW.sp)
                                 }
                             }) else null,
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
@@ -239,14 +239,14 @@ fun SearchOverlay(repo: Repo, st: SearchState, open: (Item) -> Unit, play: (List
                             Scope.entries.forEach { s -> PillButton(s.label, { st.scope = s }, selected = st.scope == s, size = 14) }
                         }
                     }
-                    if (heard.isNotEmpty() && voice.listening) Text("“$heard”", color = Pal.Text, fontSize = 15.sp)
-                    if (status.isNotEmpty()) Text(status, color = if (aiBusy || voice.listening) Pal.Dim else Pal.Warn, fontSize = 14.sp)
-                    if (st.aiMsg.isNotEmpty()) Text(st.aiMsg, color = Pal.Dim, fontSize = 13.sp)
+                    if (heard.isNotEmpty() && voice.listening) Text("“$heard”", color = Pal.Text, fontSize = Ts.ROW.sp)
+                    if (status.isNotEmpty()) Text(status, color = if (aiBusy || voice.listening) Pal.Dim else Pal.Warn, fontSize = Ts.HEAD.sp)
+                    if (st.aiMsg.isNotEmpty()) Text(st.aiMsg, color = Pal.Dim, fontSize = Ts.SECONDARY.sp)
                     when {
                         st.aiItems.isNotEmpty() || aiBusy || voice.listening -> {}
-                        st.query.trim().length < 2 -> Text("Type at least 2 letters. Searches every category and language on the portal.", color = Pal.Dim, fontSize = 13.sp)
-                        busy -> Text("Searching…", color = Pal.Dim, fontSize = 13.sp)
-                        result?.empty == true -> Text("No results for \"${st.query.trim()}\"" + (if (st.scope != Scope.ALL) " in ${st.scope.label}. Try All." else "."), color = Pal.Warn, fontSize = 15.sp)
+                        st.query.trim().length < 2 -> Text("Type at least 2 letters. Searches every category and language on the portal.", color = Pal.Dim, fontSize = Ts.SECONDARY.sp)
+                        busy -> Text("Searching…", color = Pal.Dim, fontSize = Ts.SECONDARY.sp)
+                        result?.empty == true -> Text("No results for \"${st.query.trim()}\"" + (if (st.scope != Scope.ALL) " in ${st.scope.label}. Try All." else "."), color = Pal.Warn, fontSize = Ts.ROW.sp)
                     }
                 }
             }
@@ -294,9 +294,9 @@ fun SearchOverlay(repo: Repo, st: SearchState, open: (Item) -> Unit, play: (List
 @Composable
 private fun Section(title: String, n: Int) {
     Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(top = 8.dp)) {
-        Text(title, color = Pal.Text, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Text(title, color = Pal.Text, fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.width(8.dp))
-        Text("$n", color = Pal.Dim, fontSize = 13.sp)
+        Text("$n", color = Pal.Dim, fontSize = Ts.SECONDARY.sp)
     }
 }
 
@@ -305,7 +305,7 @@ private fun Shimmer(w: androidx.compose.ui.unit.Dp) {
     val t = rememberInfiniteTransition(label = "shimmer")
     val a by t.animateFloat(0.25f, 0.6f, infiniteRepeatable(tween(700), RepeatMode.Reverse), label = "a")
     Column {
-        Box(Modifier.width(w).aspectRatio(2f / 3f).alpha(a).clip(RoundedCornerShape(8.dp)).background(Pal.Shimmer))
+        Box(Modifier.width(w).aspectRatio(2f / 3f).alpha(a).clip(RoundedCornerShape(Radii.poster)).background(Pal.Shimmer))
         Spacer(Modifier.height(6.dp))
         Box(Modifier.width(w * 0.7f).height(10.dp).alpha(a).background(Pal.Shimmer))
     }

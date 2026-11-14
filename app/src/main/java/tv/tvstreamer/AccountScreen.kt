@@ -104,7 +104,7 @@ fun AccountScreen(repo: Repo, onReady: () -> Unit) {
         noteErr?.let { ErrorBox(it.message ?: "", it.hint, it.link, body) { u -> link(u) } }
 
         if (Cloud.signedIn) {
-            Column(Modifier.fillMaxWidth().background(Pal.Field, RoundedCornerShape(8.dp)).padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(Modifier.fillMaxWidth().background(Pal.Field, RoundedCornerShape(Radii.field)).padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Label("Signed in as ${Cloud.email.ifEmpty { "(email not shared)" }}", body + 3, Pal.Text, maxLines = 3)
                 Label("Status: " + (if (Cloud.busy) "Syncing..." else Cloud.status.ifEmpty { "Signed in" }), body, ADIM, maxLines = 4)
                 Label("Last synced: " + if (Cloud.lastSync > 0) DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(Cloud.lastSync)) else "never", body, ADIM, maxLines = 2)
@@ -121,7 +121,7 @@ fun AccountScreen(repo: Repo, onReady: () -> Unit) {
                 "(private to your account), so a new device is ready right after sign-in. " +
                 "A Google client of your own (Advanced) is never synced.", body - 2, ADIM, maxLines = 20)
             if (!confirmDelete) PillButton("Delete cloud data…", { confirmDelete = true })
-            else Column(Modifier.fillMaxWidth().background(Pal.WarnBox, RoundedCornerShape(8.dp)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            else Column(Modifier.fillMaxWidth().background(Pal.WarnBox, RoundedCornerShape(Radii.field)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Label("Delete the synced copy from your Google Drive and sign this device out? Data on this device stays. " +
                     "Sign your other devices out first, or they will upload their copy again.", body, AWARN, maxLines = 20)
                 Buttons(listOf("Delete" to { confirmDelete = false; scope.launch { note = "Deleting..."; note = Cloud.deleteCloud() } },
@@ -180,7 +180,7 @@ private fun Buttons(items: List<Pair<String, () -> Unit>>, first: Modifier = Mod
 /** Error with Google's own words, what to do, and the page that fixes it. The text can be selected and copied. */
 @Composable
 private fun ErrorBox(msg: String, hint: String, link: String, body: Int, open: (String) -> Unit) {
-    Column(Modifier.fillMaxWidth().background(Pal.WarnBox, RoundedCornerShape(8.dp)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(Modifier.fillMaxWidth().background(Pal.WarnBox, RoundedCornerShape(Radii.field)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SelectionContainer {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(msg, color = AWARN, fontSize = body.sp, lineHeight = (body + 5).sp)
@@ -203,7 +203,7 @@ private fun Troubleshooting(body: Int, open: (String) -> Unit) {
         "5. On the Google page after entering the code: pick your account, press Continue on \"Google hasn't verified this app\", then TICK the box \"See, create, and delete its own configuration data in your Google Drive\" (or \"…files that you use with this app\") and press Continue." to "",
         "6. Still stuck? Remove TVstreamer's access at myaccount.google.com/connections and sign in again. In Testing mode Google signs you out every 7 days; Publish the app to stop that." to GoogleErrors.PERMISSIONS_URL,
     )
-    Column(Modifier.fillMaxWidth().background(Pal.Field, RoundedCornerShape(8.dp)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(Modifier.fillMaxWidth().background(Pal.Field, RoundedCornerShape(Radii.field)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Label("Troubleshooting checklist", body + 3, Pal.GoldText, maxLines = 2)
         steps.forEach { (t, u) ->
             Text(t, color = Pal.Text, fontSize = body.sp, lineHeight = (body + 5).sp)
@@ -231,7 +231,7 @@ private fun SignInCode(c: Google.DeviceCode, tv: Boolean, openLink: () -> Unit) 
             Image(qr, "QR code for ${c.url}", Modifier.size(170.dp), filterQuality = FilterQuality.None)
         }
     }
-    val bg = Modifier.fillMaxWidth().background(Pal.Field, RoundedCornerShape(8.dp)).padding(18.dp)
+    val bg = Modifier.fillMaxWidth().background(Pal.Field, RoundedCornerShape(Radii.field)).padding(18.dp)
     if (tv) Row(bg, horizontalArrangement = Arrangement.spacedBy(24.dp), verticalAlignment = Alignment.CenterVertically) {
         text(Modifier.weight(1f)); qrBox()
     } else Column(bg, verticalArrangement = Arrangement.spacedBy(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {

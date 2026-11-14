@@ -108,7 +108,7 @@ fun BottomBar(current: NavTab?, onTab: (NavTab) -> Unit, modifier: Modifier = Mo
     Row(
         modifier.navigationBarsPadding().padding(horizontal = 12.dp, vertical = 10.dp).fillMaxWidth().height(64.dp)
             .shadow(12.dp, RoundedCornerShape(24.dp)).clip(RoundedCornerShape(24.dp))
-            .background(Color(0xF20A0A0A)).border(1.dp, Pal.Gold.copy(alpha = 0.25f), RoundedCornerShape(24.dp)),
+            .background(Pal.Surface.copy(alpha = 0.96f)).border(1.dp, Pal.Gold.copy(alpha = 0.28f), RoundedCornerShape(24.dp)),
         verticalAlignment = Alignment.CenterVertically
     ) {
         NavTab.entries.forEach { t ->
@@ -121,9 +121,9 @@ fun BottomBar(current: NavTab?, onTab: (NavTab) -> Unit, modifier: Modifier = Mo
                 Box(Modifier.clip(RoundedCornerShape(14.dp)).background(if (sel) Pal.Gold.copy(alpha = 0.18f) else Color.Transparent)
                     .padding(horizontal = 14.dp, vertical = 3.dp), contentAlignment = Alignment.Center) {
                     if (t == NavTab.PROFILE && Cloud.signedIn) Avatar(24.dp, if (sel) Modifier.border(1.5.dp, Pal.Gold, CircleShape) else Modifier)
-                    else Icon(t.icon, null, tint = if (sel) Pal.Gold else Color(0xFFB8BCC8), modifier = Modifier.size(24.dp))
+                    else Icon(t.icon, null, tint = if (sel) Pal.Gold else Pal.Dim, modifier = Modifier.size(24.dp))
                 }
-                Text(t.label, color = if (sel) Pal.Gold else Color(0xFFB8BCC8), fontSize = 11.sp,
+                Text(t.label, color = if (sel) Pal.Gold else Pal.Dim, fontSize = Ts.CAPTION.sp,
                     fontWeight = if (sel) FontWeight.Bold else FontWeight.Medium, maxLines = 1)
             }
         }
@@ -153,15 +153,15 @@ fun AccountMenu(store: Store, go: (Screen) -> Unit, onClose: () -> Unit) {
     PopupFrame(onClose, alignment = if (AppUi.phoneNav) Alignment.BottomCenter else Alignment.TopEnd, scrim = Color(0x99000000)) {
         Column(
             Modifier.then(if (AppUi.phoneNav) Modifier.fillMaxWidth().navigationBarsPadding() else Modifier.padding(24.dp).width(420.dp))
-                .clip(if (AppUi.phoneNav) RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp) else RoundedCornerShape(16.dp))
+                .clip(if (AppUi.phoneNav) RoundedCornerShape(topStart = Radii.panel, topEnd = Radii.panel) else RoundedCornerShape(Radii.panel))
                 .background(Pal.Surface).clickable(enabled = false) {}.padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 Avatar(52.dp)
                 Column(Modifier.weight(1f)) {
-                    Label(if (Cloud.signedIn) Cloud.name.ifEmpty { "Google account" } else "Not signed in", 18, Pal.Text)
-                    Label(if (Cloud.signedIn) Cloud.email else "Sign in to sync your TV and phone", 13, Pal.Dim)
+                    Label(if (Cloud.signedIn) Cloud.name.ifEmpty { "Google account" } else "Not signed in", Ts.TITLE, Pal.Text)
+                    Label(if (Cloud.signedIn) Cloud.email else "Sign in to sync your TV and phone", Ts.SECONDARY, Pal.Dim)
                 }
             }
             Spacer(Modifier.height(4.dp))

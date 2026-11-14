@@ -54,22 +54,22 @@ import kotlinx.coroutines.withContext
 private val WARN get() = Pal.Warn
 private val DIM get() = Pal.Dim
 
-/** Focusable, D-pad friendly. Menu key or long press fires onMenu. */
-fun Modifier.tv(onClick: () -> Unit, onMenu: (() -> Unit)? = null, onFocus: (() -> Unit)? = null): Modifier = composed {
-    var f by remember { mutableStateOf(false) }
-    this
-        .popupOpener()
-        .onFocusChanged { f = it.isFocused; if (it.isFocused) onFocus?.invoke() }
-        .background(if (f) Pal.FocusBg else Pal.Row, RoundedCornerShape(8.dp))
-        .then(if (f) Modifier.border(2.dp, Pal.Gold, RoundedCornerShape(8.dp)) else Modifier)
-        .onKeyEvent { e ->
-            if (onMenu != null && e.type == KeyEventType.KeyUp && e.key == Key.Menu) { onMenu(); true } else false
-        }
-        .combinedClickable(onClick = onClick, onLongClick = onMenu)
+/** Shared corner radii so every screen uses the same card / row / panel shapes. */
+object Radii {
+    val row = 14.dp
+    val card = 14.dp
+    val poster = 14.dp
+    val panel = 20.dp
+    val field = 14.dp
+    val pill = 50
 }
 
+/** Focusable, D-pad friendly: the same soft gold glow as posters and settings. Menu or long-press fires onMenu. */
+fun Modifier.tv(onClick: () -> Unit, onMenu: (() -> Unit)? = null, onFocus: (() -> Unit)? = null): Modifier =
+    this.focusCard(onClick, onMenu, onFocus, scale = 1.02f, shape = RoundedCornerShape(Radii.row))
+
 @Composable
-fun Label(text: String, size: Int = 18, color: Color = Pal.Text, modifier: Modifier = Modifier, maxLines: Int = 1) {
+fun Label(text: String, size: Int = Ts.ROW, color: Color = Pal.Text, modifier: Modifier = Modifier, maxLines: Int = 1) {
     Text(text, color = color, fontSize = size.sp, maxLines = maxLines, overflow = TextOverflow.Ellipsis, modifier = modifier)
 }
 
@@ -142,8 +142,8 @@ fun SettingField(label: String, value: String, password: Boolean = false, multiL
                     focusedTextColor = Pal.Text,
                     unfocusedTextColor = Pal.Text
                 ),
-                textStyle = androidx.compose.ui.text.TextStyle(fontSize = if (tv) 20.sp else 17.sp),
-                placeholder = { Text("Tap to enter", color = DIM, fontSize = if (tv) 18.sp else 15.sp) }
+                textStyle = androidx.compose.ui.text.TextStyle(fontSize = Ts.ROW.sp),
+                placeholder = { Text("Tap to enter", color = DIM, fontSize = Ts.ROW.sp) }
             )
         }
     }
@@ -218,6 +218,8 @@ object Ts {
     const val ROW = 15
     const val SECONDARY = 13
     const val CAPTION = 11
+    /** Featured title on the hero / details banner only. */
+    const val DISPLAY = 28
     val ROW_PAD = 6.dp
     val ROW_PAD_TV = 7.dp
     val MENU_PAD = 7.dp

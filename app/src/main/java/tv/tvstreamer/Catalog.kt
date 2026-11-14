@@ -370,7 +370,7 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
             )
             Column(Modifier.fillMaxWidth().padding(start = hPad, end = hPad, top = if (isTv) 18.dp else 10.dp, bottom = if (isTv) 10.dp else 6.dp)) {
                 if (AppUi.phoneNav || !isTv) Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("TVSTREAMER", color = Pal.GoldText, fontSize = if (isTv) 28.sp else 22.sp, fontWeight = FontWeight.Black)
+                    Text("TVSTREAMER", color = Pal.GoldText, fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold)
                 }
                 // TV / tablet menu (Netflix style): profile on the left, text tabs centred; the focused tab is a soft
                 // light pill, the current one bold. Left / Right stay inside the menu, Down goes to the page.
@@ -394,7 +394,7 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                         }
                     }
                     Spacer(Modifier.weight(1f))
-                    Text("TV", color = Pal.GoldText, fontSize = 22.sp, fontWeight = FontWeight.Black)
+                    Text("TV", color = Pal.GoldText, fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
         LazyColumn(state = state, modifier = Modifier.fillMaxWidth().weight(1f), contentPadding = PaddingValues(bottom = 48.dp)) {
@@ -420,25 +420,25 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                             // Small and non-blocking: saved titles stay usable while pages arrive one by one
                             Spacer(Modifier.height(4.dp))
                             Text("Loading more… " + (if (lib.total > 0) "${lib.done} of ${lib.total} pages · " else "") + "%,d titles saved".format(lib.size),
-                                color = Pal.Dim, fontSize = 13.sp)
+                                color = Pal.Dim, fontSize = Ts.SECONDARY.sp)
                             if (lib.total > 0) {
                                 Spacer(Modifier.height(4.dp))
                                 LinearProgressIndicator(progress = { (lib.done.toFloat() / lib.total).coerceIn(0f, 1f) },
                                     modifier = Modifier.fillMaxWidth(if (isTv) 0.4f else 1f).height(3.dp), color = Pal.Gold, trackColor = Pal.Dim.copy(alpha = 0.3f))
                             }
                         } else if (lib.note.isNotEmpty() && !langs.isNullOrEmpty()) {
-                            Spacer(Modifier.height(4.dp)); Text(lib.note, color = Pal.Warn, fontSize = 13.sp)
+                            Spacer(Modifier.height(4.dp)); Text(lib.note, color = Pal.Warn, fontSize = Ts.SECONDARY.sp)
                         }
                         if (langs.isNullOrEmpty()) {
                             Spacer(Modifier.height(4.dp))
                             Text(if (isTv && !AppUi.phoneNav)
                                 "Press Options on the remote to choose the languages you watch. Their CAM / HD / 4K / Dub categories are merged into one set of rows."
                                 else "Pick the languages you watch: their CAM / HD / 4K / Dub categories are merged into one set of rows.",
-                                color = Pal.Dim, fontSize = 13.sp)
+                                color = Pal.Dim, fontSize = Ts.SECONDARY.sp)
                         }
                     }
-                    if (repo.status.isNotEmpty()) { Spacer(Modifier.height(8.dp)); Text(repo.status, color = Pal.Warn, fontSize = 15.sp, maxLines = 5) }
-                    if (updateMsg.isNotEmpty()) { Spacer(Modifier.height(6.dp)); Text(updateMsg, color = Pal.Warn, fontSize = 14.sp, maxLines = 4) }
+                    if (repo.status.isNotEmpty()) { Spacer(Modifier.height(8.dp)); Text(repo.status, color = Pal.Warn, fontSize = Ts.ROW.sp, maxLines = 5) }
+                    if (updateMsg.isNotEmpty()) { Spacer(Modifier.height(6.dp)); Text(updateMsg, color = Pal.Warn, fontSize = Ts.HEAD.sp, maxLines = 4) }
                 }
             }
             if (heroPick != null && hero != null) item(key = "hero") {
@@ -457,7 +457,7 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                     tabbed && !langs.isNullOrEmpty() && lib.loading -> "Loading…"
                     tabbed && !langs.isNullOrEmpty() -> "Nothing found for these languages yet. Try Refresh or pick more languages."
                     else -> "Nothing here yet. Open Categories to show hidden ones."
-                }, color = Pal.Dim, fontSize = 16.sp, modifier = Modifier.padding(hPad))
+                }, color = Pal.Dim, fontSize = Ts.ROW.sp, modifier = Modifier.padding(hPad))
             }
             items(shelvesShown, key = { it.key }) { shelf ->
                 // Lazy: a category's items are requested only when its row is composed (scrolled into view)
@@ -563,7 +563,7 @@ private fun Hero(repo: Repo, raw: Item, isTv: Boolean, hPad: Dp, playLabel: Stri
         }
         Row(Modifier.fillMaxSize().padding(horizontal = if (isTv) 32.dp else hPad, vertical = if (isTv) 26.dp else 16.dp), verticalAlignment = Alignment.Bottom) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(if (isTv) 10.dp else 8.dp)) {
-                Text(name, color = Pal.Text, fontSize = if (isTv) 32.sp else 24.sp, fontWeight = FontWeight.SemiBold,
+                Text(name, color = Pal.Text, fontSize = if (isTv) Ts.DISPLAY.sp else Ts.TITLE.sp, fontWeight = FontWeight.SemiBold,
                     letterSpacing = (-0.3).sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 MetaLine(item)
                 if (item.desc.isNotEmpty()) Text(item.desc, color = Pal.Desc, fontSize = if (isTv) 15.sp else 13.sp, maxLines = 3,
@@ -585,7 +585,7 @@ private fun Hero(repo: Repo, raw: Item, isTv: Boolean, hPad: Dp, playLabel: Stri
             }
             if (item.img.isNotEmpty()) {
                 Spacer(Modifier.width(20.dp))
-                Poster(item.img, name, Modifier.width(if (isTv) 160.dp else 100.dp).aspectRatio(2f / 3f).clip(RoundedCornerShape(8.dp)))
+                Poster(item.img, name, Modifier.width(if (isTv) 160.dp else 100.dp).aspectRatio(2f / 3f).clip(RoundedCornerShape(Radii.poster)))
             }
         }
     }
@@ -602,7 +602,7 @@ fun MetaLine(item: Item, meta: Meta? = null) {
         if (item.isSeries) "Series" else null,
         item.genre.ifEmpty { null }
     )
-    if (parts.isNotEmpty()) Text(parts.joinToString("   ·   "), color = Pal.Dim, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    if (parts.isNotEmpty()) Text(parts.joinToString("   ·   "), color = Pal.Dim, fontSize = Ts.HEAD.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
 }
 
 @Composable
@@ -617,21 +617,21 @@ private fun ShelfRow(repo: Repo, screen: String, shelf: Shelf, isTv: Boolean, hP
     val shown = remember(shelf.items) { shelf.items.distinctBy { it.key }.take(ROW_LIMIT) }
     Column(Modifier.padding(top = if (isTv) 16.dp else 12.dp)) {
         Row(Modifier.padding(horizontal = hPad), verticalAlignment = Alignment.CenterVertically) {
-            Text(shelf.title, color = Pal.Text, fontSize = if (isTv) 20.sp else 17.sp, fontWeight = FontWeight.Bold,
+            Text(shelf.title, color = Pal.Text, fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold,
                 maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-            if (shelf.cat?.locked == true) Text("  🔒", fontSize = 14.sp)
+            if (shelf.cat?.locked == true) Text("  🔒", fontSize = Ts.HEAD.sp)
             if (!isTv) {
                 // Phones: "⋮" next to the title opens the row menu (move / hide). TV: Menu (or long-press OK) on any card in
                 // the row opens the same menu, so Up / Down between rows needs no extra stop
                 Spacer(Modifier.width(6.dp))
                 Box(Modifier.focusCard({ onMenu(null) }, shape = RoundedCornerShape(12.dp)).padding(horizontal = 10.dp, vertical = 2.dp)) {
-                    Text("⋮", color = Pal.Dim, fontSize = 18.sp)
+                    Text("⋮", color = Pal.Dim, fontSize = Ts.ROW.sp)
                 }
             }
         }
         if (shelf.error.isNotEmpty() && shelf.items.isEmpty()) {
             Row(Modifier.padding(horizontal = hPad, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("Couldn't load: ${shelf.error}", color = Pal.Warn, fontSize = 13.sp, maxLines = 2, modifier = Modifier.weight(1f, fill = false))
+                Text("Couldn't load: ${shelf.error}", color = Pal.Warn, fontSize = Ts.SECONDARY.sp, maxLines = 2, modifier = Modifier.weight(1f, fill = false))
                 Spacer(Modifier.width(10.dp))
                 PillButton("Retry", { shelf.cat?.let { repo.retryRow(it) } }, size = 13)
             }
@@ -647,7 +647,7 @@ private fun ShelfRow(repo: Repo, screen: String, shelf: Shelf, isTv: Boolean, hP
             if (shelf.loading && shelf.items.isEmpty()) {
                 items(7) {
                     Column(Modifier.width(posterW)) {
-                        Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(8.dp)).shimmer())
+                        Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(Radii.poster)).shimmer())
                         Spacer(Modifier.height(6.dp))
                         Box(Modifier.fillMaxWidth(0.7f).height(12.dp).clip(RoundedCornerShape(4.dp)).shimmer())
                     }
@@ -670,7 +670,7 @@ private fun ShelfRow(repo: Repo, screen: String, shelf: Shelf, isTv: Boolean, hP
                     Box(
                         Modifier.width(posterW).aspectRatio(2f / 3f).focusCard(onSeeAll).background(Pal.Card),
                         contentAlignment = Alignment.Center
-                    ) { Text("See all  ›", color = Pal.Text, fontSize = 15.sp, fontWeight = FontWeight.Bold) }
+                    ) { Text("See all  ›", color = Pal.Text, fontSize = Ts.ROW.sp, fontWeight = FontWeight.SemiBold) }
                 }
             }
         }
@@ -707,13 +707,13 @@ fun PosterCard(raw: Item, width: Dp, progress: Float?, modifier: Modifier, onCli
             }
         }
         Spacer(Modifier.height(6.dp))
-        Text(if (item.season.isNotEmpty()) "${item.season} · $name" else name, color = Pal.Text2, fontSize = 13.sp,
+        Text(if (item.season.isNotEmpty()) "${item.season} · $name" else name, color = Pal.Text2, fontSize = Ts.SECONDARY.sp,
             maxLines = 2, overflow = TextOverflow.Ellipsis)
         // Year and rating (IMDb when known)
         val r = meta?.imdbRating?.ifEmpty { null } ?: item.rating.takeIf { item.ratingNum > 0 }
         val y = item.year.ifEmpty { raw.parsed.year }
         val sub = listOfNotNull(y.ifEmpty { null }, r?.let { "★ $it" }).joinToString("  ·  ")
-        if (sub.isNotEmpty()) Text(sub, color = Pal.Dim, fontSize = 11.sp, maxLines = 1)
+        if (sub.isNotEmpty()) Text(sub, color = Pal.Dim, fontSize = Ts.CAPTION.sp, maxLines = 1)
     }
 }
 
@@ -887,7 +887,7 @@ fun DetailScreen(repo: Repo, item: Item, play: (List<Item>, Int) -> Unit, onBack
                 Row(horizontalArrangement = Arrangement.spacedBy(if (isTv) 28.dp else 14.dp)) {
                     Poster(shownItem.img, name, Modifier.width(if (isTv) 200.dp else 116.dp).aspectRatio(2f / 3f).clip(RoundedCornerShape(12.dp)))
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(name, color = Pal.Text, fontSize = if (isTv) 32.sp else 22.sp, fontWeight = FontWeight.SemiBold,
+                        Text(name, color = Pal.Text, fontSize = if (isTv) Ts.DISPLAY.sp else Ts.TITLE.sp, fontWeight = FontWeight.SemiBold,
                             letterSpacing = (-0.3).sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
                         MetaLine(shownItem, meta)
                         if (shownItem.desc.isNotEmpty()) Text(shownItem.desc, color = Pal.Desc, fontSize = if (isTv) 16.sp else 14.sp,
@@ -921,7 +921,7 @@ fun DetailScreen(repo: Repo, item: Item, play: (List<Item>, Int) -> Unit, onBack
             if (versions.size > 1) item {
                 val labels = remember(versions) { VersionPick.labels(versions.map { versionLabel(repo, it) }) }
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Versions", color = Pal.Text, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Text("Versions", color = Pal.Text, fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold)
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 4.dp), modifier = Modifier.focusRestorer()) {
                         itemsIndexed(versions, key = { _, v -> v.key }) { i, v ->
                             val sel = v.key == cur.key
@@ -961,7 +961,7 @@ fun DetailScreen(repo: Repo, item: Item, play: (List<Item>, Int) -> Unit, onBack
             }
             if (shown.isNotEmpty()) item {
                 Text(if (seasons.size > 1) "${seasonName(curSeason)} · ${shown.size} episodes" else "${shown.size} episodes",
-                    color = Pal.Text, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 6.dp))
+                    color = Pal.Text, fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 6.dp))
             }
             itemsIndexed(shown, key = { i, e -> "$i|${e.key}" }) { _, e ->
                 val all = eps.indexOf(e)
@@ -984,7 +984,7 @@ fun DetailScreen(repo: Repo, item: Item, play: (List<Item>, Int) -> Unit, onBack
                         }
                     }
                     Column(Modifier.weight(1f)) {
-                        Text(title, color = Pal.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(title, color = Pal.Text, fontSize = Ts.ROW.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         val sub = listOfNotNull(e.length.ifEmpty { null }, em?.airDate?.ifEmpty { null }).joinToString("  ·  ")
                         if (sub.isNotEmpty()) Text(sub, color = Pal.Dim, fontSize = 12.sp)
                         val ov = em?.overview?.ifEmpty { null } ?: e.desc.takeIf { it.isNotEmpty() && it != cur.desc }
@@ -1021,7 +1021,7 @@ private fun FixMatchDialog(item: Item, onClose: () -> Unit) {
     PopupFrame(onClose, scrim = Color(0xCC000000)) {
         Column(Modifier.widthIn(max = 640.dp).fillMaxWidth(0.9f).heightIn(max = 560.dp).background(Pal.Surface, RoundedCornerShape(14.dp)).padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Fix match: ${Names.title(item.name)}", color = Pal.Text, fontSize = 20.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("Fix match: ${Names.title(item.name)}", color = Pal.Text, fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             val kb = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
             KeyboardGate(Modifier.fillMaxWidth()) { inner ->
             TextField(value = q, onValueChange = { q = it }, singleLine = true, modifier = inner.fillMaxWidth(),
@@ -1148,7 +1148,7 @@ fun GridScreen(repo: Repo, cat: Cat, open: (Item) -> Unit, play: (List<Item>, In
                     { if (it.isEpisode()) play(listOf(it), 0) else open(it) }, { menu = it }, fav = repo.isFav(it), versions = vcount[it.key] ?: 0) { repo.focusItem(screenKey, k); Keys.focused = it }
             }
             if (busy && more) items(if (items.isEmpty()) 12 else 6) { _ ->
-                Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(8.dp)).shimmer())
+                Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(Radii.poster)).shimmer())
             }
         }
         menu?.let { m -> TitleMenu(repo, m, vcount[m.key] ?: 0, open, { play(listOf(it), 0) }) { menu = null } }
@@ -1280,9 +1280,9 @@ fun LanguagesScreen(repo: Repo, tab: String, onBack: () -> Unit) {
                 Row(Modifier.fillMaxWidth().focusCard({ save(if (on) sel - l else sel + l) }, scale = 1.02f)
                     .background(if (on) Color(0x33E50914) else Pal.Soft).padding(horizontal = 14.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically) {
-                    Text(if (on) "☑" else "☐", color = Pal.Text, fontSize = 20.sp)
+                    Text(if (on) "☑" else "☐", color = Pal.Text, fontSize = Ts.TITLE.sp)
                     Spacer(Modifier.width(12.dp))
-                    Text(l, color = Pal.Text, fontSize = 17.sp, fontWeight = if (on) FontWeight.Bold else FontWeight.Normal, modifier = Modifier.weight(1f))
+                    Text(l, color = Pal.Text, fontSize = Ts.ROW.sp, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal, modifier = Modifier.weight(1f))
                     Text("%,d ".format(n) + if (unit == "title") (if (n == 1) "title" else "titles") else (if (n == 1) "category" else "categories"), color = Pal.Dim, fontSize = 13.sp)
                 }
             }
@@ -1373,7 +1373,7 @@ fun CategoriesScreen(repo: Repo, go: (Screen) -> Unit) {
                     Poster(sample, label, Modifier.fillMaxSize(), if (kind == "vod") ContentScale.Crop else ContentScale.Fit, initialsSize = 30)
                     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.35f to Color.Transparent, 1f to Color(0xEE000000))))
                     Column(Modifier.align(Alignment.BottomStart).padding(10.dp)) {
-                        Text((if (c.locked) "🔒 " else "") + label, color = if (hidden) Color(0xFF999999) else Pal.Text, fontSize = 15.sp,
+                        Text((if (c.locked) "🔒 " else "") + label, color = if (hidden) Pal.Dim else Pal.Text, fontSize = Ts.ROW.sp,
                             fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         val n = if (kind == "itv") repo.channels.count { it.cat == c.id } else -1
                         Text(listOfNotNull("#${all.indexOf(c) + 1}", if (kind == "vod") repo.lib.catLang(c) else null, if (n >= 0) "$n channels" else null, if (hidden) "hidden" else null).joinToString("  ·  "),
