@@ -326,6 +326,11 @@ class Store(ctx: Context) {
         get() = p.getString("live_nav_type", "").orEmpty()
         set(v) { p.edit().putString("live_nav_type", v).apply() }
 
+    /** Folded sections in What to show (Movies / Series / Live type rows). Device-only. */
+    var catalogFolded: String
+        get() = p.getString("catalog_folded", "").orEmpty()
+        set(v) { p.edit().putString("catalog_folded", v).apply() }
+
     fun langs(tab: String): Set<String>? =
         if (!p.contains("langs_$tab")) null else p.getStringSet("langs_$tab", emptySet())?.toSet()
 
@@ -477,7 +482,7 @@ class Store(ctx: Context) {
         /** Prefs stored in their own sync entries. */
         val STRUCTURED = setOf("fav", "hidden", "custom_cats", "recent", "resume", "lastep", "ch_names")
         /** Never synced. */
-        val LOCAL_ONLY = setOf("fav_ch_migrated", "update_declined", "catalog_refresh_hours")
+        val LOCAL_ONLY = setOf("fav_ch_migrated", "update_declined", "catalog_refresh_hours", "catalog_folded")
     }
 
     fun cacheWrite(name: String, text: String) { runCatching { File(dir, name).writeText(text) } }

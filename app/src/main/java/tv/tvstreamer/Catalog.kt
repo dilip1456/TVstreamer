@@ -514,7 +514,17 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                     add("▲  Move row up" to { repo.moveCat("vod", c.id, -1) })
                     add("▼  Move row down" to { repo.moveCat("vod", c.id, 1) })
                     add("⤒  Move row to top" to { repo.moveCatTo("vod", c.id, true); menu = null })
-                    add("🚫  Hide this category" to { repo.toggleHide("vod", c.id); menu = null; repo.status = "\"${shelf.title}\" hidden. Show it again in What to show." })
+                    val gKey = "vod:${c.id}"
+                    val gOn = repo.groupOn(gKey)
+                    add((if (gOn) "Hide" else "Show") to {
+                        repo.setGroupsOn(listOf(gKey to shelf.title), !gOn); menu = null
+                        repo.status = "\"${shelf.title}\" " + (if (gOn) "hidden" else "shown") + ". Change this in What to show."
+                    })
+                    add("Show all" to { repo.setGroupsOn(listOf(gKey to shelf.title), true); menu = null })
+                    add("Hide all" to {
+                        repo.setGroupsOn(listOf(gKey to shelf.title), false); menu = null
+                        repo.status = "\"${shelf.title}\" hidden. Show it again in What to show."
+                    })
                     if (shelf.error.isNotEmpty()) add("Retry loading" to { repo.retryRow(c); menu = null })
                 }
                 if (shelf.cat == null) add("🚫  Hide this category" to {

@@ -50,7 +50,10 @@ fun CatalogModeScreen(repo: Repo, go: (Screen) -> Unit) {
     var q by remember { mutableStateOf("") }
     var popup by remember { mutableStateOf<String?>(null) }
     var selected by remember { mutableStateOf<Set<String>?>(null) }
-    var folded by remember { mutableStateOf(setOf<String>()) }
+    val folded = repo.catalogFolded
+    fun setFolded(s: Set<String>) = repo.foldCatalog(s)
+    var groupMenu by remember { mutableStateOf<CatalogGroups.Group?>(null) }
+    var sectionMenu by remember { mutableStateOf<String?>(null) }
     val hPad = if (tv) 48.dp else 16.dp
     val firstFr = remember { FocusRequester() }
     val selectFr = remember { FocusRequester() }
@@ -131,9 +134,9 @@ fun CatalogModeScreen(repo: Repo, go: (Screen) -> Unit) {
                 PillButton((if (mode == LiveModes.DEFAULT) "Default" else mode) + "  ▾", { popup = "modes" },
                     selected = true, size = Ts.HEAD, compact = true)
                 PillButton(viewLabel(view) + "  ▾", { view = view.next() }, size = Ts.HEAD, compact = true)
-                PillButton("Expand all", { folded = emptySet() }, size = Ts.SECONDARY, compact = true)
+                PillButton("Expand all", { setFolded(emptySet()) }, size = Ts.SECONDARY, compact = true)
                 PillButton("Collapse all", {
-                    folded = setOf("Movies", "Series") + live.filter { it.depth == 0 }.map { "live:${it.key}" }.toSet()
+                    setFolded(ItemContext.catalogCollapseAll(live.filter { it.depth == 0 }.map { it.key }))
                 }, size = Ts.SECONDARY, compact = true)
                 PillButton("⋮", { popup = "more" }, size = Ts.SECONDARY, compact = true)
             }
@@ -180,7 +183,7 @@ fun CatalogModeScreen(repo: Repo, go: (Screen) -> Unit) {
                     }) { i ->
                         when (val line = lines[i]) {
                             is String -> SectionLabel(line, folded = line in folded, tv = tv,
-                                onToggle = { folded = if (line in folded) folded - line else folded + line })
+                                onToggle = { setFolded(if (line in folded) folded - line else folded + line) }, onMenu = { sectionMenu = line })
                             is CatalogGroups.Group -> {
                                 val g = line
                                 val on = repo.groupOn(g.key)
@@ -195,10 +198,10 @@ fun CatalogModeScreen(repo: Repo, go: (Screen) -> Unit) {
                                     onToggleFold = {
                                         if (g.section == "Live TV" && g.depth == 0) {
                                             val k = "live:${g.key}"
-                                            folded = if (k in folded) folded - k else folded + k
+                                            setFolded(if (k in folded) folded - k else folded + k)
                                         }
                                     },
-                                    onHold = { startSelect(g.key) },
+                                    onHold = { groupMenu = g },
                                     onChip = { toggle(g) }
                                 )
                             }
@@ -231,27 +234,68 @@ fun CatalogModeScreen(repo: Repo, go: (Screen) -> Unit) {
             "Only visible" to { view = LiveModes.View.ACTIVE; popup = null },
             "Only hidden" to { view = LiveModes.View.HIDDEN; popup = null },
             "All groups" to { view = LiveModes.View.ALL; popup = null },
-            "Expand all" to { folded = emptySet(); popup = null },
+            "Expand all" to { setFolded(emptySet()); popup = null },
             "Collapse all" to {
-                folded = setOf("Movies", "Series") + live.filter { it.depth == 0 }.map { "live:${it.key}" }.toSet()
+                setFolded(ItemContext.catalogCollapseAll(live.filter { it.depth == 0 }.map { it.key }))
                 popup = null
             }
         ), focusKey = "catalog-more", onClose = { popup = null })
     }
+
+    groupMenu?.let { g ->
+        val keys = CatalogGroups.withDescendants(g, all).map { it.key to it.title }
+        val liveType = g.section == "Live TV" && g.depth == 0
+        val foldKey = if (liveType) "live:${g.key}" else null
+        val labels = ItemContext.catalogGroupItems(repo.groupOn(g.key), liveType, foldKey?.let { it in folded })
+        ChoiceDialog(g.title, labels.map { label ->
+            label to {
+                when (label) {
+                    ItemContext.SHOW -> repo.setGroupsOn(listOf(g.key to g.title), true)
+                    ItemContext.HIDE -> repo.setGroupsOn(listOf(g.key to g.title), false)
+                    ItemContext.SHOW_ALL -> repo.setGroupsOn(keys, true)
+                    ItemContext.HIDE_ALL -> repo.setGroupsOn(keys, false)
+                    ItemContext.COLLAPSE, ItemContext.EXPAND -> foldKey?.let { k ->
+                        setFolded(if (k in folded) folded - k else folded + k)
+                    }
+                    ItemContext.EXPAND_ALL -> setFolded(emptySet())
+                    ItemContext.COLLAPSE_ALL -> setFolded(ItemContext.catalogCollapseAll(live.filter { it.depth == 0 }.map { it.key }))
+                    ItemContext.SELECT -> startSelect(g.key)
+                }
+                groupMenu = null
+            }
+        }, focusKey = "cat-ctx-" + g.key, onClose = { groupMenu = null })
+    }
+    sectionMenu?.let { sec ->
+        val labels = ItemContext.sectionItems(sec in folded)
+        ChoiceDialog(sec, labels.map { label ->
+            label to {
+                when (label) {
+                    ItemContext.COLLAPSE, ItemContext.EXPAND ->
+                        setFolded(if (sec in folded) folded - sec else folded + sec)
+                    ItemContext.EXPAND_ALL -> setFolded(emptySet())
+                    ItemContext.COLLAPSE_ALL -> setFolded(ItemContext.catalogCollapseAll(live.filter { it.depth == 0 }.map { it.key }))
+                }
+                sectionMenu = null
+            }
+        }, focusKey = "sec-ctx-" + sec, onClose = { sectionMenu = null })
+    }
 }
 
 @Composable
-private fun SectionLabel(title: String, folded: Boolean, tv: Boolean, onToggle: () -> Unit) {
+private fun SectionLabel(title: String, folded: Boolean, tv: Boolean, onToggle: () -> Unit, onMenu: () -> Unit) {
     var f by remember { mutableStateOf(false) }
+    var held by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(Radii.row)
     Row(
         Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 4.dp)
             .popupOpener()
             .onFocusChanged { f = it.isFocused }
+            .onPreviewKeyEvent { e -> holdOk(e, held, { held = it }, onMenu) }
+            .onKeyEvent { e -> if (e.type == KeyEventType.KeyUp && e.key == Key.Menu) { onMenu(); true } else false }
             .clip(shape)
             .background(if (f) Pal.FocusBg else Color.Transparent)
             .then(if (f) Modifier.border(2.dp, Pal.Gold.copy(alpha = 0.9f), shape) else Modifier)
-            .combinedClickable(onClick = onToggle)
+            .combinedClickable(onClick = onToggle, onLongClick = onMenu)
             .padding(horizontal = 10.dp, vertical = if (tv) 8.dp else 6.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
@@ -284,6 +328,7 @@ private fun GroupRow(
             .popupOpener()
             .onFocusChanged { f = it.isFocused }
             .onPreviewKeyEvent { e -> holdOk(e, held, { held = it }, onHold) }
+            .onKeyEvent { e -> if (e.type == KeyEventType.KeyUp && e.key == Key.Menu) { onHold(); true } else false }
             .then(if (ring > 0.01f) Modifier
                 .border(6.dp, Pal.Focus.copy(alpha = 0.20f * ring), shape)
                 .border(2.dp, Pal.Focus.copy(alpha = 0.95f * ring), shape) else Modifier)

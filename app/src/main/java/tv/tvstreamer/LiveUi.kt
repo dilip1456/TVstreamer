@@ -211,6 +211,55 @@ fun ChannelMenu(repo: Repo, ch: Item, @Suppress("UNUSED_PARAMETER") folder: Stri
     }, focusKey = ch.key + page, onClose = onClose)
 }
 
+
+/** Compact hold / Menu context menu for a Live TV channel (Show/Hide, Rename, My List, Select). */
+@Composable
+fun ChannelContextMenu(repo: Repo, ch: Item, on: Boolean, onShowHide: () -> Unit, onSelect: () -> Unit, onClose: () -> Unit) {
+    var page by remember { mutableStateOf("main") }
+    val named = repo.named(ch)
+    if (page == "rename") {
+        NameDialog("Rename channel", ChannelTitle.pretty(named.name), "Save name", { repo.renameChannel(ch, it); onClose() }) { page = "main" }
+        return
+    }
+    val labels = ItemContext.channelItems(on, repo.isFav(ch), repo.isRenamed(ch))
+    ChoiceDialog(ChannelTitle.pretty(named.name), labels.map { label ->
+        label to {
+            when (label) {
+                ItemContext.SHOW, ItemContext.HIDE -> { onShowHide(); onClose() }
+                ItemContext.RENAME -> { page = "rename" }
+                ItemContext.RESET_NAME -> { repo.renameChannel(ch, null); onClose() }
+                ItemContext.ADD_LIST, ItemContext.REMOVE_LIST -> { repo.toggleFav(ch); onClose() }
+                ItemContext.SELECT -> { onSelect(); onClose() }
+            }
+        }
+    }, focusKey = "ch-ctx-" + ch.key + page, onClose = onClose)
+}
+
+/** Compact hold / Menu context menu for a Live TV type, sub-category or region. */
+@Composable
+fun LiveGroupContextMenu(
+    title: String, groupOn: Boolean, folded: Boolean,
+    onShowHide: () -> Unit, onShowAll: () -> Unit, onHideAll: () -> Unit,
+    onToggleFold: () -> Unit, onExpandAll: () -> Unit, onCollapseAll: () -> Unit,
+    onSelect: () -> Unit, onClose: () -> Unit
+) {
+    val labels = ItemContext.liveGroupItems(groupOn, folded)
+    ChoiceDialog(title, labels.map { label ->
+        label to {
+            when (label) {
+                ItemContext.SHOW, ItemContext.HIDE -> onShowHide()
+                ItemContext.SHOW_ALL_CHANNELS -> onShowAll()
+                ItemContext.HIDE_ALL_CHANNELS -> onHideAll()
+                ItemContext.COLLAPSE, ItemContext.EXPAND -> onToggleFold()
+                ItemContext.EXPAND_ALL -> onExpandAll()
+                ItemContext.COLLAPSE_ALL -> onCollapseAll()
+                ItemContext.SELECT_CHANNELS -> onSelect()
+            }
+            onClose()
+        }
+    }, focusKey = "grp-ctx-" + title, onClose = onClose)
+}
+
 /** Which custom modes a channel is in: tick to add / remove; "New mode…" creates one with this channel. */
 @Composable
 fun ModePicker(repo: Repo, ch: Item, onClose: () -> Unit) {

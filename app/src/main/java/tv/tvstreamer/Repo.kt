@@ -76,6 +76,7 @@ class Repo(private val ctx: Context) {
         rawByKey = rawChannels.associateBy { it.key }
         applyNames()
         liveIndex.ensure(rawChannels, lc)   // sort channels by type / language in the background, ready for Live TV
+        bg.launch { refreshLiveGroupKeys() }
     }
 
     /** Type and language of every channel (worked out off the main thread, saved on disk). */
@@ -517,32 +518,61 @@ class Repo(private val ctx: Context) {
     /** Whether a movie / series / Live group is shown in the current catalog mode. */
     fun groupOn(key: String): Boolean = CatalogGroups.groupOn(key, mode(), folders, hidden)
 
+    @Volatile private var cachedLiveGroupKeys: List<String> = emptyList()
+
     fun groupStubs(family: String? = null): List<Item> {
-        val vod = ordered("vod").filter { groupOn("vod:${it.id}") }.map { CatalogGroups.stub("vod:${it.id}", Names.cat(it.title)) }
-        val live = liveGroupKeys().mapNotNull { k -> k.takeIf { groupOn(it) }?.let { CatalogGroups.stub(it, Taxonomy.label(it)) } }
-        val all = vod + live
-        return if (family == null) all else all.filter { it.key.startsWith(family) }
+        val wantVod = family == null || family == CatalogGroups.VOD
+        val wantLive = family == null || family == CatalogGroups.GRP
+        val vod = if (wantVod) ordered("vod").filter { groupOn("vod:${it.id}") }.map { CatalogGroups.stub("vod:${it.id}", Names.cat(it.title)) } else emptyList()
+        val live = if (wantLive) cachedLiveGroupKeys.ifEmpty { computeLiveGroupKeys() }.mapNotNull { k -> k.takeIf { groupOn(it) }?.let { CatalogGroups.stub(it, Taxonomy.label(it)) } } else emptyList()
+        return vod + live
     }
 
-    private fun liveGroupKeys(): List<String> {
+    private fun computeLiveGroupKeys(): List<String> {
         val catTitle = liveCats.associate { it.id to it.title }
         val rows = LiveModes.rows(channels, LiveModes.DEFAULT, FolderSet(), emptySet(), LiveModes.View.ALL, null, liveIndex.info, catTitle)
         return CatalogGroups.liveGroups(LiveModes.tree(rows, emptySet(), LiveModes.View.ALL)).map { it.key }
     }
 
+    private fun refreshLiveGroupKeys() { cachedLiveGroupKeys = computeLiveGroupKeys() }
+
+    private fun needsGroupSeed(): Boolean {
+        val m = mode()
+        return m != LiveModes.DEFAULT && m in folders.folders && folders.items(m).isNotEmpty()
+    }
+
+    private fun applyGroupChange(family: String?, block: (List<Item>) -> Pair<FolderSet, Set<String>>) {
+        fun apply(seed: List<Item>) {
+            val (f, h) = block(seed)
+            if (f != folders) applyFolders(f)
+            if (h != hidden) { hidden = h; persistHidden(h) }
+        }
+        if (!needsGroupSeed()) { apply(emptyList()); return }
+        val needLive = family == null || family == CatalogGroups.GRP
+        if (needLive && cachedLiveGroupKeys.isEmpty()) {
+            bg.launch {
+                refreshLiveGroupKeys()
+                val seed = groupStubs(family)
+                withContext(Dispatchers.Main) { apply(seed) }
+            }
+        } else apply(groupStubs(family))
+    }
+
     /** Hide / show a group in the current mode (Default: hidden set; custom: mode folder). Syncs with existing modes. */
     fun toggleGroupKey(key: String, title: String) {
-        val (f, h) = CatalogGroups.toggle(key, title, mode(), folders, hidden, groupStubs(CatalogGroups.family(key)))
-        if (f != folders) applyFolders(f)
-        if (h != hidden) { hidden = h; persistHidden(h) }
+        applyGroupChange(CatalogGroups.family(key)) { seed ->
+            CatalogGroups.toggle(key, title, mode(), folders, hidden, seed)
+        }
     }
 
     fun setGroupsOn(keys: List<Pair<String, String>>, on: Boolean) {
         if (keys.isEmpty()) return
-        val seed = keys.map { CatalogGroups.family(it.first) }.toSet().flatMap { groupStubs(it) }
-        val (f, h) = CatalogGroups.setOn(keys, on, mode(), folders, hidden, seed)
-        if (f != folders) applyFolders(f)
-        if (h != hidden) { hidden = h; persistHidden(h) }
+        val fams = keys.map { CatalogGroups.family(it.first) }.toSet()
+        val family = fams.singleOrNull()
+        applyGroupChange(family) { seed ->
+            val s = if (family != null) seed else fams.flatMap { groupStubs(it) }
+            CatalogGroups.setOn(keys, on, mode(), folders, hidden, s)
+        }
     }
     fun toTopOfMode(ch: Item) { val m = mode(); if (m != LiveModes.DEFAULT) applyFolders(LiveModes.toTop(ch, m, folders)) }
 
@@ -553,6 +583,9 @@ class Repo(private val ctx: Context) {
         private set
     fun toggleCollapsed(keys: Collection<String>) { setCollapsed(LiveCollapse.toggle(liveCollapsed, keys)) }
     fun setCollapsed(keys: Set<String>) { liveCollapsed = keys; store.liveCollapsed = LiveCollapse.encode(keys) }
+    var catalogFolded by mutableStateOf(LiveCollapse.decode(store.catalogFolded))
+        private set
+    fun foldCatalog(keys: Set<String>) { catalogFolded = keys; store.catalogFolded = LiveCollapse.encode(keys) }
     var liveNavType by mutableStateOf(store.liveNavType)
         private set
     fun rememberNavType(type: String) { if (type != liveNavType) { liveNavType = type; store.liveNavType = type } }

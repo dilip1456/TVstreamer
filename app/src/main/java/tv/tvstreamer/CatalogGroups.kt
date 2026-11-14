@@ -33,6 +33,18 @@ object CatalogGroups {
         else -> key.substringBefore(':', "") + ":"
     }
 
+    /** [g] and its nested children (Live TV subs / regions), in list order. */
+    fun withDescendants(g: Group, all: List<Group>): List<Group> {
+        val byParent = all.groupBy { it.parent }
+        val out = ArrayList<Group>()
+        fun walk(cur: Group) {
+            out += cur
+            byParent[cur.key].orEmpty().forEach(::walk)
+        }
+        walk(g)
+        return out
+    }
+
     fun stub(key: String, title: String): Item {
         val kind = key.substringBefore(':', "grp")
         val id = key.substringAfter(':', key)

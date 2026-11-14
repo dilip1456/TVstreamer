@@ -208,11 +208,11 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
         pendingPlay?.cancel()
         pendingPlay = scope.launch { delay(DoublePress.WINDOW_MS); pendingPlay = null; playAt(ch) }
     }
-    // Hold on a left-nav group hides it (or shows it again); the bar at the bottom offers Undo for a few seconds
+    // After hiding a group from the context menu, a short Undo bar is offered
     var undo by remember { mutableStateOf<Pair<String, Boolean>?>(null) }   // group key, hidden now
     val undoFr = remember { FocusRequester() }
     LaunchedEffect(undo) { if (undo != null) { delay(120); if (tv) runCatching { undoFr.requestFocus() }; delay(5000); undo = null } }
-    fun holdGroup(n: LiveModes.Node) { repo.toggleGroup(n.key); undo = n.key to (n.key in repo.hidden) }
+    var groupMenu by remember { mutableStateOf<LiveModes.Node?>(null) }
     var expanded by remember { mutableStateOf(repo.liveNavType) }
     fun openNav(type: String) { expanded = type; repo.rememberNavType(type) }
     fun nodeSections(n: LiveModes.Node) = sections.filter { sc -> sc.type == n.type && when {
@@ -220,6 +220,11 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
         n.key == Taxonomy.typeKey(n.type) -> true
         else -> sc.label == n.label || sc.label.startsWith(n.label + " · ")
     } }
+    fun collapseKeysOf(n: LiveModes.Node): List<String> =
+        if (n.key == Taxonomy.typeKey(n.type) && !n.region) listOf(LiveCollapse.typeKey(n.type))
+        else nodeSections(n).map { it.key }
+    fun nodeFolded(n: LiveModes.Node) = collapseKeysOf(n).let { it.isNotEmpty() && it.all { k -> k in collapsed } }
+    fun rowsOf(n: LiveModes.Node) = nodeSections(n).flatMap { it.rows }
     fun jumpNode(n: LiveModes.Node) {
         if (n.key == Taxonomy.typeKey(n.type) || LiveCollapse.isTypeCollapsed(n.type, collapsed)) {
             layout.second[n.type]?.let { at -> scope.launch { runCatching { state.animateScrollToItem(at) } } }
@@ -279,7 +284,7 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
                                 .onFocusChanged { if (it.isFocused) focusSec = tKey }
                                 .then(if (rail) Modifier.focusProperties { left = navReq("t:$type") } else Modifier),
                                 onToggle = { repo.toggleCollapsed(listOf(tKey)) },
-                                onHold = { tree.firstOrNull { it.type == type }?.let { holdGroup(it) } })
+                                onMenu = { tree.firstOrNull { it.type == type }?.let { groupMenu = it } })
                         }
                         if (!typeFolded) {
                             val subs = LiveCollapse.showSubs(group)
@@ -290,7 +295,7 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
                                         .onFocusChanged { if (it.isFocused) focusSec = s.key }
                                         .then(if (rail) Modifier.focusProperties { left = navReq("t:" + s.type) } else Modifier),
                                         onToggle = { repo.toggleCollapsed(listOf(s.key)) },
-                                        onHold = { LiveModes.nodeForSection(tree, s)?.let { holdGroup(it) } },
+                                        onMenu = { LiveModes.nodeForSection(tree, s)?.let { groupMenu = it } },
                                         underType = true)
                                 }
                                 if (!folded) items(s.rows, key = { r -> "${s.key}|${r.ch.key}" }) { r ->
@@ -386,12 +391,12 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
                             count = n.count, dim = n.hidden,
                             arrow = if (n.children.isEmpty()) (if (LiveCollapse.isTypeCollapsed(n.type, collapsed)) "▸" else "▾")
                                     else if (open) "▾" else "▸",
-                            onFocus = { openNav(n.type); jumpNode(n) }, onLongClick = { holdGroup(n) },
+                            onFocus = { openNav(n.type); jumpNode(n) }, onLongClick = { groupMenu = n },
                             onClick = { openNav(n.type); repo.toggleCollapsed(listOf(LiveCollapse.typeKey(n.type))); jumpNode(n) })
                         if (open && navOpen) n.children.forEachIndexed { ci, c ->
                             if (c.region && (ci == 0 || !n.children[ci - 1].region)) Label("Regions", Ts.CAPTION, Pal.Dim, Modifier.padding(start = 44.dp, top = 6.dp))
                             NavEntry(if (c.region) "◦" else "·", c.label, navOpen, Modifier.padding(start = 22.dp), count = c.count, dim = c.hidden, small = true,
-                                onFocus = { jumpNode(c) }, onLongClick = { holdGroup(c) },
+                                onFocus = { jumpNode(c) }, onLongClick = { groupMenu = c },
                                 // 1.56: OK on a sub-category folds its channels in the list (or shows them again)
                                 onClick = { repo.toggleCollapsed(nodeSections(c).map { it.key }); jumpNode(c) })
                         }
@@ -447,8 +452,43 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
         ), focusKey = "more", onClose = { popup = null })
     }
     menuCh?.let { ch ->
-        ChannelMenu(repo, repo.named(ch), null, viewOpts { menuCh = null } + listOf("Languages…" to { menuCh = null; popup = "langs" }), null,
-            onPlay = { playAt(ch) }) { menuCh = null }
+        val row = rows.firstOrNull { it.ch.key == ch.key }
+        val nowOn = row?.on ?: repo.isOn(ch)
+        ChannelContextMenu(repo, ch, nowOn,
+            onShowHide = { setChannelOn(ch, on = !nowOn, row = row) },
+            onSelect = { sel = setOf(ch.key) },
+            onClose = { menuCh = null })
+    }
+    groupMenu?.let { n ->
+        LiveGroupContextMenu(
+            title = n.label,
+            groupOn = repo.groupOn(n.key),
+            folded = nodeFolded(n),
+            onShowHide = {
+                repo.toggleGroupKey(n.key, n.label)
+                undo = n.key to !repo.groupOn(n.key)
+            },
+            onShowAll = {
+                val rs = rowsOf(n)
+                if (rs.isNotEmpty()) repo.setOnRows(rs, true)
+                if (!repo.groupOn(n.key)) repo.toggleGroupKey(n.key, n.label)
+            },
+            onHideAll = {
+                val rs = rowsOf(n)
+                if (rs.isNotEmpty()) {
+                    if (!view.shows(false)) {
+                        val leave = rs.map { it.ch.key }.toSet()
+                        focusKey = rows.map { it.ch.key }.firstOrNull { it !in leave }.orEmpty()
+                    }
+                    repo.setOnRows(rs, false)
+                }
+            },
+            onToggleFold = { repo.toggleCollapsed(collapseKeysOf(n)) },
+            onExpandAll = { expandAll() },
+            onCollapseAll = { collapseAll() },
+            onSelect = { sel = rowsOf(n).map { it.ch.key }.toSet() },
+            onClose = { groupMenu = null }
+        )
     }
 }
 
@@ -475,16 +515,17 @@ private fun holdOkKey(e: androidx.compose.ui.input.key.KeyEvent, held: Boolean, 
 }
 
 @Composable
-private fun TypeHeader(type: String, count: Int, folded: Boolean, tv: Boolean, modifier: Modifier, onToggle: () -> Unit, onHold: () -> Unit) {
+private fun TypeHeader(type: String, count: Int, folded: Boolean, tv: Boolean, modifier: Modifier, onToggle: () -> Unit, onMenu: () -> Unit) {
     var f by remember { mutableStateOf(false) }
     var held by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(Radii.row)
     Row(Modifier.fillMaxWidth().background(Pal.Bg).padding(top = 8.dp, bottom = 2.dp).then(modifier).popupOpener()
             .onFocusChanged { f = it.isFocused }
-            .onPreviewKeyEvent { e -> holdOkKey(e, held, { held = it }, onHold) }
+            .onPreviewKeyEvent { e -> holdOkKey(e, held, { held = it }, onMenu) }
+            .onKeyEvent { e -> if (e.type == KeyEventType.KeyUp && e.key == Key.Menu) { onMenu(); true } else false }
             .clip(shape).background(if (f) Pal.FocusBg else Color.Transparent)
             .then(if (f) Modifier.border(2.dp, Pal.Gold, shape) else Modifier)
-            .combinedClickable(onClick = onToggle, onLongClick = onHold)
+            .combinedClickable(onClick = onToggle, onLongClick = onMenu)
             .padding(horizontal = 10.dp, vertical = if (tv) 8.dp else 6.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Label(if (folded) "▸" else "▾", Ts.SECONDARY, if (f) Pal.Gold else Pal.Dim)
@@ -494,18 +535,19 @@ private fun TypeHeader(type: String, count: Int, folded: Boolean, tv: Boolean, m
 }
 
 @Composable
-private fun SectionHeader(s: LiveModes.Section, folded: Boolean, tv: Boolean, modifier: Modifier, onToggle: () -> Unit, onHold: () -> Unit,
+private fun SectionHeader(s: LiveModes.Section, folded: Boolean, tv: Boolean, modifier: Modifier, onToggle: () -> Unit, onMenu: () -> Unit,
                           underType: Boolean = false) {
     var f by remember { mutableStateOf(false) }
     var held by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(Radii.row)
-    // Focusable header: OK / click folds the section; hold OK (TV) / long-press (phone) hides or shows the group.
+    // Focusable header: OK / click / chevron folds the section; hold OK (TV) / long-press / Menu opens the group menu.
     Row(Modifier.fillMaxWidth().background(Pal.Bg).padding(top = 6.dp, bottom = 2.dp).then(modifier).popupOpener()
             .onFocusChanged { f = it.isFocused }
-            .onPreviewKeyEvent { e -> holdOkKey(e, held, { held = it }, onHold) }
+            .onPreviewKeyEvent { e -> holdOkKey(e, held, { held = it }, onMenu) }
+            .onKeyEvent { e -> if (e.type == KeyEventType.KeyUp && e.key == Key.Menu) { onMenu(); true } else false }
             .clip(shape).background(if (f) Pal.FocusBg else Color.Transparent)
             .then(if (f) Modifier.border(2.dp, Pal.Gold, shape) else Modifier)
-            .combinedClickable(onClick = onToggle, onLongClick = onHold)
+            .combinedClickable(onClick = onToggle, onLongClick = onMenu)
             .padding(start = if (underType) 22.dp else 10.dp, end = 10.dp, top = if (tv) 6.dp else 5.dp, bottom = if (tv) 6.dp else 5.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Label(if (folded) "▸" else "▾", Ts.SECONDARY, if (f) Pal.Gold else Pal.Dim)
@@ -529,6 +571,7 @@ private fun NavEntry(icon: String, label: String, open: Boolean, modifier: Modif
         modifier.fillMaxWidth().popupOpener()
             .onFocusChanged { if (it.isFocused != f) { f = it.isFocused; if (f) onFocus?.invoke() } }
             .then(if (onLongClick != null) Modifier.onPreviewKeyEvent { e -> holdOkKey(e, held, { held = it }, onLongClick!!) } else Modifier)
+            .then(if (onLongClick != null) Modifier.onKeyEvent { e -> if (e.type == KeyEventType.KeyUp && e.key == Key.Menu) { onLongClick(); true } else false } else Modifier)
             .clip(shape)
             .background(bg)
             .then(if (f) Modifier.border(2.dp, Pal.Gold.copy(alpha = 0.95f), shape) else Modifier)
@@ -579,7 +622,7 @@ private fun ChannelRow(repo: Repo, ch: Item, on: Boolean, browseAll: Boolean, pl
                         KeyEventType.KeyDown -> {
                             val rc = e.nativeKeyEvent.repeatCount
                             if (rc == 0) held = false
-                            else if (!held && rc >= 8) { held = true; if (checked == null && browseAll) onToggle() else onMenu() }
+                            else if (!held && rc >= 8) { held = true; onMenu() }
                         }
                         KeyEventType.KeyUp -> if (!held) onKeyOk() else held = false
                     }
@@ -588,7 +631,7 @@ private fun ChannelRow(repo: Repo, ch: Item, on: Boolean, browseAll: Boolean, pl
                 .clip(shape)
                 .background(when { f -> Pal.FocusBg; playing -> Pal.Soft; else -> Color.Transparent })
                 .then(if (f) Modifier.border(2.dp, Pal.Gold, shape) else Modifier)
-                .combinedClickable(onClick = onClick, onLongClick = if (!tv || browseAll) onToggle else onMenu)
+                .combinedClickable(onClick = onClick, onLongClick = onMenu)
                 .padding(horizontal = 10.dp, vertical = if (tv) Ts.ROW_PAD_TV else Ts.ROW_PAD)
                 .alpha(if (on || checked == true) 1f else 0.45f),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)
