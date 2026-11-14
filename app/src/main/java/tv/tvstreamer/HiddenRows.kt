@@ -49,13 +49,13 @@ fun HiddenRowsPanel(repo: Repo, modifier: Modifier = Modifier, title: Boolean = 
         }
         cats.forEach { c ->
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Label("${Names.cat(c.title)}  ·  category", Ts.HEAD, Pal.Text, Modifier.weight(1f))
+                Label("${GroupTitle.display(c.title)}  ·  category", Ts.HEAD, Pal.Text, Modifier.weight(1f))
                 PillButton("Show again", { repo.toggleHide("vod", c.id) }, size = Ts.SECONDARY)
             }
         }
         liveCats.forEach { c ->
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Label("${Names.cat(c.title)}  ·  Live TV", Ts.HEAD, Pal.Text, Modifier.weight(1f))
+                Label("${GroupTitle.display(c.title, "Live TV")}  ·  Live TV", Ts.HEAD, Pal.Text, Modifier.weight(1f))
                 PillButton("Show again", { repo.toggleHide("itv", c.id) }, size = Ts.SECONDARY)
             }
         }

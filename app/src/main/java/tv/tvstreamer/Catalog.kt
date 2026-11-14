@@ -235,12 +235,10 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
             }
             add(Shelf("cont", "Continue watching", c.map { it.first }, "vod", progress = prog))
         }
-        repo.favs.filter { repo.listOk(it.locked) && it.kind == "vod" && wantItem(it) }.takeIf { it.isNotEmpty() }
-            ?.let { add(Shelf("fav", "My List", it, "vod")) }
+        // My List / Favorite channels are spliced on in composition so a toggle does not rebuild every row.
         if (Gemini.enabled) Ai.suggested.filter { repo.listOk(it.locked) && wantItem(it) }.takeIf { it.isNotEmpty() }
             ?.let { add(Shelf("ai", "✨ Suggested for you", it, "vod")) }
         if (mode == "home") {
-            repo.favs.filter { repo.listOk(it.locked) && it.kind == "itv" }.takeIf { it.isNotEmpty() }?.let { add(Shelf("favc", "Favorite channels", it, "itv")) }
             if (recent.isNotEmpty()) add(Shelf("recent", "Recent channels", recent, "itv"))
         }
         if (tabbed && !langs.isNullOrEmpty()) {
@@ -252,7 +250,7 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                 // Each item is classified on its own, so categories that mix movies and series work
                 val items = raw?.filter { wantItem(it) }
                 if (items == null || items.isNotEmpty() || repo.rowErrors[cat.id] != null) {
-                    add(Shelf("vod:${cat.id}", Names.cat(cat.title), items ?: emptyList(), "vod", cat,
+                    add(Shelf("vod:${cat.id}", GroupTitle.display(cat.title, if (mode == "series") "Series" else "Movies"), items ?: emptyList(), "vod", cat,
                         loading = raw == null && repo.rowErrors[cat.id] == null, error = repo.rowErrors[cat.id] ?: ""))
                 }
             }
@@ -273,11 +271,27 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
     val rowErrs = repo.rowErrors.toMap()
     val memoKey = "${System.identityHashCode(repo)}|$mode"
     var shelvesReady by remember(mode) { mutableStateOf(shelfMemo[memoKey] != null) }
-    val shelves by produceState(shelfMemo[memoKey] ?: emptyList(), mode, cont, recent, langShelves, lib.version, repo.favs, repo.hidden,
+    // Channel hide keys (ch:) must not rebuild movie/series rows; only group / VOD hides change the catalog.
+    val catalogHideSig = remember(repo.hidden) { repo.hidden.filter { it.startsWith("vod:") || it.startsWith("grp:") }.toSet() }
+    val coreShelves by produceState(shelfMemo[memoKey] ?: emptyList(), mode, cont, recent, langShelves, lib.version, catalogHideSig,
         repo.vodCats, repo.vodOrder, Ai.suggested, Gemini.enabled, showAdult, homeLangs, langs, rowErrs, repo.liveMode, repo.folders) {
         val built = withContext(Dispatchers.Default) { runCatching { buildShelves() }.getOrNull() }
         if (built != null) { value = built; shelfMemo[memoKey] = built }
         shelvesReady = true
+    }
+    val shelves = remember(coreShelves, repo.favs, showAdult, mode) {
+        val favVod = repo.favs.filter { repo.listOk(it.locked) && it.kind == "vod" && lib.wantItem(it, mode) }
+        val favCh = if (mode == "home") repo.favs.filter { repo.listOk(it.locked) && it.kind == "itv" } else emptyList()
+        val skip = setOf("fav", "favc")
+        val headIds = setOf("cont", "ai", "recent")
+        buildList {
+            coreShelves.filter { it.key == "cont" }.forEach { add(it) }
+            if (favVod.isNotEmpty()) add(Shelf("fav", "My List", favVod, "vod"))
+            coreShelves.filter { it.key == "ai" }.forEach { add(it) }
+            if (favCh.isNotEmpty()) add(Shelf("favc", "Favorite channels", favCh, "itv"))
+            coreShelves.filter { it.key == "recent" }.forEach { add(it) }
+            addAll(coreShelves.filter { it.key !in skip && it.key !in headIds })
+        }
     }
     // Hero: the last thing watched leads, then it rotates through recently played and My List; featured only when neither exists
     val picks by produceState(heroMemo[memoKey] ?: emptyList(), tick, contVer, mode, repo.favs, showAdult) {
@@ -486,7 +500,7 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                         }
                     }
                     if (item.kind == "vod" && !item.isEpisode() && shelf.key != "cont") add("Details" to { menu = null; open(item) })
-                    if (!item.isEpisode()) add((if (repo.isFav(item)) "✓  Remove from My List" else "+  Add to My List") to { repo.toggleFav(item); menu = null })
+                    if (!item.isEpisode()) add((if (repo.isFav(item)) "✓  In My List" else "+  My List") to { repo.toggleFav(item); menu = null })
                     if (item.kind == "vod" && !item.isSeries) add((if (repo.isWatched(item)) "Mark as unwatched" else "Mark as watched") to { repo.setWatched(item, !repo.isWatched(item)); contVer++; menu = null })
                     if (item.kind == "vod" && !item.isEpisode()) add("Fix match…" to { menu = null; fixItem = item })
                     if (item.kind == "vod" && (shelf.versions[item.key] ?: 0) > 1) add("Versions (${shelf.versions[item.key]})…" to { menu = null; open(item) })
@@ -568,7 +582,7 @@ private fun Hero(repo: Repo, raw: Item, isTv: Boolean, hPad: Dp, playLabel: Stri
                     overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth(if (isTv) 0.8f else 1f))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                     PillButton(playLabel.ifEmpty { if (item.isSeries) "▶  Episodes" else "▶  Play" }, onPlay, playModifier.onFocusChanged { if (it.isFocused) Keys.focused = raw }, primary = true)
-                    PillButton(if (fav) "✓  My List" else "+  My List", { repo.toggleFav(raw); fav = repo.isFav(raw) })
+                    PillButton(if (fav) "✓  In My List" else "+  My List", { repo.toggleFav(raw); fav = repo.isFav(raw) })
                     PillButton("ⓘ  Info", onInfo)
                     if (slides > 1) {
                         Spacer(Modifier.width(6.dp))
@@ -725,7 +739,7 @@ fun ChannelTile(item: Item, width: Dp, fav: Boolean, modifier: Modifier, onClick
             if (fav) Text("★", color = Color(0xFFFFD54F), fontSize = 15.sp, modifier = Modifier.align(Alignment.TopEnd).padding(5.dp))
         }
         Spacer(Modifier.height(6.dp))
-        Text(item.name, color = Pal.Text2, fontSize = Ts.SECONDARY.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(if (item.kind == "itv") ChannelTitle.pretty(item.name) else item.name, color = Pal.Text2, fontSize = Ts.SECONDARY.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -911,7 +925,7 @@ fun DetailScreen(repo: Repo, item: Item, play: (List<Item>, Int) -> Unit, onBack
                                 }
                                 else -> PillButton("▶  Play", { start(listOf(cur), 0) }, pm, primary = true, onMenu = { more = true })
                             }
-                            PillButton(if (fav) "★  In My List" else "☆  Add to My List", { repo.toggleFav(cur); fav = repo.isFav(cur) }, onMenu = { more = true })
+                            PillButton(if (fav) "✓  In My List" else "+  My List", { repo.toggleFav(cur); fav = repo.isFav(cur) }, onMenu = { more = true })
                         }
                     }
                 }
@@ -995,7 +1009,7 @@ fun DetailScreen(repo: Repo, item: Item, play: (List<Item>, Int) -> Unit, onBack
             ChoiceDialog(name, focusKey = "more", opts = buildList {
                 if (Tmdb.key.isNotBlank()) add("✎  Fix match (choose the right TMDB title)" to { more = false; fix = true })
                 if (Tmdb.enabled) add("↻  Look up details again" to { more = false; scope.launch { Tmdb.clearFor(cur) } })
-                add((if (repo.isFav(cur)) "★  Remove from My List" else "☆  Add to My List") to { repo.toggleFav(cur); fav = repo.isFav(cur); more = false })
+                add((if (repo.isFav(cur)) "✓  In My List" else "+  My List") to { repo.toggleFav(cur); fav = repo.isFav(cur); more = false })
                 if (canResume) add("Remove from Continue watching" to { repo.store.removeResume(cur.key); more = false })
             }) { more = false }
         }
@@ -1126,7 +1140,7 @@ fun GridScreen(repo: Repo, cat: Cat, open: (Item) -> Unit, play: (List<Item>, In
         ) {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Column {
-                    Text(Names.cat(cat.title), color = Pal.Text, fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold)
+                    Text(GroupTitle.display(cat.title), color = Pal.Text, fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold)
                     Text(if (more) "${items.size}+ titles" else "${items.size} titles", color = Pal.Dim, fontSize = Ts.SECONDARY.sp)
                     Spacer(Modifier.height(6.dp))
                     PillButton("⇅  Sort: " + Sorts.label(sort), { sortMenu = true }, size = Ts.HEAD)
@@ -1169,7 +1183,7 @@ fun TitleMenu(repo: Repo, m: Item, versions: Int, open: (Item) -> Unit, play: ((
             play != null -> add("▶  Play" to { onClose(); play(m) })
         }
         add("ⓘ  Details" to { onClose(); open(m) })
-        if (!m.isEpisode()) add((if (repo.isFav(m)) "✓  Remove from My List" else "+  Add to My List") to { repo.toggleFav(m); onClose() })
+        if (!m.isEpisode()) add((if (repo.isFav(m)) "✓  In My List" else "+  My List") to { repo.toggleFav(m); onClose() })
         if (!m.isSeries) add((if (repo.isWatched(m)) "Mark as unwatched" else "Mark as watched") to { repo.setWatched(m, !repo.isWatched(m)); onClose() })
         if (m.kind == "vod" && !m.isEpisode()) add("Fix match…" to { fix = true })
         if (versions > 1) add("Versions ($versions)…" to { onClose(); open(m) })

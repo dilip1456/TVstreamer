@@ -120,8 +120,8 @@ object ChannelTitle {
     }
 
     // ---- Tidy names for lists (v1.52) ----
-    private val TAG_ANY = Regex("[\\[(]\\s*[A-Za-z]{2,4}(?:[-_/][A-Za-z]{2,3})?\\s*[\\])]|\\|[A-Za-z]{2,3}\\|")
-    private val LEAD_TAG = Regex("^(?:[A-Z]{2,3}(?:[-_/][A-Z]{2,3})?)\\s*(?::|\\||-|–)\\s*")
+    private val TAG_ANY = Regex("[\\[(]\\s*[A-Za-z]{2,4}(?:[-_/][A-Za-z]{2,3})*\\s*[\\])]|\\|[A-Za-z]{2,3}(?:[-_/][A-Za-z]{2,3})*\\|")
+    private val LEAD_TAG = Regex("^(?:[A-Z]{2,3}(?:[-_/][A-Z]{2,3})*)\\s*(?::|\\||-|–)\\s*")
     private val QUALITY = Regex("(?i)(?<![\\p{L}\\d+])(?:FHD|UHD|HD|SD|4K|8K|HEVC|H\\.?26[45]|1080[pi]?|720[pi]?|2160p|576[pi]?|\\d{2}\\s?FPS|HDR|VIP|RAW|BACKUP|BACK ?UP|LQ|HQ|MULTI|DIRECT|ORIG|24/7)(?![\\p{L}\\d])")
     private val BRACKETS_EMPTY = Regex("[\\[(]\\s*[\\])]")
     private val NUM_LEAD = Regex("^\\d{1,5}\\s+(?=\\p{L})")
@@ -156,6 +156,78 @@ object ChannelTitle {
         return s.split(' ').joinToString(" ") { caseWord(it, false) }
     }
 
+
+    // Brands that must never be treated as a country / language prefix (BBC One, AMC, …).
+    private val BRANDS = setOf("BBC", "AMC", "ABC", "BET", "TNT", "ESPN", "CNN", "HBO", "AE", "A&E", "NBC", "CBS",
+        "FOX", "CW", "PBS", "ITV", "SKY", "MTV", "AXN", "TLC", "DW", "MAX", "STAR", "ZEE", "SONY", "TCM", "TBS",
+        "ION", "VH1", "NFL", "NBA", "MLB", "NHL", "UFC", "WWE", "FIFA", "UEFA", "HGTV")
+    // ISO codes that are also common English / TV words — never strip these on a bare "CODE Name" form.
+    private val SPACE_SKIP = setOf("TV", "FM", "AM", "HD", "SD", "ID", "ME", "MY", "NO", "TO", "BY", "BE", "DO",
+        "OR", "AS", "SO", "AN", "THE", "USA", "MAX", "ONE", "ALL", "NOW", "BOX", "NET", "PRO", "POP", "FUN", "AND",
+        "AL", "EL", "LA", "LE", "GE", "GEO")  // articles / brands: Al Jazeera, El Trece, La Liga, Geo News
+    // ISO 3166-1 alpha-2, common ISO 639 language codes, and frequent 3-letter country/language tags.
+    private val ISO: Set<String> = (
+        "AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL BM BN BO BQ BR BS BT " +
+        "BV BW BY BZ CA CC CD CF CG CH CI CK CL CM CN CO CR CU CV CW CX CY CZ DE DJ DK DM DO DZ EC EE EG EH " +
+        "ER ES ET FI FJ FK FM FO FR GA GB GD GE GF GG GH GI GL GM GN GP GQ GR GS GT GU GW GY HK HM HN HR HT " +
+        "HU ID IE IL IM IN IO IQ IR IS IT JE JM JO JP KE KG KH KI KM KN KP KR KW KY KZ LA LB LC LI LK LR LS " +
+        "LT LU LV LY MA MC MD ME MF MG MH MK ML MM MN MO MP MQ MR MS MT MU MV MW MX MY MZ NA NC NE NF NG NI " +
+        "NL NO NP NR NU NZ OM PA PE PF PG PH PK PL PM PN PR PS PT PW PY QA RE RO RS RU RW SA SB SC SD SE SG " +
+        "SH SI SJ SK SL SM SN SO SR SS ST SV SX SY SZ TC TD TF TG TH TJ TK TL TM TN TO TR TT TV TW TZ UA UG " +
+        "UM US UY UZ VA VC VE VG VI VN VU WF WS YE YT ZA ZM ZW " +
+        "EN UK GB HI UR ZH JA KO SW BN TA TE ML KN GU PA NE SI FA PS HE YI EL DA SV CS SK HU RO FI ET LT LV " +
+        "ENG USA GBR IND PAK CAN AUS IRE FRA DEU GER ESP ITA POR TUR HIN URD ARA RUS ZHO CHI JPN KOR THA BEN " +
+        "TEL TAM KAN MAL MAR GUJ PAN NEP SIN BUR MAY FIL TGL HEB PER AFR ALB ARM GEO BUL UKR POL NLD DUT GRE " +
+        "CZE HUN ROM DAN NOR SWE FIN"
+    ).split(" ").filter { it.isNotEmpty() }.toSet()
+    private val WRAP_CODE = Regex("(?i)^[\\[|(]\\s*([A-Z]{2,3}(?:[-_/][A-Z]{2,3})*)\\s*[\\]|)]\\s*")
+    private val SEP_CODE = Regex("(?i)^([A-Z]{2,3}(?:[-_/][A-Z]{2,3})*)\\s*(?::|\\||-|–)\\s*")
+    private val BARE_CODE = Regex("(?i)^([A-Z]{2,3})\\s+(?=\\S)")
+
+    // 3-letter tags safe to strip on a bare "CODE Name" form (not GEO / BEN / MAL and other brand collisions).
+    private val BARE_3 = setOf("ENG", "HIN", "URD", "ARA", "FRA", "DEU", "GER", "ESP", "ITA", "POR", "TUR",
+        "RUS", "GBR", "PAK", "IND", "CAN", "AUS", "IRE")
+
+    private fun bareCodeOk(code: String): Boolean {
+        if (code in BRANDS || code in SPACE_SKIP) return false
+        return if (code.length == 2) code in ISO else code in BARE_3
+    }
+
+    /** True when each token is a 2–3 letter code and none is a protected brand. */
+    private fun codesOk(token: String, requireIso: Boolean): Boolean {
+        val parts = token.split('-', '_', '/').map { it.uppercase() }
+        if (parts.isEmpty() || parts.any { it.length !in 2..3 || it in BRANDS }) return false
+        return if (requireIso) parts.all { it in ISO } else true
+    }
+
+    /**
+     * Drops leading country/language codes: "AF: Name", "BG | Name", "[UK] Name", "|US| Name", "EN:", "US-",
+     * multi-codes ("AF/BG: Name"), and a known ISO code followed by a space and another word ("AF BBC").
+     * Brands such as BBC, AMC, ABC, BET, TNT, ESPN, CNN, HBO and A&E are never stripped.
+     */
+    fun stripLeadCodes(raw: String): String {
+        var s = raw.trim()
+        if (s.isEmpty()) return s
+        var prev = ""
+        while (s != prev) {
+            prev = s
+            WRAP_CODE.find(s)?.let { m ->
+                val rest = s.substring(m.range.last + 1).trim()
+                if (rest.isNotEmpty() && codesOk(m.groupValues[1], requireIso = false)) s = rest
+            }
+            if (s == prev) SEP_CODE.find(s)?.let { m ->
+                val rest = s.substring(m.range.last + 1).trim()
+                if (rest.isNotEmpty() && codesOk(m.groupValues[1], requireIso = false)) s = rest
+            }
+            if (s == prev) BARE_CODE.find(s)?.let { m ->
+                val code = m.groupValues[1].uppercase()
+                val rest = s.substring(m.range.last + 1).trim()
+                if (rest.isNotEmpty() && rest.any { it.isLetter() } && bareCodeOk(code)) s = rest
+            }
+        }
+        return s
+    }
+
     /**
      * The name shown in lists and the player: no country / language tags ("UK:", "|IN|", "[AR]"), no numbering, pipes
      * or quality tags (HD, FHD, 4K, 1080p, backup, VIP…), single spaces, tidy casing. With [local] (US local stations)
@@ -163,11 +235,12 @@ object ChannelTitle {
      */
     fun pretty(raw: String, local: Boolean = false): String {
         var s = clean(raw)
-        s = s.replace(LEAD_TAG, "")
+        s = stripLeadCodes(s)
         s = s.replace(TAG_ANY) { m -> if (m.value.trim('[', ']', '(', ')', '|', ' ').uppercase() in KEEP_TAGS) m.value else " " }
         s = s.replace(QUALITY, " ").replace(BRACKETS_EMPTY, " ").replace(PIPES, " ").replace(NUM_TRAIL_TAG, "")
         s = s.replace(EDGE, "").replace(SPACES, " ").trim()
         s = s.replace(NUM_LEAD, "")
+        s = GroupTitle.stripRole(s)
         s = stripLang(s)
         if (local) localName(s)?.let { return it }
         val out = tidyCase(s).replace(SPACES, " ").trim()

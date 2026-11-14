@@ -301,9 +301,13 @@ class Repo(private val ctx: Context) {
     private fun applyFolders(f: FolderSet) {
         val named = f.mapItems(::named)
         folders = named
-        store.saveFolders(named)
         favs = favs.filter { it.kind != "itv" } + named.channels()
+        persistFolders(named)
     }
+
+    private fun persistFolders(f: FolderSet) { bg.launch { store.saveFolders(f) } }
+    private fun persistFavs(list: List<Item>) { bg.launch { store.saveList("fav", list) } }
+    private fun persistHidden(h: Set<String>) { bg.launch { store.hidden = h } }
 
     fun isFav(i: Item) = if (i.kind == "itv") folders.contains(i.key) else favs.any { it.key == i.key }
     /** Quick toggle (remote Favourite key, search): a channel goes into the last used folder, or out of every folder. */
@@ -314,7 +318,7 @@ class Repo(private val ctx: Context) {
             return
         }
         favs = if (isFav(i)) favs.filter { it.key != i.key } else favs + i
-        store.saveList("fav", favs.filter { it.kind != "itv" })
+        persistFavs(favs.filter { it.kind != "itv" })
     }
 
     // ---- My Channels folders ----
@@ -402,7 +406,7 @@ class Repo(private val ctx: Context) {
                 .filter { c ->
                     if (core.size == 1 && core[0].all { ch -> ch.isDigit() }) c.num.toString() == core[0]
                     else {
-                        val h = squash(c.name + " " + (if (c.key in chNames) portalName(c) + " " else "") + (titles[c.cat] ?: ""))
+                        val h = squash(c.name + " " + ChannelTitle.pretty(c.name) + " " + (if (c.key in chNames) portalName(c) + " " else "") + (titles[c.cat] ?: ""))
                         core.all { t -> h.contains(squash(t)) }
                     }
                 }
@@ -487,14 +491,14 @@ class Repo(private val ctx: Context) {
         val want = !LiveModes.isVisible(raw, mode(), folders, hidden, type, sub, region)
         val (f, h) = LiveModes.setOn(raw, want, mode(), folders, hidden, type, sub, region)
         if (f != folders) applyFolders(f)
-        if (h != hidden) { hidden = h; store.hidden = h }
+        if (h != hidden) { hidden = h; persistHidden(h) }
     }
     /** Select mode: show (true) or hide every channel in [chs] in the current mode, in one save. */
     fun setOn(chs: List<Item>, on: Boolean) {
         val namedChs = chs.map { named(rawByKey[it.key] ?: it) }
         val (f, h) = LiveSelect.apply(namedChs, on, mode(), folders, hidden)
         if (f != folders) applyFolders(f)
-        if (h != hidden) { hidden = h; store.hidden = h }
+        if (h != hidden) { hidden = h; persistHidden(h) }
     }
     /** Select mode using list rows, so Show also works for channels hidden only by a group. */
     fun setOnRows(rows: List<LiveModes.Row>, on: Boolean) {
@@ -505,7 +509,7 @@ class Repo(private val ctx: Context) {
         }
         val (f, h) = LiveSelect.applyRows(namedRows, sel, on, mode(), folders, hidden)
         if (f != folders) applyFolders(f)
-        if (h != hidden) { hidden = h; store.hidden = h }
+        if (h != hidden) { hidden = h; persistHidden(h) }
     }
     /** Hold on a left-nav category / sub-category / region: hide it, or show it again (synced like channel hides). */
     fun toggleGroup(key: String) = toggleGroupKey(key, Taxonomy.label(key))
@@ -530,7 +534,7 @@ class Repo(private val ctx: Context) {
     fun toggleGroupKey(key: String, title: String) {
         val (f, h) = CatalogGroups.toggle(key, title, mode(), folders, hidden, groupStubs(CatalogGroups.family(key)))
         if (f != folders) applyFolders(f)
-        if (h != hidden) { hidden = h; store.hidden = h }
+        if (h != hidden) { hidden = h; persistHidden(h) }
     }
 
     fun setGroupsOn(keys: List<Pair<String, String>>, on: Boolean) {
@@ -538,7 +542,7 @@ class Repo(private val ctx: Context) {
         val seed = keys.map { CatalogGroups.family(it.first) }.toSet().flatMap { groupStubs(it) }
         val (f, h) = CatalogGroups.setOn(keys, on, mode(), folders, hidden, seed)
         if (f != folders) applyFolders(f)
-        if (h != hidden) { hidden = h; store.hidden = h }
+        if (h != hidden) { hidden = h; persistHidden(h) }
     }
     fun toTopOfMode(ch: Item) { val m = mode(); if (m != LiveModes.DEFAULT) applyFolders(LiveModes.toTop(ch, m, folders)) }
 

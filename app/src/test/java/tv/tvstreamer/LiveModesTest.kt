@@ -84,4 +84,30 @@ class LiveModesTest {
     @Test fun languagesCounted() {
         assertEquals(listOf("English" to 2, "Hindi" to 1), LiveModes.languages(all, info))
     }
+
+    @Test fun hideInAllViewKeepsPortalOrderAndFlagsInPlace() {
+        val titles = emptyMap<String, String>()
+        val cls = LiveModes.classify(all, null, info, titles)
+        val open = LiveModes.rowsFrom(cls, LiveModes.DEFAULT, FolderSet(), emptySet(), LiveModes.View.ALL)
+        val hid = LiveModes.rowsFrom(cls, LiveModes.DEFAULT, FolderSet(), setOf("ch:${b.key}"), LiveModes.View.ALL)
+        assertEquals(open.map { it.ch.key }, hid.map { it.ch.key })
+        assertEquals(listOf(true, false, true), hid.map { it.on })
+        val order = listOf("1", "2")
+        val secsOpen = LiveModes.sections(open, info, titles, order)
+        val secsHid = LiveModes.sections(hid, info, titles, order)
+        assertEquals(
+            secsOpen.map { it.key to it.rows.map { r -> r.ch.key } },
+            secsHid.map { it.key to it.rows.map { r -> r.ch.key } }
+        )
+    }
+
+    @Test fun hideInActiveViewDropsOnlyThatRowAndKeepsRelativeOrder() {
+        val titles = emptyMap<String, String>()
+        val cls = LiveModes.classify(all, null, info, titles)
+        val open = LiveModes.rowsFrom(cls, LiveModes.DEFAULT, FolderSet(), emptySet(), LiveModes.View.ACTIVE)
+        val hid = LiveModes.rowsFrom(cls, LiveModes.DEFAULT, FolderSet(), setOf("ch:${b.key}"), LiveModes.View.ACTIVE)
+        assertEquals(listOf("1", "3"), hid.map { it.ch.id })
+        assertEquals(c.key, LiveModes.neighborKey(open, b.key))
+        assertEquals(b.key, LiveModes.neighborKey(open, a.key))
+    }
 }

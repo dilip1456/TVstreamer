@@ -99,23 +99,53 @@ object LiveModes {
              langs: Set<String>?, info: Map<String, ChInfo>): List<Row> =
         rows(chans, mode, folders, hidden, if (browseAll) View.ALL else View.ACTIVE, langs, info, emptyMap())
 
+    /** Type / sub / region for a channel, independent of hide/show state so toggling does not reclassify. */
+    data class Classified(val ch: Item, val type: String, val sub: String, val region: String)
+
     /**
-     * Rows for a [view] of the selected languages, each with its type, sub-category and (Sports) region. A channel is
-     * on when it is enabled in the mode and none of its groups (type, sub-category, region) is hidden.
+     * Classify channels of the selected languages (no hide/show filter). Order is the portal list order;
+     * [sections] later sorts by number (or the custom mode order).
      */
-    fun rows(chans: List<Item>, mode: String, folders: FolderSet, hidden: Set<String>, view: View,
-             langs: Set<String>?, info: Map<String, ChInfo>, catTitle: Map<String, String>): List<Row> {
+    fun classify(chans: List<Item>, langs: Set<String>?, info: Map<String, ChInfo>,
+                 catTitle: Map<String, String>): List<Classified> {
         val localOf = HashMap<String, Boolean>()
-        return chans.asSequence().filter { langOk(it, langs, info) }.map { c ->
+        return chans.mapNotNull { c ->
+            if (!langOk(c, langs, info)) return@mapNotNull null
             val title = catTitle[c.cat].orEmpty()
             val local = localOf.getOrPut(c.cat) { LiveKind.isLocalNews(title) }
             val type = if (local) LiveKind.NEWS else info[c.key]?.type ?: LiveKind.OTHER
             val sub = Taxonomy.sub(type, title, c.name)
             val region = if (type == LiveKind.SPORTS) Taxonomy.region(title, c.name) else ""
-            val chOn = channelEnabled(c, mode, folders, hidden)
-            val hiddenByGroup = !CatalogGroups.liveChannelOn(type, sub, region, mode, folders, hidden)
-            Row(c, chOn && (!hiddenByGroup || isForced(c, hidden)), type, sub, region)
-        }.filter { view.shows(it.on) }.toList()
+            Classified(c, type, sub, region)
+        }
+    }
+
+    fun rowOn(c: Classified, mode: String, folders: FolderSet, hidden: Set<String>): Boolean {
+        val chOn = channelEnabled(c.ch, mode, folders, hidden)
+        val hiddenByGroup = !CatalogGroups.liveChannelOn(c.type, c.sub, c.region, mode, folders, hidden)
+        return chOn && (!hiddenByGroup || isForced(c.ch, hidden))
+    }
+
+    /** Apply enablement + the current [view] to already-classified channels. Does not re-sort. */
+    fun rowsFrom(classified: List<Classified>, mode: String, folders: FolderSet, hidden: Set<String>,
+                 view: View): List<Row> =
+        classified.map { c -> Row(c.ch, rowOn(c, mode, folders, hidden), c.type, c.sub, c.region) }
+            .filter { view.shows(it.on) }
+
+    /**
+     * Rows for a [view] of the selected languages, each with its type, sub-category and (Sports) region. A channel is
+     * on when it is enabled in the mode and none of its groups (type, sub-category, region) is hidden.
+     */
+    fun rows(chans: List<Item>, mode: String, folders: FolderSet, hidden: Set<String>, view: View,
+             langs: Set<String>?, info: Map<String, ChInfo>, catTitle: Map<String, String>): List<Row> =
+        rowsFrom(classify(chans, langs, info, catTitle), mode, folders, hidden, view)
+
+    /** After a row disappears in Only-active, focus this neighbour (next, else previous). */
+    fun neighborKey(rows: List<Row>, key: String): String? {
+        val keys = rows.map { it.ch.key }
+        val i = keys.indexOf(key)
+        if (i < 0) return null
+        return keys.getOrNull(i + 1) ?: keys.getOrNull(i - 1)
     }
 
     /** A left-nav tree node: a type, or one of its sub-categories / regions, with its channel count. */
@@ -194,6 +224,7 @@ object LiveModes {
             e.first.addAll(l)
         }
         for ((k, v) in merged) {
+            // Stable portal/number (or custom-mode) order — never active-first or hidden-to-bottom.
             val sorted = if (modePos != null) v.first.sortedBy { modePos[it.ch.key] ?: Int.MAX_VALUE }
             else v.first.sortedWith(compareBy({ if (it.ch.num > 0) it.ch.num else Int.MAX_VALUE }, { it.ch.name.lowercase() }))
             out += Section(k.first, k.second, sorted, v.third)

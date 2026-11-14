@@ -77,8 +77,11 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
     }
     val mode = repo.mode()
     val langs = repo.liveLangs
-    val rows = remember(base, mode, repo.folders, repo.hidden, view, langs, info, catTitle) {
-        LiveModes.rows(base, mode, repo.folders, repo.hidden, view, langs, info, catTitle)
+    val classified = remember(base, langs, info, catTitle) {
+        LiveModes.classify(base, langs, info, catTitle)
+    }
+    val rows = remember(classified, mode, repo.folders, repo.hidden, view) {
+        LiveModes.rowsFrom(classified, mode, repo.folders, repo.hidden, view)
     }
     val tree = remember(rows, repo.hidden, view) { LiveModes.tree(rows, repo.hidden, view) }
     val sections = remember(rows, info, catTitle, catOrder, mode) {
@@ -126,8 +129,27 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
     fun bulk(on: Boolean) {
         val s0 = sel ?: return
         val targets = rows.filter { it.ch.key in s0 && it.on != on }.distinctBy { it.ch.key }
-        if (targets.isNotEmpty()) repo.setOnRows(targets, on)
+        if (targets.isNotEmpty()) {
+            val leave = targets.map { it.ch.key }.toSet()
+            if (!view.shows(on)) {
+                val stay = rows.map { it.ch.key }.filter { it !in leave }
+                val anchor = targets.first().ch.key
+                focusKey = LiveModes.neighborKey(rows, anchor)?.takeIf { it in stay } ?: stay.firstOrNull().orEmpty()
+            }
+            repo.setOnRows(targets, on)
+        }
         toast(ctx, LiveSelect.summary(targets.size, on, mode)); sel = null
+    }
+    /** Hide/show a channel, keeping list order; if the row leaves this view, move focus to the next row. */
+    fun setChannelOn(ch: Item, on: Boolean? = null, row: LiveModes.Row? = null) {
+        val nowOn = row?.on ?: repo.isOn(ch)
+        val want = on ?: !nowOn
+        if (view.shows(nowOn) && !view.shows(want)) {
+            LiveModes.neighborKey(rows, ch.key)?.let { focusKey = it }
+        } else {
+            focusKey = ch.key
+        }
+        if (row != null && on != null) repo.setOnRows(listOf(row), on) else repo.toggleOn(ch)
     }
     // OK twice quickly on a row hides / unhides it; a single OK plays after the double-press window
     var pendingPlay by remember { mutableStateOf<Job?>(null) }
@@ -179,7 +201,7 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
         val now = android.os.SystemClock.uptimeMillis()
         if (DoublePress.isDouble(lastOkKey, lastOkAt, ch.key, now)) {
             pendingPlay?.cancel(); pendingPlay = null; lastOkKey = null
-            repo.toggleOn(ch); toast(ctx, if (repo.isOn(ch)) "Unhidden" else "Hidden")
+            setChannelOn(ch); toast(ctx, if (repo.isOn(ch)) "Unhidden" else "Hidden")
             return
         }
         lastOkKey = ch.key; lastOkAt = now
@@ -283,9 +305,9 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
                                             .then(if (rail) Modifier.focusProperties { left = navReq("t:" + s.type) } else Modifier),
                                         onClick = { sel?.let { sel = LiveSelect.toggle(it, ch.key) } ?: playAt(ch) },
                                         onKeyOk = { keyOk(ch) },
-                                        onToggle = { if (!tv) { focusSec = s.key; sel = LiveSelect.toggle(sel ?: emptySet(), ch.key) } else repo.toggleOn(ch) },
+                                        onToggle = { if (!tv) { focusSec = s.key; sel = LiveSelect.toggle(sel ?: emptySet(), ch.key) } else setChannelOn(ch, row = r) },
                                         onSetShown = {
-                                            repo.setOnRows(listOf(r), !r.on)
+                                            setChannelOn(ch, on = !r.on, row = r)
                                             toast(ctx, LiveSelect.summary(1, !r.on, mode))
                                         },
                                         onMenu = { if (sel != null) runCatching { barFr.requestFocus() } else menuCh = ch })
@@ -430,7 +452,7 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
     }
 }
 
-private fun sectionTitle(s: LiveModes.Section): String = LiveOverlay.title(s.type, s.label)
+private fun sectionTitle(s: LiveModes.Section): String = LiveOverlay.title(s.type, GroupTitle.display(s.label, s.type))
 
 /**
  * Hold OK / Enter on the focused row (Fire TV and D-pad): fires [onHold] after a short repeat, and swallows

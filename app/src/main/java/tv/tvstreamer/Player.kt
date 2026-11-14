@@ -381,7 +381,7 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
                 Act.FAV -> {
                     val i = cur
                     repo.toggleFav(i); favTick++; touch()
-                    toast(ctx, (if (repo.isFav(i)) "Added to favorites: " else "Removed from favorites: ") + Names.title(i.name))
+                    toast(ctx, if (repo.isFav(i)) "Added to My List" else "Removed from My List")
                     true
                 }
                 else -> false
@@ -1191,7 +1191,7 @@ private fun Controls(
             horizontalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 14.dp)
         ) {
             Column(Modifier.weight(1f)) {
-                Text((if (live && item.num > 0) "${item.num}  " else "") + item.name, color = Color.White,
+                Text((if (live && item.num > 0) "${item.num}  " else "") + (if (live) ChannelTitle.pretty(item.name) else item.name), color = Color.White,
                     fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 val sub = listOfNotNull(
                     item.season.ifEmpty { null },
@@ -1289,7 +1289,7 @@ private fun TvControls(
                 .padding(start = 48.dp, end = 48.dp, top = 48.dp, bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Text((if (live && item.num > 0) "${item.num}  " else "") + item.name, color = Color.White,
+            Text((if (live && item.num > 0) "${item.num}  " else "") + (if (live) ChannelTitle.pretty(item.name) else item.name), color = Color.White,
                 fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             val sub = listOfNotNull(
                 item.season.ifEmpty { null },

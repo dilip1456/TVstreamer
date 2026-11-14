@@ -123,19 +123,19 @@ object CatalogGroups {
     fun vodGroups(cats: List<Cat>, series: (Cat) -> Boolean, count: (Cat) -> Int): List<Group> {
         val movies = cats.filter { !series(it) }
         val shows = cats.filter { series(it) }
-        return movies.map { Group("vod:${it.id}", Names.cat(it.title), "Movies", count(it)) } +
-            shows.map { Group("vod:${it.id}", Names.cat(it.title), "Series", count(it)) }
+        return movies.map { Group("vod:${it.id}", GroupTitle.display(it.title, "Movies"), "Movies", count(it)) } +
+            shows.map { Group("vod:${it.id}", GroupTitle.display(it.title, "Series"), "Series", count(it)) }
     }
 
     /** Live type / sub / region groups from [LiveModes.tree], in tree order. */
     fun liveGroups(tree: List<LiveModes.Node>): List<Group> {
         val out = ArrayList<Group>()
         for (n in tree) {
-            out += Group(n.key, n.label, "Live TV", n.count, depth = 0)
+            out += Group(n.key, GroupTitle.display(n.label, "Live TV"), "Live TV", n.count, depth = 0)
             for (c in n.children) {
-                out += Group(c.key, c.label, "Live TV", c.count, parent = n.key, depth = 1)
+                out += Group(c.key, GroupTitle.display(c.label, n.label), "Live TV", c.count, parent = n.key, depth = 1)
                 for (g in c.children) {
-                    out += Group(g.key, g.label, "Live TV", g.count, parent = c.key, depth = 2)
+                    out += Group(g.key, GroupTitle.display(g.label, c.label), "Live TV", g.count, parent = c.key, depth = 2)
                 }
             }
         }
