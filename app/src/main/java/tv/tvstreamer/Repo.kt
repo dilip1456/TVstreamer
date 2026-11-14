@@ -453,22 +453,44 @@ class Repo(private val ctx: Context) {
     }
     fun deleteMode(name: String) { deleteFolder(name); if (liveMode == name) selectMode(LiveModes.DEFAULT) }
 
-    /** Is [ch] listed in the current mode? */
-    fun isOn(ch: Item): Boolean = LiveModes.isOn(ch, mode(), folders, hidden)
-    /** Long-press / "Hide channel": enable or disable in the current mode (Default: unhide / hide). */
+    /** Category title used to resolve a live channel's type / sub / region. */
+    private fun catTitleOf(ch: Item): String = liveCats.firstOrNull { it.id == ch.cat }?.title.orEmpty()
+
+    /** Effective visibility in the current mode (group hides included, unless this channel was shown over them). */
+    fun isOn(ch: Item): Boolean {
+        val raw = named(rawByKey[ch.key] ?: ch)
+        val (type, sub, region) = LiveModes.groups(raw, catTitleOf(raw), liveIndex.info)
+        return LiveModes.isVisible(raw, mode(), folders, hidden, type, sub, region)
+    }
+    /** Hide / show [ch] in the current mode (Default: hide / unhide). Works even when a category group is what hid it. */
     fun toggleOn(ch: Item) {
-        val (f, h) = LiveModes.toggle(named(rawByKey[ch.key] ?: ch), mode(), folders, hidden)
+        val raw = named(rawByKey[ch.key] ?: ch)
+        val (type, sub, region) = LiveModes.groups(raw, catTitleOf(raw), liveIndex.info)
+        val want = !LiveModes.isVisible(raw, mode(), folders, hidden, type, sub, region)
+        val (f, h) = LiveModes.setOn(raw, want, mode(), folders, hidden, type, sub, region)
         if (f != folders) applyFolders(f)
         if (h != hidden) { hidden = h; store.hidden = h }
     }
     /** Select mode: show (true) or hide every channel in [chs] in the current mode, in one save. */
     fun setOn(chs: List<Item>, on: Boolean) {
-        val (f, h) = LiveSelect.apply(chs.map { named(rawByKey[it.key] ?: it) }, on, mode(), folders, hidden)
+        val namedChs = chs.map { named(rawByKey[it.key] ?: it) }
+        val (f, h) = LiveSelect.apply(namedChs, on, mode(), folders, hidden)
+        if (f != folders) applyFolders(f)
+        if (h != hidden) { hidden = h; store.hidden = h }
+    }
+    /** Select mode using list rows, so Show also works for channels hidden only by a group. */
+    fun setOnRows(rows: List<LiveModes.Row>, on: Boolean) {
+        val sel = rows.map { it.ch.key }.toSet()
+        val namedRows = rows.map { r ->
+            val raw = named(rawByKey[r.ch.key] ?: r.ch)
+            if (raw === r.ch) r else r.copy(ch = raw)
+        }
+        val (f, h) = LiveSelect.applyRows(namedRows, sel, on, mode(), folders, hidden)
         if (f != folders) applyFolders(f)
         if (h != hidden) { hidden = h; store.hidden = h }
     }
     /** Hold on a left-nav category / sub-category / region: hide it, or show it again (synced like channel hides). */
-    fun toggleGroup(key: String) { hidden = if (key in hidden) hidden - key else hidden + key; store.hidden = hidden }
+    fun toggleGroup(key: String) { hidden = LiveModes.toggleGroup(key, hidden); store.hidden = hidden }
     fun toTopOfMode(ch: Item) { val m = mode(); if (m != LiveModes.DEFAULT) applyFolders(LiveModes.toTop(ch, m, folders)) }
 
     /** Live TV languages: null = all; else only these are listed (synced with the other language choices). */

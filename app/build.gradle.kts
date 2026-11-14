@@ -23,8 +23,8 @@ android {
         applicationId = "tv.tvstreamer"
         minSdk = 23
         targetSdk = 34
-        versionCode = 57
-        versionName = "1.57"
+        versionCode = 58
+        versionName = "1.58"
         // Built-in Google sign-in client (TV / limited-input type). Supplied only by the CI secrets
         // GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET (or the same-named env vars / Gradle properties locally);
         // empty when missing, and the app then asks for a client under Settings > Google account > Advanced.

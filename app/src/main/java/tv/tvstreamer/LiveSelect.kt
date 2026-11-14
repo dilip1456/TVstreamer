@@ -21,8 +21,21 @@ object LiveSelect {
     fun apply(chs: List<Item>, on: Boolean, mode: String, folders: FolderSet, hidden: Set<String>): Pair<FolderSet, Set<String>> {
         var f = folders; var h = hidden
         for (ch in chs) {
-            if (LiveModes.isOn(ch, mode, f, h) == on) continue
-            val r = LiveModes.toggle(ch, mode, f, h); f = r.first; h = r.second
+            val r = LiveModes.setOn(ch, on, mode, f, h); f = r.first; h = r.second
+        }
+        return f to h
+    }
+
+    /**
+     * Apply [on] to the selected rows. Uses each row's type / sub / region so a channel that is only hidden
+     * because its group is hidden is actually shown (a show: exception), which [apply] on bare items cannot do.
+     */
+    fun applyRows(rows: List<LiveModes.Row>, sel: Set<String>, on: Boolean, mode: String,
+                  folders: FolderSet, hidden: Set<String>): Pair<FolderSet, Set<String>> {
+        var f = folders; var h = hidden
+        for (r in rows.filter { it.ch.key in sel && it.on != on }.distinctBy { it.ch.key }) {
+            val res = LiveModes.setOn(r.ch, on, mode, f, h, r.type, r.sub, r.region)
+            f = res.first; h = res.second
         }
         return f to h
     }
@@ -40,4 +53,17 @@ object DoublePress {
     /** Is a press at [now] on [key] the second of a double press after one at [lastAt] on [lastKey]? */
     fun isDouble(lastKey: String?, lastAt: Long, key: String, now: Long, window: Long = WINDOW_MS): Boolean =
         lastKey == key && now - lastAt in 0..window
+}
+
+/**
+ * Phone-only: swipe a channel row left to reveal Hide / Show and commit past a threshold.
+ * Offset is 0 at rest and negative as the row follows a left swipe. TV / D-pad does not use this.
+ */
+object LiveSwipe {
+    const val REVEAL_DP = 84f
+    const val COMMIT_FRAC = 0.55f
+
+    fun clamp(offset: Float, reveal: Float): Float = offset.coerceIn(-reveal, 0f)
+
+    fun shouldCommit(offset: Float, reveal: Float): Boolean = reveal > 0f && offset <= -reveal * COMMIT_FRAC
 }

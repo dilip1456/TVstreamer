@@ -168,6 +168,8 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
     var lastOkAt by remember { mutableStateOf(0L) }
     DisposableEffect(Unit) { Theme.forceDark = true; onDispose { Theme.forceDark = false } }
     val isTv = rememberIsTv()
+    val phone = AppUi.phoneNav
+    var landscape by remember { mutableStateOf(phone && PhonePlayer.startInLandscape(repo.store.phoneStartLandscape)) }
     // The play list can grow: the next season's first episode is appended when an episode ends
     var list by remember { mutableStateOf(initial) }
     var idx by remember { mutableIntStateOf(start.coerceIn(0, (initial.size - 1).coerceAtLeast(0))) }
@@ -389,23 +391,27 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
         onDispose { Keys.player = null }
     }
 
-    // Phones: landscape + immersive while playing. TV: nothing to change.
-    DisposableEffect(Unit) {
+    // Phone: portrait lock by default (or landscape if Settings says so). Fullscreen toggles landscape +
+    // immersive bars; leaving the player (and Exit / Back) returns to portrait. Fire TV is unchanged.
+    DisposableEffect(landscape, phone) {
         val act = ctx.findActivity()
-        val oldOrientation = act?.requestedOrientation
         var ctrl: WindowInsetsControllerCompat? = null
-        if (act != null && !isTv) {
-            act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-            ctrl = WindowCompat.getInsetsController(act.window, act.window.decorView).apply {
-                systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                hide(WindowInsetsCompat.Type.systemBars())
+        if (act != null && phone) {
+            act.requestedOrientation = if (landscape) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            if (landscape) {
+                ctrl = WindowCompat.getInsetsController(act.window, act.window.decorView).apply {
+                    systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                    hide(WindowInsetsCompat.Type.systemBars())
+                }
             }
         }
         onDispose {
             ctrl?.show(WindowInsetsCompat.Type.systemBars())
-            if (act != null && !isTv) act.requestedOrientation = oldOrientation ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            if (act != null && phone) act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         }
     }
+    fun toggleLandscape() { if (phone) landscape = PhonePlayer.afterToggle(landscape) }
 
     /**
      * Live playback failed: probe the link (masked into LinkDiag), then, in order: replay as the sniffed format
@@ -642,6 +648,10 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
     BackHandler(dialog != null) { dialog = null; touch() }
     // Live: Back first hides the info bar (the side panels close themselves), then leaves the player
     BackHandler(live && layer == LiveOverlay.Layer.INFO && dialog == null && !Popups.any) { layer = LiveOverlay.Layer.NONE }
+    // Phone: Back in landscape exits fullscreen first (back to portrait), then leaves the player
+    BackHandler(phone && landscape && dialog == null && !showUpNext && !Popups.any && !(live && layer != LiveOverlay.Layer.NONE)) {
+        landscape = false
+    }
 
     // Keys that are swallowed on KeyDown also have their KeyUp swallowed,
     // so the button that receives focus does not get a stray click.
@@ -851,11 +861,19 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
             exit = androidx.compose.animation.fadeOut(Motion.spec()),
             modifier = Modifier.align(Alignment.BottomCenter)
         ) {
-            LiveInfoBar(repo, item, idx, list.size, isTv, actions = if (isTv) null else ({
+            LiveInfoBar(repo, item, idx, list.size, isTv, actions = if (!phone) null else ({
+                PillButton(if (landscape) "Portrait" else "Fullscreen", { toggleLandscape() }, size = 13)
                 PillButton("☰  Channels", { layer = LiveOverlay.Layer.CHANNELS }, size = 13)
                 PillButton("Schedule", { layer = LiveOverlay.Layer.GUIDE }, size = 13)
                 PillButton("⋮", { dialog = "menu" }, size = 13)
             }))
+        }
+        // Phone, portrait: a Fullscreen control stays visible so playback can go landscape without opening the bar first.
+        if (phone && !landscape && dialog == null && !panel && !controls && err.isEmpty() &&
+            !(live && layer == LiveOverlay.Layer.INFO)) {
+            Box(Modifier.align(Alignment.TopEnd).padding(12.dp)) {
+                CtrlButton(Ic.Fullscreen, "Fullscreen", { toggleLandscape() })
+            }
         }
         if (controls && !live) {
             key(favTick) {
@@ -872,7 +890,9 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
                     onDialog = { dialog = it },
                     onAspect = { setAspect(when (aspect) { "fit" -> "fill"; "fill" -> "zoom"; else -> "fit" }); touch() },
                     onMove = { barPos = when (barPos) { "bottom" -> "left"; "left" -> "right"; else -> "bottom" }; repo.store.barPos = barPos; touch() },
-                    onTouch = { touch() }
+                    onTouch = { touch() },
+                    landscape = landscape,
+                    onFullscreen = if (phone) ({ toggleLandscape(); touch() }) else null
                 )
             }
         }
@@ -992,6 +1012,7 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
                     add("Audio track" to { dialog = "audio" })
                     add("Subtitles" to { dialog = "subs" })
                     add("Picture: Fit / Fill / Zoom" to { dialog = "aspect" })
+                    if (phone) add((if (landscape) "Exit fullscreen" else "Fullscreen") to { toggleLandscape(); dialog = null })
                     if (!isTv) add("Move control bar (now: $barPos)" to { barPos = when (barPos) { "bottom" -> "left"; "left" -> "right"; else -> "bottom" }; repo.store.barPos = barPos; dialog = null })
                     add((if (live) "Not working? Retry link" else "Reload stream") to { autoRetries = 0; linkFrom = 0; attempt++; dialog = null })
                     if (err.isNotEmpty() || live) add("Stream details" to { dialog = "details" })
@@ -1127,12 +1148,12 @@ private fun Controls(
     playFr: FocusRequester, seekFr: FocusRequester,
     onPlay: () -> Unit, onSeekBy: (Long) -> Unit, onSeekTo: (Long) -> Unit,
     onPrev: () -> Unit, onNext: () -> Unit, onFav: () -> Unit, onDialog: (String) -> Unit, onAspect: () -> Unit,
-    onMove: () -> Unit, onTouch: () -> Unit
+    onMove: () -> Unit, onTouch: () -> Unit, landscape: Boolean = false, onFullscreen: (() -> Unit)? = null
 ) {
     val pad = if (isTv) 40.dp else 16.dp
     if (isTv) {
         TvControls(item, live, list, idx, playing, pos, dur, buffered, canSeek, aspect, hasNext, hasAudio, hasSubs, playFr, seekFr,
-            onPlay, onSeekBy, onSeekTo, onPrev, onNext, onDialog)
+            onPlay, onSeekBy, onSeekTo, onPrev, onNext, onDialog, onFullscreen, landscape)
         return
     }
     Box(Modifier.fillMaxSize()) {
@@ -1154,6 +1175,8 @@ private fun Controls(
                 if (sub.isNotEmpty()) Text(sub, color = Pal.Dim, fontSize = 14.sp, maxLines = 1)
             }
             CtrlButton(if (isFav) Ic.Star else Ic.StarOutline, "Favorite", onFav)
+            if (onFullscreen != null) CtrlButton(if (landscape) Ic.FullscreenExit else Ic.Fullscreen,
+                if (landscape) "Exit fullscreen" else "Fullscreen", onFullscreen)
             CtrlButton(Ic.More, "Options", { onDialog("menu") })
         }
 
@@ -1231,7 +1254,8 @@ private fun TvControls(
     canSeek: Boolean, aspect: String, hasNext: Boolean, hasAudio: Boolean, hasSubs: Boolean,
     playFr: FocusRequester, seekFr: FocusRequester,
     onPlay: () -> Unit, onSeekBy: (Long) -> Unit, onSeekTo: (Long) -> Unit,
-    onPrev: () -> Unit, onNext: () -> Unit, onDialog: (String) -> Unit
+    onPrev: () -> Unit, onNext: () -> Unit, onDialog: (String) -> Unit,
+    onFullscreen: (() -> Unit)? = null, landscape: Boolean = false
 ) {
     Box(Modifier.fillMaxSize()) {
         Column(
@@ -1266,6 +1290,8 @@ private fun TvControls(
                 if (hasAudio || !live) CtrlButton(Ic.Audio, "Audio", { onDialog("audio") })
                 CtrlButton(Ic.Subtitles, if (hasSubs) "Subtitles" else "Subtitles (none)", { onDialog("subs") })
                 CtrlButton(Ic.Aspect, "Picture: " + aspect, { onDialog("aspect") })
+                if (onFullscreen != null) CtrlButton(if (landscape) Ic.FullscreenExit else Ic.Fullscreen,
+                    if (landscape) "Exit fullscreen" else "Fullscreen", onFullscreen)
                 CtrlButton(Ic.More, "More", { onDialog("menu") })
             }
         }

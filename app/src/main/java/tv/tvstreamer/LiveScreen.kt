@@ -9,6 +9,9 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -27,8 +30,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
 import androidx.activity.compose.BackHandler
@@ -40,8 +46,9 @@ import kotlinx.coroutines.launch
  *    Search, Mode, All channels, Languages and the sections. Left on a channel goes to its section in the menu.
  *  - Rows: number badge, logo, clean name, small language tag; the channel playing is marked. The schedule is in the player.
  *  - Sections fold: OK on a header (or a sub-category in the left tree) hides / shows its channels; saved.
- *  - Modes: Default (every channel not hidden) or a custom mode (only its channels). "All channels" also lists the
- *    others, dimmed and marked Hidden; hold OK / long-press shows or hides one. Menu on a channel = channel menu.
+ *  - Modes: Default (every channel not hidden) or a custom mode (only its channels). "All channels" / "Only hidden"
+ *    also list the others, dimmed; each row has a Hide or Show chip (tap / TV OK). Hold OK / long-press still
+ *    toggles on TV when browsing hidden, or starts Select on the phone. Menu on a channel = channel menu.
  *  - Languages: only the selected languages are listed (Menu on the left menu, or its Languages entry; phone: ⋮).
  *  - Guide: now / next loaded only for the rows on screen. Back from the player lands on the channel that played.
  */
@@ -117,9 +124,9 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
     BackHandler(sel != null && !Popups.any) { sel = null }
     fun bulk(on: Boolean) {
         val s0 = sel ?: return
-        val chs = LiveSelect.targets(rows, s0, on).map { repo.named(it) }
-        if (chs.isNotEmpty()) repo.setOn(chs, on)
-        toast(ctx, LiveSelect.summary(chs.size, on, mode)); sel = null
+        val targets = rows.filter { it.ch.key in s0 && it.on != on }.distinctBy { it.ch.key }
+        if (targets.isNotEmpty()) repo.setOnRows(targets, on)
+        toast(ctx, LiveSelect.summary(targets.size, on, mode)); sel = null
     }
     // OK twice quickly on a row hides / unhides it; a single OK plays after the double-press window
     var pendingPlay by remember { mutableStateOf<Job?>(null) }
@@ -236,7 +243,7 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
                                 .onFocusChanged { if (it.isFocused) focusSec = s.key }
                                 .then(if (rail) Modifier.focusProperties { left = navReq("t:" + s.type) } else Modifier),
                                 onToggle = { repo.toggleCollapsed(listOf(s.key)) },
-                                onHold = { tree.firstOrNull { it.type == s.type }?.let { holdGroup(it) } })
+                                onHold = { LiveModes.nodeForSection(tree, s)?.let { holdGroup(it) } })
                         }
                         if (!folded) items(s.rows, key = { r -> "${s.key}|${r.ch.key}" }) { r ->
                             val ch = r.ch
@@ -251,6 +258,10 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
                                 onClick = { sel?.let { sel = LiveSelect.toggle(it, ch.key) } ?: playAt(ch) },
                                 onKeyOk = { keyOk(ch) },
                                 onToggle = { if (!tv) { focusSec = s.key; sel = LiveSelect.toggle(sel ?: emptySet(), ch.key) } else repo.toggleOn(ch) },
+                                onSetShown = {
+                                    repo.setOnRows(listOf(r), !r.on)
+                                    toast(ctx, LiveSelect.summary(1, !r.on, mode))
+                                },
                                 onMenu = { if (sel != null) runCatching { barFr.requestFocus() } else menuCh = ch })
                         }
                     }
@@ -370,13 +381,35 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
 
 private fun sectionTitle(s: LiveModes.Section): String = LiveOverlay.title(s.type, s.label)
 
+/**
+ * Hold OK / Enter on the focused row (Fire TV and D-pad): fires [onHold] after a short repeat, and swallows
+ * the KeyUp so the normal click (fold / open) does not also run. A short press is left for combinedClickable.
+ */
+private fun holdOkKey(e: androidx.compose.ui.input.key.KeyEvent, held: Boolean, setHeld: (Boolean) -> Unit, onHold: () -> Unit): Boolean {
+    if (e.key != Key.DirectionCenter && e.key != Key.Enter && e.key != Key.NumPadEnter) return false
+    return when (e.type) {
+        KeyEventType.KeyDown -> {
+            val rc = e.nativeKeyEvent.repeatCount
+            when {
+                rc == 0 -> { setHeld(false); false }
+                !held && rc >= 8 -> { setHeld(true); onHold(); true }
+                else -> held
+            }
+        }
+        KeyEventType.KeyUp -> { val swallow = held; setHeld(false); swallow }
+        else -> false
+    }
+}
+
 @Composable
 private fun SectionHeader(s: LiveModes.Section, folded: Boolean, tv: Boolean, modifier: Modifier, onToggle: () -> Unit, onHold: () -> Unit) {
     var f by remember { mutableStateOf(false) }
+    var held by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(10.dp)
-    // Focusable header: OK / click folds the section, hold OK / long-press hides the group. Chevron + channel count.
+    // Focusable header: OK / click folds the section; hold OK (TV) / long-press (phone) hides or shows the group.
     Row(Modifier.fillMaxWidth().background(Pal.Bg).padding(top = 6.dp, bottom = 2.dp).then(modifier).popupOpener()
             .onFocusChanged { f = it.isFocused }
+            .onPreviewKeyEvent { e -> holdOkKey(e, held, { held = it }, onHold) }
             .clip(shape).background(if (f) Pal.FocusBg else Color.Transparent)
             .then(if (f) Modifier.border(2.dp, Pal.Gold, shape) else Modifier)
             .combinedClickable(onClick = onToggle, onLongClick = onHold)
@@ -395,10 +428,12 @@ private fun NavEntry(icon: String, label: String, open: Boolean, modifier: Modif
                      dim: Boolean = false, arrow: String = "", small: Boolean = false,
                      onFocus: (() -> Unit)? = null, onLongClick: (() -> Unit)? = null, onClick: () -> Unit) {
     var f by remember { mutableStateOf(false) }
+    var held by remember { mutableStateOf(false) }
     val bg by androidx.compose.animation.animateColorAsState(when { f -> Pal.Gold; selected -> Pal.ChipSel; else -> Color.Transparent }, tween(160), label = "nav")
     Row(
         modifier.fillMaxWidth().popupOpener()
             .onFocusChanged { if (it.isFocused != f) { f = it.isFocused; if (f) onFocus?.invoke() } }
+            .then(if (onLongClick != null) Modifier.onPreviewKeyEvent { e -> holdOkKey(e, held, { held = it }, onLongClick!!) } else Modifier)
             .clip(RoundedCornerShape(12.dp))
             .background(bg)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
@@ -417,58 +452,111 @@ private fun NavEntry(icon: String, label: String, open: Boolean, modifier: Modif
 }
 
 /**
- * One channel: number badge, logo, clean name, a small language tag. Dimmed + "Hidden" when it is not in the
- * current mode (All channels). OK plays; hold OK / long-press: show or hide (All channels) or the menu; Menu = menu.
+ * One channel: number badge, logo, clean name, a small language tag, and a compact Hide / Show chip.
+ * The chip is a separate focus target so a TV OK / phone tap on it hides or shows the channel (the row's
+ * own OK handler must not sit on a parent of the chip, or it would swallow the chip's OK).
+ * Dimmed when hidden. OK on the row plays; hold OK / long-press: show or hide (All / Only hidden) or the
+ * menu on TV, select mode on the phone; Menu = menu.
  */
 @Composable
 private fun ChannelRow(repo: Repo, ch: Item, on: Boolean, browseAll: Boolean, playing: Boolean, tv: Boolean, checked: Boolean?, modifier: Modifier,
-                       onClick: () -> Unit, onKeyOk: () -> Unit, onToggle: () -> Unit, onMenu: () -> Unit) {
+                       onClick: () -> Unit, onKeyOk: () -> Unit, onToggle: () -> Unit, onSetShown: () -> Unit, onMenu: () -> Unit) {
     var f by remember { mutableStateOf(false) }
     var held by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(12.dp)
     val local = remember(ch.cat, repo.liveCats) { LiveKind.isLocalNews(repo.liveCats.firstOrNull { it.id == ch.cat }?.title.orEmpty()) }
     val name = remember(ch.name, local) { ChannelTitle.pretty(ch.name, local) }
     val lang = remember(ch.key, repo.liveIndex.info) { ChannelTitle.langTag(repo.liveIndex.info[ch.key]?.lang) }
-    Row(
-        modifier.fillMaxWidth().popupOpener()
-            .onFocusChanged { f = it.isFocused; if (it.isFocused) Keys.focused = ch }
-            .onKeyEvent { e -> if (e.type == KeyEventType.KeyUp && e.key == Key.Menu) { onMenu(); true } else false }
-            // Remote OK: a press goes to onKeyOk (double press = hide / unhide); holding it is the long press
-            .onPreviewKeyEvent { e ->
-                if (e.key != Key.DirectionCenter && e.key != Key.Enter && e.key != Key.NumPadEnter) return@onPreviewKeyEvent false
-                when (e.type) {
-                    KeyEventType.KeyDown -> {
-                        val rc = e.nativeKeyEvent.repeatCount
-                        if (rc == 0) held = false
-                        else if (!held && rc >= 8) { held = true; if (checked == null && browseAll) onToggle() else onMenu() }
+    val revealPx = with(LocalDensity.current) { LiveSwipe.REVEAL_DP.dp.toPx() }
+    var swipe by remember { mutableStateOf(0f) }
+    val drag = rememberDraggableState { delta -> swipe = LiveSwipe.clamp(swipe + delta, revealPx) }
+    val row = @Composable {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier.weight(1f).popupOpener()
+                .onFocusChanged { f = it.isFocused; if (it.isFocused) Keys.focused = ch }
+                .onKeyEvent { e -> if (e.type == KeyEventType.KeyUp && e.key == Key.Menu) { onMenu(); true } else false }
+                // Remote OK is handled here only (not on a parent of the Hide / Show chip)
+                .onPreviewKeyEvent { e ->
+                    if (e.key != Key.DirectionCenter && e.key != Key.Enter && e.key != Key.NumPadEnter) return@onPreviewKeyEvent false
+                    when (e.type) {
+                        KeyEventType.KeyDown -> {
+                            val rc = e.nativeKeyEvent.repeatCount
+                            if (rc == 0) held = false
+                            else if (!held && rc >= 8) { held = true; if (checked == null && browseAll) onToggle() else onMenu() }
+                        }
+                        KeyEventType.KeyUp -> if (!held) onKeyOk() else held = false
                     }
-                    KeyEventType.KeyUp -> if (!held) onKeyOk() else held = false
+                    true
                 }
-                true
+                .clip(shape)
+                .background(when { f -> Pal.FocusBg; playing -> Pal.Soft; else -> Color.Transparent })
+                .then(if (f) Modifier.border(2.dp, Pal.Gold, shape) else Modifier)
+                .combinedClickable(onClick = onClick, onLongClick = if (!tv || browseAll) onToggle else onMenu)
+                .padding(horizontal = 10.dp, vertical = if (tv) Ts.ROW_PAD_TV else Ts.ROW_PAD)
+                .alpha(if (on || checked == true) 1f else 0.45f),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // 1.56: compact row, no schedule (that lives in the player and the channel menu)
+            if (checked != null) CheckDot(checked)
+            Box(Modifier.widthIn(min = 32.dp), contentAlignment = Alignment.CenterEnd) {
+                if (ch.num > 0) Label("${ch.num}", Ts.SECONDARY, if (playing) Pal.GoldText else Pal.Dim)
             }
+            Box(Modifier.size(if (tv) 56.dp else 48.dp, if (tv) 34.dp else 30.dp).background(Pal.Card, RoundedCornerShape(6.dp)), contentAlignment = Alignment.Center) {
+                if (ch.img.isNotEmpty()) Poster(ch.img, name, Modifier.fillMaxSize().padding(4.dp), ContentScale.Fit, initialsSize = 12)
+                else Label(ChannelTitle.initials(name), Ts.CAPTION, Pal.GoldText)
+            }
+            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Label(name, Ts.ROW, if (playing) Pal.GoldText else Pal.Text, Modifier.weight(1f, fill = false))
+                if (lang.isNotEmpty()) Label(lang, Ts.CAPTION, Pal.Dim)
+                if (playing) Label("● NOW", Ts.CAPTION, Pal.Gold)
+            }
+        }
+        HideShowChip(shown = on, tv = tv, onClick = onSetShown)
+    }
+    }
+    if (tv) {
+        row()
+        return
+    }
+    // Phone: swipe the row left to reveal Hide / Show and commit past the threshold (toggle visibility).
+    Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))) {
+        Box(Modifier.matchParentSize().background(if (on) Color(0x44C04545) else Pal.Soft2), contentAlignment = Alignment.CenterEnd) {
+            Label(if (on) "Hide" else "Show", Ts.SECONDARY, Color.White, Modifier.padding(end = 18.dp))
+        }
+        Box(
+            Modifier
+                .offset { IntOffset(swipe.roundToInt(), 0) }
+                .draggable(
+                    state = drag,
+                    orientation = Orientation.Horizontal,
+                    onDragStopped = {
+                        if (LiveSwipe.shouldCommit(swipe, revealPx)) onSetShown()
+                        swipe = 0f
+                    }
+                )
+        ) { row() }
+    }
+}
+
+/** Compact per-row Hide / Show control: tappable on the phone, a separate D-pad target (OK) on TV. */
+@Composable
+private fun HideShowChip(shown: Boolean, tv: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    var f by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(50)
+    val label = if (shown) "Hide" else "Show"
+    Box(
+        modifier
+            .popupOpener()
+            .onFocusChanged { f = it.isFocused }
             .clip(shape)
-            .background(when { f -> Pal.FocusBg; playing -> Pal.Soft; else -> Color.Transparent })
+            .background(when { f -> Pal.Gold; !shown -> Pal.Soft2; else -> Pal.Soft })
             .then(if (f) Modifier.border(2.dp, Pal.Gold, shape) else Modifier)
-            .combinedClickable(onClick = onClick, onLongClick = if (!tv || browseAll) onToggle else onMenu)
-            .padding(horizontal = 10.dp, vertical = if (tv) Ts.ROW_PAD_TV else Ts.ROW_PAD)
-            .alpha(if (on || checked == true) 1f else 0.45f),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)
+            .combinedClickable(onClick = onClick)
+            .padding(horizontal = if (tv) 12.dp else 10.dp, vertical = if (tv) 6.dp else 4.dp),
+        contentAlignment = Alignment.Center
     ) {
-        // 1.56: compact row, no schedule (that lives in the player and the channel menu)
-        if (checked != null) CheckDot(checked)
-        Box(Modifier.widthIn(min = 32.dp), contentAlignment = Alignment.CenterEnd) {
-            if (ch.num > 0) Label("${ch.num}", Ts.SECONDARY, if (playing) Pal.GoldText else Pal.Dim)
-        }
-        Box(Modifier.size(if (tv) 56.dp else 48.dp, if (tv) 34.dp else 30.dp).background(Pal.Card, RoundedCornerShape(6.dp)), contentAlignment = Alignment.Center) {
-            if (ch.img.isNotEmpty()) Poster(ch.img, name, Modifier.fillMaxSize().padding(4.dp), ContentScale.Fit, initialsSize = 12)
-            else Label(ChannelTitle.initials(name), Ts.CAPTION, Pal.GoldText)
-        }
-        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Label(name, Ts.ROW, if (playing) Pal.GoldText else Pal.Text, Modifier.weight(1f, fill = false))
-            if (lang.isNotEmpty()) Label(lang, Ts.CAPTION, Pal.Dim)
-            if (playing) Label("● NOW", Ts.CAPTION, Pal.Gold)
-            if (!on) Box(Modifier.background(Pal.Soft, RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 1.dp)) { Label("Hidden", Ts.CAPTION, Pal.Dim) }
-        }
+        Label(label, Ts.CAPTION, if (f) Color.Black else Pal.Text)
     }
 }
 

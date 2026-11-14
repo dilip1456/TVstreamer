@@ -1,5 +1,6 @@
 package tv.tvstreamer
 
+import android.content.pm.ActivityInfo
 import android.os.Bundle
 import android.view.KeyEvent
 import android.widget.Toast
@@ -59,6 +60,8 @@ class MainActivity : ComponentActivity() {
         Cloud.init(applicationContext, repo)
         Theme.mode = repo.store.theme
         AppUi.phoneNav = !isLeanback(this)
+        // Phone / tablet: keep browsing in portrait. The player may switch to landscape; it restores portrait on exit.
+        if (!isLeanback(this)) requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         if (savedInstanceState == null) handleIntent(intent)
         setContent {
             MaterialTheme(

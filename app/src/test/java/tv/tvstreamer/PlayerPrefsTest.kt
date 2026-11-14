@@ -63,4 +63,16 @@ class PlayerPrefsTest {
         assertEquals(f.sorted(), f)
         assertEquals(0.0533f, TrackPrefs.subFraction("whatever"), 0.0001f)
     }
+
+    @Test fun phonePlayerStartsInPortraitByDefault() {
+        assertFalse(PhonePlayer.startInLandscape(false))
+        assertTrue(PhonePlayer.startInLandscape(true))
+    }
+
+    @Test fun fullscreenToggleAndBackExit() {
+        assertTrue(PhonePlayer.afterToggle(false))
+        assertFalse(PhonePlayer.afterToggle(true))
+        assertTrue(PhonePlayer.backExitsFullscreen(true))
+        assertFalse(PhonePlayer.backExitsFullscreen(false))
+    }
 }

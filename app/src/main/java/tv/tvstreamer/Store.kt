@@ -192,6 +192,14 @@ class Store(ctx: Context) {
         get() = p.getString("bar_pos", "bottom") ?: "bottom"
         set(v) { p.edit().putString("bar_pos", v).apply() }
 
+    /**
+     * Phone / mobile: start the player in landscape. Default off — playback starts (and browsing stays) in
+     * portrait; a Fullscreen control in the player switches to landscape. Fire TV ignores this.
+     */
+    var phoneStartLandscape: Boolean
+        get() = (p.getString("phone_start_land", "0") ?: "0") != "0"
+        set(v) { p.edit().putString("phone_start_land", if (v) "1" else "0").apply() }
+
     /** Play the next episode automatically at the end of an episode (Settings > Player). Synced; default on. */
     var autoNext: Boolean
         get() = (p.getString("auto_next", "1") ?: "1") != "0"

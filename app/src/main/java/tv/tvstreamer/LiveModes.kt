@@ -31,6 +31,49 @@ object LiveModes {
         if (mode == DEFAULT || mode !in folders.folders) "ch:${ch.key}" !in hidden
         else folders.items(mode).any { it.key == ch.key }
 
+    /** A per-channel exception: this channel stays listed even when its type / sub / region group is hidden. */
+    const val SHOW = "show:"
+    fun showKey(ch: Item) = "$SHOW${ch.key}"
+    fun isForced(ch: Item, hidden: Set<String>) = showKey(ch) in hidden
+
+    /** Type, sub-category and Sports region for [ch], same rules as [rows]. */
+    fun groups(ch: Item, catTitle: String, info: Map<String, ChInfo>): Triple<String, String, String> {
+        val local = LiveKind.isLocalNews(catTitle)
+        val type = if (local) LiveKind.NEWS else info[ch.key]?.type ?: LiveKind.OTHER
+        val sub = Taxonomy.sub(type, catTitle, ch.name)
+        val region = if (type == LiveKind.SPORTS) Taxonomy.region(catTitle, ch.name) else ""
+        return Triple(type, sub, region)
+    }
+
+    /** Effective list visibility: enabled in the mode, and not group-hidden (unless forced shown). */
+    fun isVisible(ch: Item, mode: String, folders: FolderSet, hidden: Set<String>,
+                  type: String, sub: String, region: String): Boolean =
+        isOn(ch, mode, folders, hidden) && (!Taxonomy.groupHidden(type, sub, region, hidden) || isForced(ch, hidden))
+
+    /**
+     * Set this channel's effective visibility to [on].
+     * Show: enable it in the mode (Default: drop ch:key) and, if a hidden group would still hide it, add a show:
+     * exception so this one channel comes back — the group stays hidden.
+     * Hide: drop any exception and disable it in the mode (Default: add ch:key). Does not hide the whole group.
+     */
+    fun setOn(ch: Item, on: Boolean, mode: String, folders: FolderSet, hidden: Set<String>,
+              type: String = "", sub: String = "", region: String = ""): Pair<FolderSet, Set<String>> {
+        var f = folders
+        var h = hidden
+        if (on) {
+            if (!isOn(ch, mode, f, h)) {
+                val r = toggle(ch, mode, f, h); f = r.first; h = r.second
+            }
+            h = if (type.isNotEmpty() && Taxonomy.groupHidden(type, sub, region, h)) h + showKey(ch) else h - showKey(ch)
+        } else {
+            h = h - showKey(ch)
+            if (isOn(ch, mode, f, h)) {
+                val r = toggle(ch, mode, f, h); f = r.first; h = r.second
+            }
+        }
+        return f to h
+    }
+
     /** Channel language passes the selection (unsorted channels pass until their language is known). */
     fun langOk(ch: Item, langs: Set<String>?, info: Map<String, ChInfo>): Boolean {
         if (langs.isNullOrEmpty()) return true
@@ -58,13 +101,27 @@ object LiveModes {
             val sub = Taxonomy.sub(type, title, c.name)
             val region = if (type == LiveKind.SPORTS) Taxonomy.region(title, c.name) else ""
             val chOn = if (inMode != null) c.key in inMode else "ch:${c.key}" !in hidden
-            Row(c, chOn && !Taxonomy.groupHidden(type, sub, region, hidden), type, sub, region)
+            val hiddenByGroup = Taxonomy.groupHidden(type, sub, region, hidden)
+            Row(c, chOn && (!hiddenByGroup || isForced(c, hidden)), type, sub, region)
         }.filter { view.shows(it.on) }.toList()
     }
 
     /** A left-nav tree node: a type, or one of its sub-categories / regions, with its channel count. */
     data class Node(val key: String, val type: String, val label: String, val count: Int, val hidden: Boolean,
                     val children: List<Node> = emptyList(), val region: Boolean = false)
+
+    /**
+     * The tree node a list section header should hide / show on a long-press: the matching sub-category or
+     * region when the section is one, otherwise the type (e.g. a single-sub type has no child nodes).
+     */
+    fun nodeForSection(tree: List<Node>, s: Section): Node? {
+        val typeNode = tree.firstOrNull { it.type == s.type } ?: return null
+        if (s.label.equals(s.type, ignoreCase = true)) return typeNode
+        return typeNode.children.firstOrNull { c -> s.label == c.label || s.label.startsWith(c.label + " · ") } ?: typeNode
+    }
+
+    /** Hide a group, or show it again (the same key in [hidden] is a toggle). */
+    fun toggleGroup(key: String, hidden: Set<String>): Set<String> = if (key in hidden) hidden - key else hidden + key
 
     /**
      * Left-nav tree: types in [LiveKind.ORDER] with their sub-categories (rule order, "Other" last) and, for Sports, the
@@ -74,16 +131,17 @@ object LiveModes {
         val rank = LiveKind.ORDER.withIndex().associate { it.value to it.index }
         return rows.filter { it.type.isNotEmpty() }.groupBy { it.type }.entries.sortedBy { rank[it.key] ?: 99 }.mapNotNull { (type, rs) ->
             val tHidden = Taxonomy.typeKey(type) in hidden
-            if (tHidden && !view.showsHidden) return@mapNotNull null
+            // Keep a hidden group in the tree when it still has a visible (forced-show) channel
+            if (tHidden && !view.showsHidden && rs.none { it.on }) return@mapNotNull null
             val order = Taxonomy.RULES[type].orEmpty().map { it.first }.withIndex().associate { it.value to it.index }
             val subs = rs.groupBy { it.sub }.entries.sortedBy { order[it.key] ?: 999 }.mapNotNull { (sub, l) ->
                 val h = Taxonomy.subKey(type, sub) in hidden
-                if (h && !view.showsHidden) null else Node(Taxonomy.subKey(type, sub), type, sub, l.size, h || tHidden)
+                if (h && !view.showsHidden && l.none { it.on }) null else Node(Taxonomy.subKey(type, sub), type, sub, l.size, h || tHidden)
             }
             val regions = if (type != LiveKind.SPORTS) emptyList() else rs.filter { it.region.isNotEmpty() }.groupBy { it.region }.entries
                 .sortedByDescending { it.value.size }.mapNotNull { (r, l) ->
                     val h = Taxonomy.regionKey(type, r) in hidden
-                    if (h && !view.showsHidden) null else Node(Taxonomy.regionKey(type, r), type, r, l.size, h || tHidden, region = true)
+                    if (h && !view.showsHidden && l.none { it.on }) null else Node(Taxonomy.regionKey(type, r), type, r, l.size, h || tHidden, region = true)
                 }
             Node(Taxonomy.typeKey(type), type, type, rs.size, tHidden, if (subs.size > 1 || regions.isNotEmpty()) subs + regions else emptyList())
         }
