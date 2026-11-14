@@ -1088,6 +1088,42 @@ fun ChoiceDialog(title: String, opts: List<Pair<String, () -> Unit>>, focusKey: 
     }
 }
 
+/**
+ * Install confirm after a downloaded update. A full centered dialog (not the slim right-edge
+ * [ChoiceDialog] context menu), so it can take focus and clicks even when it opens on its own
+ * over Home or after "Check for update". Focus starts on Update; Back / Not now dismisses.
+ */
+@Composable
+fun UpdateDialog(label: String, onUpdate: () -> Unit, onDismiss: () -> Unit) {
+    val primary = remember { FocusRequester() }
+    LaunchedEffect(label) {
+        // Retry: the dialog often opens over a focused row or another popup's focus trap.
+        repeat(10) {
+            delay(80)
+            if (runCatching { primary.requestFocus(); true }.getOrDefault(false)) return@LaunchedEffect
+        }
+    }
+    PopupFrame(onDismiss, alignment = Alignment.Center) {
+        Column(
+            Modifier.padding(horizontal = 24.dp).widthIn(max = 520.dp).fillMaxWidth()
+                .clip(RoundedCornerShape(Radii.panel))
+                .background(Pal.Surface)
+                .border(1.dp, Color(0x22D4AF37), RoundedCornerShape(Radii.panel))
+                .padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text("Update $label", color = Pal.Text, fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold)
+            Text("A new version is ready to install on this device.", color = Pal.Dim, fontSize = Ts.SECONDARY.sp)
+            Spacer(Modifier.height(4.dp))
+            PillButton("Update", onUpdate,
+                Modifier.fillMaxWidth().focusRequester(primary).defaultMinSize(minHeight = 52.dp),
+                primary = true, size = Ts.ROW)
+            PillButton("Not now", onDismiss,
+                Modifier.fillMaxWidth().defaultMinSize(minHeight = 52.dp), size = Ts.ROW)
+        }
+    }
+}
+
 /** One menu line: quiet until focused, then a soft gold highlight (Netflix-like, no heavy buttons). */
 @Composable
 fun MenuEntry(label: String, onClick: () -> Unit, modifier: Modifier = Modifier, dim: Boolean = false) {

@@ -259,6 +259,8 @@ fun App(repo: Repo) {
 
     val phone = AppUi.phoneNav
     val cur = screen
+    // Don't stack the confirm over the player, search (focus trap), or the account menu.
+    val updateOffer = Updater.pending.takeIf { cur !is Screen.Play }
     val showBar = phone && cur !is Screen.Play && cur != Screen.Remote
     val barSpace = if (showBar) 84.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() else 0.dp
     Surface(Modifier.fillMaxSize().background(Pal.Bg), color = Pal.Bg) {
@@ -287,7 +289,7 @@ fun App(repo: Repo) {
                 }
                 // Floating search: on every screen except the full-screen player and the remote-learning screen
                 if (cur !is Screen.Play && cur != Screen.Remote) {
-                    if (search.open) {
+                    if (search.open && updateOffer == null) {
                         BackHandler(!Popups.any) { search.open = false }
                         DisposableEffect(Unit) { onDispose { AppUi.searchClosed++ } }
                         SearchOverlay(repo, search, { item ->
@@ -295,7 +297,7 @@ fun App(repo: Repo) {
                             open(item)
                             fromSearch = screen.takeIf { it is Screen.Detail }
                         }, { l, i -> search.open = false; play(l, i) })
-                    } else if (!(rememberIsTv() && !phone)) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomEnd) {
+                    } else if (updateOffer == null && !(rememberIsTv() && !phone)) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomEnd) {
                         // Touch screens only: on TV a floating button is a D-pad trap (Right at the end of the top menu
                         // jumped to it with no way back). TV has Search in the top menu, on Live TV and on the remote's key.
                         SearchFab(Modifier.padding(18.dp)) { search.open = true }
@@ -313,12 +315,14 @@ fun App(repo: Repo) {
                 }
                 tick++
             }, Modifier.align(Alignment.BottomCenter))
-            if (AppUi.accountMenu && cur !is Screen.Play) AccountMenu(repo.store, go) { AppUi.accountMenu = false }
-            // Ask-once: one in-app confirm after a silent download. Not shown over the player.
-            Updater.pending?.let { p ->
-                if (cur !is Screen.Play) ChoiceDialog("Update ${p.label}", listOf("Install now" to { Updater.approve(ctx, repo.store) })) {
-                    Updater.decline(repo.store)
+            if (AppUi.accountMenu && cur !is Screen.Play && updateOffer == null) AccountMenu(repo.store, go) { AppUi.accountMenu = false }
+            // Ask-once confirm after a silent download. Full centered dialog (not the context menu).
+            updateOffer?.let { p ->
+                LaunchedEffect(p.code) {
+                    AppUi.accountMenu = false
+                    search.open = false
                 }
+                UpdateDialog(p.label, onUpdate = { Updater.approve(ctx, repo.store) }, onDismiss = { Updater.decline(repo.store) })
             }
         }
     }
