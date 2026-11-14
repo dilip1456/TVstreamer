@@ -300,6 +300,11 @@ class Store(ctx: Context) {
         get() = p.getString("refresh_policy", "") ?: ""
         set(v) { p.edit().putString("refresh_policy", v).apply() }
 
+    /** Hours after which Movies / Series may pull the portal again (also the first launch of a new day). Device-only. */
+    var catalogRefreshHours: Int
+        get() = p.getInt("catalog_refresh_hours", CatalogStale.DEFAULT_HOURS).let { if (it in CatalogStale.HOURS) it else CatalogStale.DEFAULT_HOURS }
+        set(v) { p.edit().putInt("catalog_refresh_hours", if (v in CatalogStale.HOURS) v else CatalogStale.DEFAULT_HOURS).apply() }
+
     /** Remote button mapping (JSON, see Keys). */
     var keymap: String
         get() = p.getString("keymap", "") ?: ""
@@ -467,7 +472,7 @@ class Store(ctx: Context) {
         /** Prefs stored in their own sync entries. */
         val STRUCTURED = setOf("fav", "hidden", "custom_cats", "recent", "resume", "lastep", "ch_names")
         /** Never synced. */
-        val LOCAL_ONLY = setOf("fav_ch_migrated", "update_declined")
+        val LOCAL_ONLY = setOf("fav_ch_migrated", "update_declined", "catalog_refresh_hours")
     }
 
     fun cacheWrite(name: String, text: String) { runCatching { File(dir, name).writeText(text) } }

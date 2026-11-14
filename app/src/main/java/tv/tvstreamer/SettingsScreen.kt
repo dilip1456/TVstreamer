@@ -123,6 +123,12 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
             SettingsNav.Sec.CONTENT -> {
                 SettingRow("What to show", "Movies, series, Live TV", first) { go(Screen.Categories) }
                 SettingRow("Remote buttons") { go(Screen.Remote) }
+                var hours by remember { mutableStateOf(s.catalogRefreshHours) }
+                SettingRow("Refresh movies after", "$hours hours") {
+                    hours = CatalogStale.HOURS[(CatalogStale.HOURS.indexOf(hours).let { if (it < 0) 0 else it } + 1) % CatalogStale.HOURS.size]
+                    s.catalogRefreshHours = hours
+                    note = "The Movies and Series lists will refresh from the portal after $hours hours, or on the first launch of a new day."
+                }
                 val lib = repo.lib
                 var confirm by remember { mutableStateOf(false) }
                 when {

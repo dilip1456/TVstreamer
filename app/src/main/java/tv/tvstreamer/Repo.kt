@@ -31,7 +31,7 @@ class Repo(private val ctx: Context) {
     /** Series seasons / episodes, saved on disk per series and season and fetched one season at a time. */
     val seasons = Seasons(api, store.cacheDir("seasons"))
 
-    init { Tmdb.init(ctx, store.tmdbKey, store.omdbKey); Gemini.useKey(store.geminiKey) }
+    init { Tmdb.init(ctx, store.tmdbKey, store.omdbKey); Gemini.useKey(store.geminiKey); lib.preload() }
 
     var liveCats by mutableStateOf(emptyList<Cat>())
     var vodCats by mutableStateOf(emptyList<Cat>())
@@ -111,7 +111,7 @@ class Repo(private val ctx: Context) {
             }
         }
         lib.start()       // the saved catalog appears now; a stale one refreshes in the background
-        val fresh = channels.isNotEmpty() && vodCats.isNotEmpty() && System.currentTimeMillis() - listsAt < Library.MAX_AGE
+        val fresh = channels.isNotEmpty() && vodCats.isNotEmpty() && System.currentTimeMillis() - listsAt < lib.refreshMs()
         if (fresh && !force) return@withContext
         // A second forced refresh right after one finished (e.g. start-up then sign-in sync) would just repeat it
         if (fresh && api.token.isNotEmpty() && System.currentTimeMillis() - fetchedAt < 60_000) return@withContext   // api.reset() (new login) clears the token

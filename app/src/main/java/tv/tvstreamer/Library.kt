@@ -44,7 +44,10 @@ data class Group(val key: String, val items: List<Item>) {
  *    the Movies / Series tabs; unselected languages are never fetched ("Other" only when selected);
  *  - first the newest page of each such category, then more pages only on demand (end of a row / grid,
  *    few titles for the picked languages, a sort that needs older titles, a category grid);
- *  - pages already fetched are kept and never fetched again; the daily refresh re-reads only page 1;
+ *  - pages already fetched are kept and never fetched again; a silent refresh re-reads only page 1 when it is
+ *    the first launch of the day, more than N hours old (default 6), or the user refreshes by hand;
+ *  - new pages are appended (deduped by id); per-category and sort indexes are built off the main thread and
+ *    updated incrementally, so the whole catalog is not rewritten on every page;
  *  - one request at a time with a short random gap, at most [SESSION_PAGES] pages per app session, a Stop button,
  *    and a pause when the portal says "slow down" (see Gentle.kt).
  * Stream links are fetched on Play only.
@@ -55,8 +58,11 @@ class Library(private val repo: Repo) {
         const val FEW = 40                   // fewer cards than this for the picked languages: fetch a little more
         const val FEW_BUDGET = 9             // ... at most this many extra pages per language choice, per session
         const val SESSION_PAGES = 150        // hard cap of catalog pages per app session
-        const val MAX_AGE = 24L * 3600 * 1000
-        const val FILE = "catalog.jsonl"
+        const val MAX_AGE = 6L * 3600 * 1000   // default; the user's setting wins (see refreshMs)
+        const val FILE = "catalog.jsonl"       // v2 single-file format, still read on upgrade
+        const val META = "catalog.meta.json"
+        const val BODY = "catalog.body.jsonl"
+        const val INDEX = "catalog-index.json"
         const val FAIL_LIMIT = 4
         const val FAIL_WINDOW = 15L * 60 * 1000
     }
@@ -70,6 +76,15 @@ class Library(private val repo: Repo) {
     @Volatile private var diskLoaded = false
     @Volatile private var owner = ""
     private fun account() = (repo.store.portal.trim().trimEnd('/') + "|" + repo.store.mac.trim().uppercase()).hashCode().toString()
+    private val knownKeys = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    @Volatile private var indexes = CatalogIndexes()
+    private val poolMemo = java.util.concurrent.ConcurrentHashMap<String, List<Item>>()
+    private val cardMemo = java.util.concurrent.ConcurrentHashMap<String, List<Group>>()
+    fun refreshMs(): Long = CatalogStale.intervalMs(repo.store.catalogRefreshHours)
+    private fun tzOffset(now: Long = System.currentTimeMillis()): Long =
+        java.util.TimeZone.getDefault().getOffset(now).toLong()
+    fun isFresh(now: Long = System.currentTimeMillis()): Boolean =
+        hasData && !CatalogStale.due(now, refreshedAt, refreshMs(), tzOffset(now))
     private val failures = FailureWindow(FAIL_LIMIT, FAIL_WINDOW, 0)
     private val policy: RefreshPolicy by lazy { RefreshPolicy.from(repo.store.refreshPolicy) }
     private fun savePolicy() { repo.store.refreshPolicy = policy.toJson() }
@@ -174,25 +189,32 @@ class Library(private val repo: Repo) {
 
     /** A language choice: fetch the newest page of the newly selected languages' categories (cached data is kept). */
     fun ensure(tab: String = "", langs: Set<String>? = null, @Suppress("UNUSED_PARAMETER") force: Boolean = false) {
-        start(); if (!langs.isNullOrEmpty()) job("first") { firstPages(langsAll()) }
+        start()
+        // A fresh local catalog is shown as is; missing first pages are fetched only when a refresh is due
+        if (!langs.isNullOrEmpty() && !isFresh()) job("first") { firstPages(langsAll()) }
     }
 
-    /** Shows the saved copy at once; fetches first pages of selected languages; re-reads page 1 once a day. */
+    /** Shows the saved copy at once; the portal is contacted only when the cache is missing or stale. */
     fun start() {
         if (repo.store.portal.isBlank()) return
         val who = account()
         if (owner != who) {
             all = emptyList(); byCat = emptyMap(); catMix = emptyMap(); complete = false; refreshedAt = 0; diskLoaded = false
-            catNext.clear(); catEnd.clear(); fewSpent.clear(); owner = who; version++
+            catNext.clear(); catEnd.clear(); fewSpent.clear(); knownKeys.clear(); indexes = CatalogIndexes()
+            poolMemo.clear(); cardMemo.clear(); owner = who; version++
         }
         job("start") {
-            if (!diskLoaded) readDisk()
+            if (!diskLoaded) runCatching { readDisk() }.onFailure { android.util.Log.w("TVstreamer", "catalog cache read failed", it) }
             if (repo.vodCats.isEmpty()) return@job
             val now = System.currentTimeMillis()
-            if (hasData && policy.autoDue(now) && now - refreshedAt >= MAX_AGE) { policy.recordAuto(now); savePolicy(); newest() }
+            if (hasData && isFresh(now)) return@job          // zero portal calls on open
+            if (hasData) { policy.recordAuto(now); savePolicy(); newest() }
             firstPages(langsAll())
         }
     }
+
+    /** Begin reading the on-disk catalog as soon as the app starts, without waiting for Repo.load(). */
+    fun preload() { if (repo.store.portal.isNotBlank()) start() }
 
     /** Older titles for the tab's languages: next pages of the categories whose fetched titles are the newest. */
     fun more(tab: String = "", langs: Set<String>? = null, pages: Int = MORE_PAGES) {
@@ -216,10 +238,11 @@ class Library(private val repo: Repo) {
 
     /** Titles found by a portal search: kept with the rest. */
     fun merge(items: List<Item>) {
-        val known = all.map { it.key }.toHashSet()
-        val add = items.filter { it.kind == "vod" && it.key !in known }
+        val add = items.filter { it.kind == "vod" }
         if (add.isEmpty()) return
-        publish(all + add); scope.launch { work.withLock { writeDisk() } }
+        val (next, fresh) = CatalogDisk.merge(all, add)
+        if (fresh.isEmpty()) return
+        publish(next, fresh); scope.launch { work.withLock { appendDisk(fresh); writeMeta() } }
     }
 
     /** Stop button: cancels the running fetch; nothing more is fetched in the background until [resume]. */
@@ -264,12 +287,33 @@ class Library(private val repo: Repo) {
         }
     }
 
-    private fun publish(items: List<Item>) {
+    private fun publish(items: List<Item>, added: List<Item>? = null) {
         val l = items.distinctBy { it.key }
         all = l
-        val bc = l.groupBy { it.cat }
-        byCat = bc
-        catMix = bc.mapValues { (_, v) -> v.asSequence().filter { it.parsed.lang.isNotEmpty() }.map { it.parsed.lang }.toSet() }
+        knownKeys.clear(); knownKeys.addAll(l.map { it.key })
+        val incremental = added != null && added.isNotEmpty() && indexes.byCat.isNotEmpty()
+        runCatching {
+            if (incremental) {
+                val bc = byCat.toMutableMap()
+                for (i in added!!) bc[i.cat] = (bc[i.cat] ?: emptyList()) + i
+                byCat = bc
+                val mix = catMix.toMutableMap()
+                for (i in added) if (i.parsed.lang.isNotEmpty()) mix[i.cat] = (mix[i.cat] ?: emptySet()) + i.parsed.lang
+                catMix = mix
+                indexes = CatalogIndexes.append(indexes, added, { if (seriesItem(it)) "series" else "movies" }, { itemLang(it) })
+            } else {
+                val bc = l.groupBy { it.cat }
+                byCat = bc
+                catMix = bc.mapValues { (_, v) -> v.asSequence().filter { it.parsed.lang.isNotEmpty() }.map { it.parsed.lang }.toSet() }
+                indexes = CatalogIndexes.build(l, { if (seriesItem(it)) "series" else "movies" }, { itemLang(it) })
+            }
+        }.onFailure {
+            android.util.Log.w("TVstreamer", "catalog index failed", it)
+            val bc = l.groupBy { it.cat }
+            byCat = bc
+            catMix = bc.mapValues { (_, v) -> v.asSequence().filter { it.parsed.lang.isNotEmpty() }.map { it.parsed.lang }.toSet() }
+        }
+        poolMemo.clear(); cardMemo.clear()
         version++
     }
 
@@ -299,9 +343,8 @@ class Library(private val repo: Repo) {
         loading = true
         val p = catNext[id] ?: 1
         val pg = page(id, p) ?: return false
-        val known = all.map { it.key }.toHashSet()
-        val add = pg.items.filter { it.key !in known }.distinctBy { it.key }
-        if (add.isNotEmpty()) publish(if (front) add + all else all + add)
+        val (next, add) = CatalogDisk.merge(all, pg.items, front = front)
+        if (add.isNotEmpty()) { publish(next, add); appendDisk(add) }
         catNext[id] = p + 1
         // A page with nothing new twice in a row = the portal repeats itself (answers page 1 again): stop paging
         val empty = if (add.isEmpty()) (emptyPages[id] ?: 0) + 1 else 0
@@ -343,9 +386,8 @@ class Library(private val repo: Repo) {
             for (c in cats) {
                 val pg = page(c.id, 1) ?: break
                 ok = true; done++
-                val known = all.map { it.key }.toHashSet()
-                val add = pg.items.filter { it.key !in known }
-                if (add.isNotEmpty()) publish(add + all)
+                val (next, add) = CatalogDisk.merge(all, pg.items, front = true)
+                if (add.isNotEmpty()) { publish(next, add); appendDisk(add) }
                 if (pg.pages > 1 && c.id in catEnd && add.isNotEmpty()) catEnd -= c.id
             }
             if (ok) refreshedAt = System.currentTimeMillis()
@@ -356,34 +398,55 @@ class Library(private val repo: Repo) {
         loading = false
         complete = wantedCats(langs).all { it.id in catEnd }
         if (refreshedAt == 0L && hasData) refreshedAt = System.currentTimeMillis()
-        writeDisk()
+        writeMeta()
     }
 
-    // ---- Disk: a header line, then one JSON item per line; written to a temp file and swapped in ----
+    // ---- Disk: meta JSON + append-only item file; indexes in a third file ----
+
+    private fun applyMeta(h: CatalogMeta) {
+        refreshedAt = h.refreshedAt
+        catNext.clear(); catNext.putAll(h.catNext)
+        catEnd.clear(); catEnd.addAll(h.catEnd)
+        if (h.version < 2) {
+            all.map { it.cat }.distinct().forEach { catNext[it] = 2; catEnd += it }
+        }
+    }
 
     private fun readDisk() {
         diskLoaded = true
         runCatching {
-            val f = repo.store.cacheFile(FILE)
-            if (!f.exists()) { readOldCache(); return }
-            val items = ArrayList<Item>()
-            var h = JSONObject()
-            f.bufferedReader().useLines { lines ->
-                lines.forEachIndexed { n, line ->
-                    if (n == 0) { h = JSONObject(line); if (h.optString("a") != owner) return }
-                    else if (line.isNotBlank()) runCatching { items += Item.from(JSONObject(line)) }
+            val metaF = repo.store.cacheFile(META)
+            val bodyF = repo.store.cacheFile(BODY)
+            val legacy = repo.store.cacheFile(FILE)
+            var items: List<Item> = emptyList()
+            var h: CatalogMeta? = CatalogDisk.readMeta(metaF)
+            if (h != null && h.account.isNotEmpty() && h.account != owner) return
+            if (bodyF.exists()) {
+                items = CatalogDisk.readBody(bodyF)
+            } else {
+                val old = CatalogDisk.readLegacy(legacy, owner)
+                if (old != null) {
+                    h = old.first
+                    items = old.second
+                    if (h.account.isNotEmpty() && h.account != owner) return
+                    if (items.isNotEmpty()) {
+                        CatalogDisk.rewriteBody(bodyF, items)
+                        repo.store.cacheDelete(FILE)
+                    }
+                } else {
+                    readOldCache()
+                    if (hasData) writeMeta()
+                    return
                 }
             }
-            if (items.isEmpty()) return
-            refreshedAt = h.optLong("t")
-            h.optJSONObject("cn")?.let { o -> o.keys().forEach { k -> catNext[k] = o.getInt(k) } }
-            h.optJSONArray("ce")?.let { a -> for (i in 0 until a.length()) catEnd += a.getString(i) }
-            if (h.optInt("v") < 2) {
-                // Saved by 1.44 (whole list): treat every category it has as fully fetched
-                items.map { it.cat }.distinct().forEach { catNext[it] = 2; catEnd += it }
-            }
+            if (items.isEmpty()) { if (h == null) readOldCache(); return }
+            if (h != null) applyMeta(h)
             publish(items)
-        }
+            runCatching {
+                val ix = repo.store.cacheRead(INDEX)?.let { CatalogIndexes.from(org.json.JSONObject(it)) }
+                if (ix != null && ix.byCat.isNotEmpty()) indexes = ix
+            }
+        }.onFailure { android.util.Log.w("TVstreamer", "catalog cache read failed", it) }
     }
 
     private fun readOldCache() {
@@ -396,26 +459,43 @@ class Library(private val repo: Repo) {
         }
     }
 
-    private fun writeDisk() {
+    private fun appendDisk(add: List<Item>) {
+        if (add.isEmpty()) return
+        runCatching { CatalogDisk.append(repo.store.cacheFile(BODY), add) }
+            .onFailure { android.util.Log.w("TVstreamer", "catalog append failed", it) }
+    }
+
+    private fun writeMeta() {
         runCatching {
-            val f = repo.store.cacheFile(FILE)
-            val tmp = java.io.File(f.path + ".tmp")
-            val snap = all
-            tmp.bufferedWriter().use { w ->
-                val cn = JSONObject(); catNext.forEach { (k, v) -> cn.put(k, v) }
-                w.write(JSONObject().put("v", 2).put("a", owner).put("t", refreshedAt).put("n", snap.size)
-                    .put("cn", cn).put("ce", org.json.JSONArray(catEnd.toList())).toString()); w.newLine()
-                for (i in snap) { w.write(i.toJson().toString()); w.newLine() }
+            val meta = CatalogMeta(3, owner, refreshedAt, all.size, catNext.toMap(), catEnd.toSet())
+            CatalogDisk.writeMeta(repo.store.cacheFile(META), meta)
+            repo.store.cacheWrite(INDEX, indexes.toJson().toString())
+            val legacy = repo.store.cacheFile(FILE)
+            if (legacy.exists() && !repo.store.cacheFile(BODY).exists()) {
+                CatalogDisk.rewriteBody(repo.store.cacheFile(BODY), all)
+                repo.store.cacheDelete(FILE)
             }
-            if (!tmp.renameTo(f)) { f.delete(); tmp.renameTo(f) }
             repo.store.cacheDelete("lib.json")
-        }
+        }.onFailure { android.util.Log.w("TVstreamer", "catalog meta write failed", it) }
     }
 
     /** Everything for the tab: not hidden / locked, language-filtered per title, classified per title (movie vs series), unique. */
     fun pool(tab: String, langs: Set<String>?): List<Item> {
         val unlocked = repo.gate(true) == null
-        return all.filter { wantItem(it, tab) && visible(it, unlocked) && (langs == null || itemLang(it) in langs) }
+        val k = CatalogIndexes.poolKey(tab, langs) + "|" + unlocked + "|" + repo.hidden.size + "|" + repo.mode()
+        poolMemo[k]?.let { return it }
+        val keys = when {
+            langs.isNullOrEmpty() -> indexes.pools["$tab|*"]
+            langs.size == 1 -> indexes.pools[CatalogIndexes.poolKey(tab, langs)]
+            else -> null
+        }
+        val src = if (keys != null && knownKeys.isNotEmpty()) {
+            val byKey = all.associateBy { it.key }
+            keys.mapNotNull { byKey[it] }
+        } else all.filter { wantItem(it, tab) }
+        val out = src.filter { visible(it, unlocked) && (langs == null || itemLang(it) in langs) }
+        poolMemo[k] = out
+        return out
     }
 
     /** All loaded items (any language), for "Versions". */
@@ -479,9 +559,11 @@ class Library(private val repo: Repo) {
 
     /** Groups for display: loose episode entries collapse into one synthetic show per title. */
     fun cards(items: List<Item>): List<Group> {
+        val k = items.size.toString() + ":" + (items.firstOrNull()?.key ?: "") + ":" + (items.lastOrNull()?.key ?: "")
+        if (items.size > 20) cardMemo[k]?.let { return it }
         val (loose, rest) = items.partition { !it.isSeries && !it.isEpisode() && Tags.hasEpisodeMarker(it.name) }
         val shows = loose.groupBy { Tags.norm(it.parsed.title) }.values.map { syntheticSeries(it) }
-        return groups(rest + shows)
+        return groups(rest + shows).also { if (items.size > 20) cardMemo[k] = it }
     }
 
     // ---- Sorting (missing values always sort last) ----

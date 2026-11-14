@@ -448,11 +448,12 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                     slide = heroIx, slides = slides.size, onTouch = { heroTouched = System.currentTimeMillis() },
                     onStep = { d -> heroTouched = System.currentTimeMillis(); heroIx = (heroIx + d).mod(slides.size.coerceAtLeast(1)) })
             }
-            if (shelves.isEmpty() && repo.status.isEmpty()) item(key = "empty") {
+            // Cached titles must never be hidden behind a spinner; "Loading…" only when nothing is saved yet
+            if (shelves.isEmpty() && repo.status.isEmpty() && !(lib.hasData && !shelvesReady)) item(key = "empty") {
                 Text(when {
-                    repo.vodCats.isEmpty() -> "Loading your portal…"
-                    !shelvesReady -> "Loading…"
-                    tabbed && !langs.isNullOrEmpty() && lib.loading -> "Loading…"
+                    repo.vodCats.isEmpty() && !lib.hasData -> "Loading your portal…"
+                    !shelvesReady && !lib.hasData -> "Loading…"
+                    tabbed && !langs.isNullOrEmpty() && lib.loading && !lib.hasData -> "Loading…"
                     tabbed && !langs.isNullOrEmpty() -> "Nothing found for these languages yet. Try Refresh or pick more languages."
                     else -> "Nothing here yet. Open What to show (Options or Settings) to unhide groups."
                 }, color = Pal.Dim, fontSize = Ts.ROW.sp, modifier = Modifier.padding(hPad))

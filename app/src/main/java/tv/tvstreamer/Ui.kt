@@ -179,7 +179,7 @@ fun libraryStatus(repo: Repo): String {
     val t = lib.refreshedAt
     parts += if (t > 0) "last refreshed " + whenText(t) else if (lib.hasData) "not fully refreshed yet" else "not loaded yet"
     if (lib.loading) parts += if (lib.total > 0) "loading ${lib.done} of ${lib.total} pages" else "refreshing…"
-    else if (t > 0) parts += "checks for new titles once a day; older pages load as you scroll"
+    else if (t > 0) parts += "checks for new titles after ${repo.store.catalogRefreshHours} h or on the first launch of the day"
     if (lib.stopped) parts += "loading stopped"
     if (lib.note.isNotEmpty()) parts += lib.note
     return parts.joinToString(" · ")
