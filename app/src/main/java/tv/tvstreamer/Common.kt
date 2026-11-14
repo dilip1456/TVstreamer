@@ -66,9 +66,9 @@ object Theme {
 /** Colours for the current theme. Video / poster overlays keep fixed dark colours. */
 object Pal {
     private fun pick(dark: Long, light: Long) = Color(if (Theme.dark) dark else light)
-    val Bg get() = pick(0xFF0B0B0F, 0xFFF5F5F8)
-    val Surface get() = pick(0xFF1A1A22, 0xFFFFFFFF)
-    val Card get() = pick(0xFF22222C, 0xFFE6E6EC)
+    val Bg get() = pick(0xFF0A0A0D, 0xFFF5F5F8)
+    val Surface get() = pick(0xFF14141B, 0xFFFFFFFF)
+    val Card get() = pick(0xFF1C1C24, 0xFFE6E6EC)
     val Accent = Color(0xFFE50914)
     /** Brand gold (logo #D4AF37): focus borders and highlights. */
     val Gold = Color(0xFFD4AF37)
@@ -89,7 +89,7 @@ object Pal {
     val Field get() = pick(0xFF1A1A22, 0xFFEBEBF1)
     val FieldFocus get() = pick(0xFF1E1E26, 0xFFE2E2EA)
     val Row get() = pick(0xFF1E1E26, 0xFFFFFFFF)
-    val FocusBg get() = pick(0xFF2E2710, 0xFFFFF1C4)
+    val FocusBg get() = pick(0xFF2A2414, 0xFFFFF1C4)
     val WarnBox get() = pick(0xFF2A1F1A, 0xFFFFEEDC)
     val ChipSel get() = pick(0xFF5A4A12, 0xFFF1DE9C)
     val Shimmer get() = pick(0xFF383844, 0xFFF0F0F5)
@@ -111,25 +111,26 @@ fun isTvDevice(ctx: Context): Boolean {
 }
 
 /**
- * Focusable + clickable card for D-pad and touch: grows and gets a white outline when focused.
- * Long press or the remote's Menu key fires onMenu.
+ * Focusable + clickable card for D-pad and touch: grows and gets a soft gold glow when focused.
+ * Long press or the remote's Menu key fires onMenu. No blur / drop-shadow (cheap on Fire TV).
  */
 fun Modifier.focusCard(
     onClick: () -> Unit,
     onMenu: (() -> Unit)? = null,
     onFocused: (() -> Unit)? = null,
-    scale: Float = 1.08f,
-    shape: Shape = RoundedCornerShape(12.dp)
+    scale: Float = 1.06f,
+    shape: Shape = RoundedCornerShape(14.dp)
 ): Modifier = composed {
     var f by remember { mutableStateOf(false) }
-    // Subtle scale-up and a soft gold ring fading in (~180 ms ease); no shadow / blur (cheap on Fire TV)
     val s by animateFloatAsState(if (f) scale else 1f, Motion.spec(), label = "focusScale")
     val ring by animateFloatAsState(if (f) 1f else 0f, Motion.spec(), label = "focusRing")
     this
         .popupOpener()
         .onFocusChanged { if (it.isFocused != f) { f = it.isFocused; if (f) onFocused?.invoke() } }
         .graphicsLayer { scaleX = s; scaleY = s }
-        .then(if (ring > 0.01f) Modifier.border(2.dp, Pal.Focus.copy(alpha = 0.9f * ring), shape) else Modifier)
+        .then(if (ring > 0.01f) Modifier
+            .border(6.dp, Pal.Focus.copy(alpha = 0.22f * ring), shape)
+            .border(2.dp, Pal.Focus.copy(alpha = 0.95f * ring), shape) else Modifier)
         .clip(shape)
         .onKeyEvent { e ->
             if (onMenu != null && e.type == KeyEventType.KeyUp && e.key == Key.Menu) { onMenu(); true } else false
@@ -141,18 +142,19 @@ fun Modifier.focusCard(
 @Composable
 fun NavTab(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, selected: Boolean = false) {
     var f by remember { mutableStateOf(false) }
-    val bg by androidx.compose.animation.animateColorAsState(if (f) Color(0xF2F2F2F2) else Color.Transparent, Motion.colorSpec(), label = "tabBg")
-    val fg by androidx.compose.animation.animateColorAsState(when { f -> Color(0xFF111111); selected -> Pal.Text; else -> Pal.Dim }, Motion.colorSpec(), label = "tabFg")
+    val bg by androidx.compose.animation.animateColorAsState(if (f) Color(0xF2F5F0E6) else Color.Transparent, Motion.colorSpec(), label = "tabBg")
+    val fg by androidx.compose.animation.animateColorAsState(when { f -> Color(0xFF141414); selected -> Pal.Text; else -> Pal.Dim }, Motion.colorSpec(), label = "tabFg")
     Box(
         modifier.popupOpener()
             .onFocusChanged { f = it.isFocused }
             .clip(RoundedCornerShape(50))
             .background(bg)
             .combinedClickable(onClick = onClick)
-            .padding(horizontal = 18.dp, vertical = 8.dp),
+            .padding(horizontal = 16.dp, vertical = 7.dp),
         contentAlignment = Alignment.Center
     ) {
-        Text(text, color = fg, fontSize = 16.sp, fontWeight = if (selected || f) FontWeight.Bold else FontWeight.Medium, maxLines = 1)
+        Text(text, color = fg, fontSize = 15.sp, fontWeight = if (selected || f) FontWeight.SemiBold else FontWeight.Medium,
+            letterSpacing = 0.2.sp, maxLines = 1)
     }
 }
 

@@ -1065,11 +1065,11 @@ fun ChoiceDialog(title: String, opts: List<Pair<String, () -> Unit>>, focusKey: 
     // Compact, see-through card on the right (1.54): small text, tight rows, the page stays visible behind it
     PopupFrame(onClose, alignment = Alignment.CenterEnd, scrim = Color(0x40000000)) {
         Column(
-            Modifier.padding(end = 40.dp).widthIn(min = 240.dp, max = 330.dp).heightIn(max = 420.dp)
-                .clip(RoundedCornerShape(16.dp))
-                .background(Pal.Surface.copy(alpha = 0.86f))
-                .border(1.dp, Color(0x1FFFFFFF), RoundedCornerShape(16.dp))
-                .padding(horizontal = 10.dp, vertical = 12.dp),
+            Modifier.padding(end = 48.dp).widthIn(min = 252.dp, max = 340.dp).heightIn(max = 440.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(Pal.Surface.copy(alpha = 0.94f))
+                .border(1.dp, Color(0x22D4AF37), RoundedCornerShape(20.dp))
+                .padding(horizontal = 10.dp, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
             Text(title, color = Pal.Dim, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -1095,7 +1095,7 @@ fun MenuEntry(label: String, onClick: () -> Unit, modifier: Modifier = Modifier,
     val bg by androidx.compose.animation.animateColorAsState(if (f) Pal.Gold else Color.Transparent, Motion.colorSpec(), label = "menuBg")
     Box(
         modifier.fillMaxWidth().popupOpener().onFocusChanged { f = it.isFocused }
-            .clip(RoundedCornerShape(10.dp))
+            .clip(RoundedCornerShape(12.dp))
             .background(bg)
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = Ts.MENU_PAD)

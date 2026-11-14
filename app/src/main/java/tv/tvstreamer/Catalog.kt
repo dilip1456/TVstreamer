@@ -201,6 +201,7 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
     var menu by remember { mutableStateOf<Pair<Shelf, Item?>?>(null) }
     var fixItem by remember { mutableStateOf<Item?>(null) }
     var sortMenu by remember { mutableStateOf(false) }
+    var pageMenu by remember { mutableStateOf(false) }
     var updateMsg by remember { mutableStateOf("") }
     val tabbed = mode == "movies" || mode == "series"
     var langVer by remember { mutableIntStateOf(0) }
@@ -336,9 +337,15 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
     val hPad = if (isTv) 48.dp else 14.dp
     val state = remember(mode) { repo.listStates.getOrPut(screenKey) { LazyListState() } }
     // Back leaves the tab in one press (no wasted "focus the top menu first" step). Up still reaches the tabs.
-    Box(Modifier.fillMaxSize().background(Pal.Bg)) {
-        // Soft gold glow at the top (one static gradient: no blur, cheap on Fire TV)
-        if (Theme.dark) Box(Modifier.fillMaxWidth().height(420.dp).background(Brush.verticalGradient(listOf(Pal.Gold.copy(alpha = 0.10f), Color.Transparent))))
+    Box(Modifier.fillMaxSize().background(Pal.Bg).onKeyEvent { e ->
+        // Options / Menu on the remote: page context menu (languages, sort). Cards that handle Menu keep their own.
+        if (isTv && tabbed && e.type == KeyEventType.KeyUp && e.key == Key.Menu && menu == null && !pageMenu && !sortMenu) {
+            pageMenu = true; true
+        } else false
+    }) {
+        // Soft cinematic wash at the top (static gradient, no blur — cheap on Fire TV). Not a second copy of the hero art.
+        if (Theme.dark) Box(Modifier.fillMaxWidth().height(480.dp).background(
+            Brush.verticalGradient(listOf(Color(0xFF16120C), Pal.Gold.copy(alpha = 0.08f), Color.Transparent))))
         // The top menu is pinned (1.53): it stays on screen while the page scrolls beneath it
         Column(Modifier.fillMaxSize()) {
             val tabs = if (!AppUi.phoneNav) listOf<Triple<String, String, () -> Unit>>(
@@ -395,17 +402,19 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                 Column(Modifier.padding(horizontal = hPad)) {
                     if (tabbed) {
                         Spacer(Modifier.height(8.dp))
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(vertical = 4.dp), modifier = Modifier.focusRestorer()) {
-                            item(key = "langs") {
-                                val label = when {
-                                    langs.isNullOrEmpty() -> "🌐  Pick languages"
-                                    langs.size <= 3 -> "🌐  " + langs.sorted().joinToString(", ")
-                                    else -> "🌐  ${langs.size} languages"
+                        // TV: languages live in the Options / Menu context menu, not a second control on the page
+                        if (AppUi.phoneNav || !isTv) {
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(vertical = 4.dp), modifier = Modifier.focusRestorer()) {
+                                item(key = "langs") {
+                                    val label = when {
+                                        langs.isNullOrEmpty() -> "🌐  Pick languages"
+                                        langs.size <= 3 -> "🌐  " + langs.sorted().joinToString(", ")
+                                        else -> "🌐  ${langs.size} languages"
+                                    }
+                                    PillButton(label, { go(Screen.Languages(mode, Screen.Home)) }, size = 14, primary = langs.isNullOrEmpty())
                                 }
-                                PillButton(label, { go(Screen.Languages(mode, Screen.Home)) }, size = 14, primary = langs.isNullOrEmpty())
+                                if (!langs.isNullOrEmpty()) item(key = "sort") { PillButton("⇅  " + Sorts.label(sort), { sortMenu = true }, size = 14) }
                             }
-                            // Older pages load as you scroll and new titles once a day; stop / resume / refresh live in Settings > Library
-                            if (!langs.isNullOrEmpty()) item(key = "sort") { PillButton("⇅  " + Sorts.label(sort), { sortMenu = true }, size = 14) }
                         }
                         if (lib.loading) {
                             // Small and non-blocking: saved titles stay usable while pages arrive one by one
@@ -422,7 +431,9 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                         }
                         if (langs.isNullOrEmpty()) {
                             Spacer(Modifier.height(4.dp))
-                            Text("Pick the languages you watch: their CAM / HD / 4K / Dub categories are merged into one set of rows.",
+                            Text(if (isTv && !AppUi.phoneNav)
+                                "Press Options on the remote to choose the languages you watch. Their CAM / HD / 4K / Dub categories are merged into one set of rows."
+                                else "Pick the languages you watch: their CAM / HD / 4K / Dub categories are merged into one set of rows.",
                                 color = Pal.Dim, fontSize = 13.sp)
                         }
                     }
@@ -509,6 +520,12 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
             ChoiceDialog(title, opts, focusKey = shelf.key + (item?.key ?: "")) { menu = null }
         }
         fixItem?.let { f -> FixMatchDialog(f) { fixItem = null } }
+        if (pageMenu) {
+            ChoiceDialog("Options", buildList {
+                add("🌐  Languages…" to { pageMenu = false; go(Screen.Languages(mode, Screen.Home)) })
+                if (!langs.isNullOrEmpty()) add("⇅  " + Sorts.label(sort) to { pageMenu = false; sortMenu = true })
+            }, focusKey = "page-menu") { pageMenu = false }
+        }
         if (sortMenu) {
             ChoiceDialog("Sort genre rows", Sorts.all.map { s ->
                 ((if (s == sort) "✓  " else "") + Sorts.label(s)) to { sort = s; repo.store.saveSort("tab:$mode", s); sortMenu = false; if (s != Sorts.ADDED) lib.more(mode, langs) }
@@ -527,18 +544,27 @@ private fun Hero(repo: Repo, raw: Item, isTv: Boolean, hPad: Dp, playLabel: Stri
     // Any key press inside the banner pauses the rotation for a while; the buttons stay the same composables, so a
     // slide change never moves D-pad focus
     // A rounded hero card (Netflix TV style) inset from the screen edges; full-bleed on phones
-    val card = if (isTv) Modifier.padding(horizontal = hPad).clip(RoundedCornerShape(20.dp)) else Modifier
-    Box(Modifier.fillMaxWidth().then(card).height(if (isTv) 340.dp else 260.dp)
+    val card = if (isTv) Modifier.padding(horizontal = hPad).clip(RoundedCornerShape(22.dp)) else Modifier
+    val backdrop = BackdropArt.distinct(meta?.backdrop, item.img)
+    Box(Modifier.fillMaxWidth().then(card).height(if (isTv) 360.dp else 260.dp)
         .onPreviewKeyEvent { if (it.type == KeyEventType.KeyDown) onTouch(); false }) {
-        androidx.compose.animation.Crossfade(meta?.backdrop?.ifEmpty { null } ?: item.img, animationSpec = androidx.compose.animation.core.tween(450), label = "hero") { url ->
-            Poster(url, name, Modifier.fillMaxSize(), ContentScale.Crop, initialsSize = 1)
+        if (backdrop != null) {
+            androidx.compose.animation.Crossfade(backdrop, animationSpec = androidx.compose.animation.core.tween(450), label = "hero") { url ->
+                Poster(url, name, Modifier.fillMaxSize(), ContentScale.Crop, initialsSize = 1)
+            }
+            Box(Modifier.fillMaxSize().background(Color(0x66000000)))
+            Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Pal.Bg, Pal.Bg.copy(alpha = 0.55f), Color.Transparent))))
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.5f to Color.Transparent, 1f to Pal.Bg)))
+        } else {
+            // No second copy of the poster: a muted cinematic gradient stands in for a backdrop
+            Box(Modifier.fillMaxSize().background(
+                Brush.linearGradient(listOf(Color(0xFF141218), Color(0xFF2A2418), Color(0xFF0E0E12)))))
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.55f to Color.Transparent, 1f to Pal.Bg)))
         }
-        Box(Modifier.fillMaxSize().background(Color(0x66000000)))
-        Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Pal.Bg, Pal.Bg.copy(alpha = 0.55f), Color.Transparent))))
-        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.5f to Color.Transparent, 1f to Pal.Bg)))
-        Row(Modifier.fillMaxSize().padding(horizontal = if (isTv) 32.dp else hPad, vertical = if (isTv) 24.dp else 16.dp), verticalAlignment = Alignment.Bottom) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(name, color = Pal.Text, fontSize = if (isTv) 34.sp else 24.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Row(Modifier.fillMaxSize().padding(horizontal = if (isTv) 32.dp else hPad, vertical = if (isTv) 26.dp else 16.dp), verticalAlignment = Alignment.Bottom) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(if (isTv) 10.dp else 8.dp)) {
+                Text(name, color = Pal.Text, fontSize = if (isTv) 32.sp else 24.sp, fontWeight = FontWeight.SemiBold,
+                    letterSpacing = (-0.3).sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 MetaLine(item)
                 if (item.desc.isNotEmpty()) Text(item.desc, color = Pal.Desc, fontSize = if (isTv) 15.sp else 13.sp, maxLines = 3,
                     overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth(if (isTv) 0.8f else 1f))
@@ -850,15 +876,19 @@ fun DetailScreen(repo: Repo, item: Item, play: (List<Item>, Int) -> Unit, onBack
         // Menu on the details page (nothing else used it): more options incl. Fix match
         if (e.type == KeyEventType.KeyUp && e.key == Key.Menu) { more = true; true } else false
     }) {
-        Poster(meta?.backdrop?.ifEmpty { null } ?: shownItem.img, name, Modifier.fillMaxWidth().fillMaxHeight(0.7f), ContentScale.Crop, initialsSize = 1)
-        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Pal.Bg.copy(alpha = 0.6f), 0.55f to Pal.Bg)))
+        BackdropArt.distinct(meta?.backdrop, shownItem.img)?.let { url ->
+            Poster(url, name, Modifier.fillMaxWidth().fillMaxHeight(0.7f), ContentScale.Crop, initialsSize = 1)
+        } ?: Box(Modifier.fillMaxWidth().fillMaxHeight(0.7f).background(
+            Brush.verticalGradient(listOf(Color(0xFF1A1610), Pal.Bg))))
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Pal.Bg.copy(alpha = 0.55f), 0.55f to Pal.Bg)))
         LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(horizontal = hPad, vertical = if (isTv) 32.dp else 14.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(if (isTv) 28.dp else 14.dp)) {
-                    Poster(shownItem.img, name, Modifier.width(if (isTv) 200.dp else 116.dp).aspectRatio(2f / 3f).clip(RoundedCornerShape(10.dp)))
+                    Poster(shownItem.img, name, Modifier.width(if (isTv) 200.dp else 116.dp).aspectRatio(2f / 3f).clip(RoundedCornerShape(12.dp)))
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(name, color = Pal.Text, fontSize = if (isTv) 34.sp else 22.sp, fontWeight = FontWeight.Bold, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                        Text(name, color = Pal.Text, fontSize = if (isTv) 32.sp else 22.sp, fontWeight = FontWeight.SemiBold,
+                            letterSpacing = (-0.3).sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
                         MetaLine(shownItem, meta)
                         if (shownItem.desc.isNotEmpty()) Text(shownItem.desc, color = Pal.Desc, fontSize = if (isTv) 16.sp else 14.sp,
                             maxLines = if (isTv) 6 else 8, overflow = TextOverflow.Ellipsis)

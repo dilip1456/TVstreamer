@@ -43,13 +43,13 @@ import kotlinx.coroutines.launch
 /**
  * Live TV (v1.52): one clean list, grouped by portal type and category only (News incl. "Local News", Sports, …).
  *  - TV: a Netflix-style left menu (icons; labels open while it has focus, it collapses when focus moves right) with
- *    Search, Mode, All channels, Languages and the sections. Left on a channel goes to its section in the menu.
+ *    Search, Mode and the sections. Left on a channel goes to its section in the menu.
  *  - Rows: number badge, logo, clean name, small language tag; the channel playing is marked. The schedule is in the player.
  *  - Sections fold: OK on a header (or a sub-category in the left tree) hides / shows its channels; saved.
  *  - Modes: Default (every channel not hidden) or a custom mode (only its channels). "All channels" / "Only hidden"
  *    also list the others, dimmed; each row has a Hide or Show chip (tap / TV OK). Hold OK / long-press still
  *    toggles on TV when browsing hidden, or starts Select on the phone. Menu on a channel = channel menu.
- *  - Languages: only the selected languages are listed (Menu on the left menu, or its Languages entry; phone: ⋮).
+ *  - Languages: only the selected languages are listed (Options / Menu on the remote, or ⋮ on the phone).
  *  - Guide: now / next loaded only for the rows on screen. Back from the player lands on the channel that played.
  */
 @Composable
@@ -316,9 +316,13 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
     val liveTabFr = remember { FocusRequester() }
     var headerFocused by remember { mutableStateOf(false) }
     val header = tv && !AppUi.phoneNav
-    if (rail) Column(Modifier.fillMaxSize()) {
+    if (rail) Column(Modifier.fillMaxSize().onKeyEvent { e ->
+        if (e.type == KeyEventType.KeyUp && e.key == Key.Menu && popup == null && menuCh == null) { popup = "more"; true }
+        else false
+    }) {
         if (header) Row(
-            Modifier.fillMaxWidth().padding(start = 48.dp, end = 48.dp, top = 14.dp, bottom = 2.dp).onFocusChanged { headerFocused = it.hasFocus },
+            Modifier.fillMaxWidth().padding(start = 48.dp, end = 48.dp, top = 14.dp, bottom = 2.dp)
+                .onFocusChanged { headerFocused = it.hasFocus; if (it.hasFocus) navOpen = false },
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally)
         ) {
             NavTab("🔍", onSearch)
@@ -329,20 +333,22 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
             NavTab("Categories", { go(Screen.Categories) })
         }
         Row(Modifier.fillMaxWidth().weight(1f)) {
-            val w by animateDpAsState(if (navOpen) 264.dp else 76.dp, tween(180), label = "nav")
+            val w by animateDpAsState(if (navOpen) 268.dp else 80.dp, tween(180), label = "nav")
             Column(
-                Modifier.width(w).fillMaxHeight().background(if (navOpen) Pal.Surface.copy(alpha = 0.96f) else Color.Transparent)
-                    .onFocusChanged { navOpen = it.hasFocus }
+                Modifier.width(w).fillMaxHeight().padding(start = 8.dp, top = 8.dp, bottom = 8.dp)
+                    .clip(RoundedCornerShape(topEnd = 20.dp, bottomEnd = 20.dp))
+                    .background(if (navOpen) Pal.Surface.copy(alpha = 0.94f) else Color.Transparent)
+                    // Stay open while D-pad / OK is in the rail. Only close when focus moves to the list (or the top tabs).
+                    .onFocusChanged { if (it.hasFocus) navOpen = true }
                     .onPreviewKeyEvent { e ->
                         if (e.type == KeyEventType.KeyUp && e.key == Key.Menu) { popup = "more"; true } else false
                     }
-                    .padding(vertical = 18.dp, horizontal = 10.dp),
+                    .padding(vertical = 16.dp, horizontal = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 val toList = Modifier
                 NavEntry("🔍", "Search", navOpen, toList, onClick = onSearch)
                 NavEntry("◉", if (mode == LiveModes.DEFAULT) "Mode: Default" else "Mode: $mode", navOpen, toList, onClick = { popup = "modes" })
-                NavEntry("🌐", if (langs == null) "Languages: all" else "Languages: ${langs.size}", navOpen, toList, onClick = { popup = "langs" })
                 Spacer(Modifier.height(10.dp))
                 // A plain column (all entries composed) so Left from any channel always finds its section entry
                 Column(Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState()), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -365,7 +371,8 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
                     }
                 }
             }
-            Column(Modifier.weight(1f).fillMaxHeight().padding(start = 12.dp, end = 32.dp, top = 18.dp)) {
+            Column(Modifier.weight(1f).fillMaxHeight().padding(start = 12.dp, end = 32.dp, top = 18.dp)
+                .onFocusChanged { if (it.hasFocus) navOpen = false }) {
                 Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp)) {
                     Label("Live TV", Ts.TITLE, Pal.Text)
                     Label(listOfNotNull(
@@ -442,7 +449,7 @@ private fun holdOkKey(e: androidx.compose.ui.input.key.KeyEvent, held: Boolean, 
 private fun TypeHeader(type: String, count: Int, folded: Boolean, tv: Boolean, modifier: Modifier, onToggle: () -> Unit, onHold: () -> Unit) {
     var f by remember { mutableStateOf(false) }
     var held by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(10.dp)
+    val shape = RoundedCornerShape(14.dp)
     Row(Modifier.fillMaxWidth().background(Pal.Bg).padding(top = 8.dp, bottom = 2.dp).then(modifier).popupOpener()
             .onFocusChanged { f = it.isFocused }
             .onPreviewKeyEvent { e -> holdOkKey(e, held, { held = it }, onHold) }
@@ -462,7 +469,7 @@ private fun SectionHeader(s: LiveModes.Section, folded: Boolean, tv: Boolean, mo
                           underType: Boolean = false) {
     var f by remember { mutableStateOf(false) }
     var held by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(10.dp)
+    val shape = RoundedCornerShape(12.dp)
     // Focusable header: OK / click folds the section; hold OK (TV) / long-press (phone) hides or shows the group.
     Row(Modifier.fillMaxWidth().background(Pal.Bg).padding(top = 6.dp, bottom = 2.dp).then(modifier).popupOpener()
             .onFocusChanged { f = it.isFocused }
@@ -486,24 +493,27 @@ private fun NavEntry(icon: String, label: String, open: Boolean, modifier: Modif
                      onFocus: (() -> Unit)? = null, onLongClick: (() -> Unit)? = null, onClick: () -> Unit) {
     var f by remember { mutableStateOf(false) }
     var held by remember { mutableStateOf(false) }
-    val bg by androidx.compose.animation.animateColorAsState(when { f -> Pal.Gold; selected -> Pal.ChipSel; else -> Color.Transparent }, tween(160), label = "nav")
+    val shape = RoundedCornerShape(14.dp)
+    val bg by androidx.compose.animation.animateColorAsState(when { f -> Pal.FocusBg; selected -> Pal.ChipSel.copy(alpha = 0.55f); else -> Color.Transparent }, tween(160), label = "nav")
+    val fg = if (f) Pal.GoldText else Pal.Text
     Row(
         modifier.fillMaxWidth().popupOpener()
             .onFocusChanged { if (it.isFocused != f) { f = it.isFocused; if (f) onFocus?.invoke() } }
             .then(if (onLongClick != null) Modifier.onPreviewKeyEvent { e -> holdOkKey(e, held, { held = it }, onLongClick!!) } else Modifier)
-            .clip(RoundedCornerShape(12.dp))
+            .clip(shape)
             .background(bg)
+            .then(if (f) Modifier.border(2.dp, Pal.Gold.copy(alpha = 0.95f), shape) else Modifier)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-            .padding(horizontal = 12.dp, vertical = if (small) 5.dp else 8.dp)
+            .padding(horizontal = 12.dp, vertical = if (small) 6.dp else 9.dp)
             .alpha(if (dim && !f) 0.45f else 1f),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Label(icon, if (small) Ts.SECONDARY else Ts.ROW + 2, if (f) Color.Black else Pal.Text)
+        Label(icon, if (small) Ts.SECONDARY else Ts.ROW + 2, fg)
         if (open) {
-            Label(label, if (small) Ts.SECONDARY else Ts.ROW, if (f) Color.Black else Pal.Text, Modifier.weight(1f))
-            if (dim) Label("Hidden", Ts.CAPTION, if (f) Color.Black else Pal.Dim)
-            if (count >= 0) Label("$count", Ts.CAPTION, if (f) Color.Black else Pal.Dim)
-            if (arrow.isNotEmpty()) Label(arrow, Ts.CAPTION, if (f) Color.Black else Pal.Dim)
+            Label(label, if (small) Ts.SECONDARY else Ts.ROW, fg, Modifier.weight(1f))
+            if (dim) Label("Hidden", Ts.CAPTION, if (f) Pal.GoldText else Pal.Dim)
+            if (count >= 0) Label("$count", Ts.CAPTION, if (f) Pal.GoldText else Pal.Dim)
+            if (arrow.isNotEmpty()) Label(arrow, Ts.CAPTION, if (f) Pal.GoldText else Pal.Dim)
         }
     }
 }
@@ -520,7 +530,7 @@ private fun ChannelRow(repo: Repo, ch: Item, on: Boolean, browseAll: Boolean, pl
                        onClick: () -> Unit, onKeyOk: () -> Unit, onToggle: () -> Unit, onSetShown: () -> Unit, onMenu: () -> Unit) {
     var f by remember { mutableStateOf(false) }
     var held by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(12.dp)
+    val shape = RoundedCornerShape(14.dp)
     val local = remember(ch.cat, repo.liveCats) { LiveKind.isLocalNews(repo.liveCats.firstOrNull { it.id == ch.cat }?.title.orEmpty()) }
     val name = remember(ch.name, local) { ChannelTitle.pretty(ch.name, local) }
     val lang = remember(ch.key, repo.liveIndex.info) { ChannelTitle.langTag(repo.liveIndex.info[ch.key]?.lang) }
