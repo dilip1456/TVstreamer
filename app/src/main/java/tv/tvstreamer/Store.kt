@@ -194,7 +194,7 @@ class Store(ctx: Context) {
 
     /** In-app updater: "ask" (Ask once, default) or "auto". */
     var updateMode: UpdateLogic.Mode
-        get() = UpdateLogic.Mode.parse(p.getString("update_mode", "ask"))
+        get() = UpdateLogic.Mode.parse(p.getString("update_mode", "auto"))
         set(v) { p.edit().putString("update_mode", UpdateLogic.Mode.encode(v)).apply() }
 
     /** Version code the user dismissed in Ask-once mode (device-local; 0 = none). */
@@ -214,6 +214,11 @@ class Store(ctx: Context) {
     var autoNext: Boolean
         get() = (p.getString("auto_next", "1") ?: "1") != "0"
         set(v) { p.edit().putString("auto_next", if (v) "1" else "0").apply() }
+
+    /** Show locked / adult portal categories in lists (Settings > Content). Synced; default on. Playing still needs the lock password. */
+    var showAdult: Boolean
+        get() = (p.getString("show_adult", "1") ?: "1") != "0"
+        set(v) { p.edit().putString("show_adult", if (v) "1" else "0").apply() }
 
     /** Preferred audio language ("" = the stream's default). Synced. */
     var audioLang: String

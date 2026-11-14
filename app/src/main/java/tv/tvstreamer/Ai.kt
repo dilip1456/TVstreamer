@@ -38,10 +38,9 @@ object Ai {
         return if (y.isNotEmpty()) "$t ($y)" else t
     }
 
-    /** Compact library for the prompt: one entry per title (best version), movies and series, unlocked only. */
+    /** Compact library for the prompt: one entry per title (best version), movies and series, respecting the Show adult setting. */
     fun library(repo: Repo): List<LibEntry<Item>> {
-        val unlocked = repo.gate(true) == null
-        val all = repo.lib.everything().filter { it.kind == "vod" && !it.isEpisode() && (!it.locked || unlocked) }
+        val all = repo.lib.everything().filter { it.kind == "vod" && !it.isEpisode() && repo.listOk(it.locked) }
         val groups = runCatching { repo.lib.cards(all) }.getOrDefault(emptyList())
         val seen = HashSet<String>()
         val out = ArrayList<LibEntry<Item>>()

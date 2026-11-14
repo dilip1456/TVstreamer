@@ -101,9 +101,11 @@ object Taxonomy {
             "Local & Community" to "local,community,city,metro,regional",
             "General" to "general,variety,generalist,general tv,national,tv"
         ),
+        LiveKind.ADULT to rules(
+            "XXX" to "xxx,18 plus,porn,erotic,sexy,playboy,hustler,brazzers"
+        ),
         LiveKind.OTHER to rules(
             "Shopping" to "shop,shopping,qvc,hsn,teleshopping",
-            "Adult" to "adult,xxx,18+,18 plus,playboy,hustler,brazzers,private",
             "Events & PPV" to "ppv,pay per view,event,events,live event,24/7,247",
             "Radio" to "radio,fm"
         )

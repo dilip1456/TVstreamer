@@ -1,6 +1,6 @@
 package tv.tvstreamer
 
-import org.junit.Assert.assertEquals
+import org.junit.Assert.*
 import org.junit.Test
 import tv.tvstreamer.LiveKind.DOCS
 import tv.tvstreamer.LiveKind.ENT
@@ -12,6 +12,7 @@ import tv.tvstreamer.LiveKind.OTHER
 import tv.tvstreamer.LiveKind.REGIONAL
 import tv.tvstreamer.LiveKind.RELIGIOUS
 import tv.tvstreamer.LiveKind.SPORTS
+import tv.tvstreamer.LiveKind.ADULT
 
 class LiveKindTest {
     @Test fun categoryNamesTheType() {
@@ -44,6 +45,17 @@ class LiveKindTest {
         assertEquals(REGIONAL, LiveKind.type("TAMIL", "Polimer TV"))
         assertEquals(REGIONAL, LiveKind.type("MEXICO", "Canal 5"))
         assertEquals(OTHER, LiveKind.type("VIP", "XYZ 1"))
+    }
+
+    @Test fun adultIsItsOwnTypeAndAdultSwimIsNot() {
+        assertEquals(ADULT, LiveKind.type("ADULT XXX", "Channel 1"))
+        assertEquals(ADULT, LiveKind.type("USA | 18+", "Night Channel"))
+        assertEquals(ADULT, LiveKind.type("VIP", "Playboy TV"))
+        assertEquals(ENT, LiveKind.type("ENTERTAINMENT", "Adult Swim"))
+        assertEquals(KIDS, LiveKind.type("USA KIDS", "Adult Swim"))
+        assertFalse(LiveKind.isAdult("Adult Swim"))
+        assertTrue(LiveKind.ORDER.indexOf(ADULT) < LiveKind.ORDER.indexOf(OTHER))
+        assertTrue(ADULT in LiveKind.ORDER)
     }
 
     @Test fun languages() {

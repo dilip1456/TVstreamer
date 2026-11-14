@@ -37,7 +37,8 @@ class UpdateLogicTest {
     }
 
     @Test fun modeRoundTripAndProgress() {
-        assertEquals(UpdateLogic.Mode.ASK_ONCE, UpdateLogic.Mode.parse(null))
+        assertEquals(UpdateLogic.Mode.AUTO, UpdateLogic.Mode.parse(null))
+        assertEquals(UpdateLogic.Mode.AUTO, UpdateLogic.Mode.parse(""))
         assertEquals(UpdateLogic.Mode.ASK_ONCE, UpdateLogic.Mode.parse("ask"))
         assertEquals(UpdateLogic.Mode.AUTO, UpdateLogic.Mode.parse("auto"))
         assertEquals("ask", UpdateLogic.Mode.encode(UpdateLogic.Mode.ASK_ONCE))
@@ -46,5 +47,20 @@ class UpdateLogicTest {
         assertEquals(0, UpdateLogic.progress(0, 0))
         assertEquals(50, UpdateLogic.progress(50, 100))
         assertEquals(100, UpdateLogic.progress(200, 100))
+    }
+
+    @Test fun bannerIsARowNeverAPopup() {
+        assertEquals(UpdateLogic.Banner.HIDDEN, UpdateLogic.banner(-1, false, false, ""))
+        assertEquals(UpdateLogic.Banner.HIDDEN, UpdateLogic.banner(-1, true, false, "Checking for updates…"))
+        assertEquals(UpdateLogic.Banner.HIDDEN, UpdateLogic.banner(-1, false, false, "Up to date (v1.63, code 63)"))
+        assertEquals(UpdateLogic.Banner.HIDDEN, UpdateLogic.banner(-1, false, false, "Update skipped. It will not be offered again until a newer version."))
+        assertEquals(UpdateLogic.Banner.PROGRESS, UpdateLogic.banner(40, true, false, "Checking for updates…"))
+        assertEquals(UpdateLogic.Banner.INSTALLING, UpdateLogic.banner(100, true, false, "Installing v1.64…"))
+        assertEquals(UpdateLogic.Banner.INSTALLING, UpdateLogic.banner(-1, true, false, "Installing v1.64…"))
+        assertEquals(UpdateLogic.Banner.OFFER, UpdateLogic.banner(-1, false, true, "Update v1.64 is ready."))
+        assertEquals(UpdateLogic.Banner.SUCCESS, UpdateLogic.banner(-1, false, false, "Updated to v1.64."))
+        assertEquals(UpdateLogic.Banner.CONFIRM, UpdateLogic.banner(-1, false, false, "Confirm v1.64 on the screen (one time)."))
+        assertEquals(UpdateLogic.Banner.MESSAGE, UpdateLogic.banner(-1, false, false, "Update v1.64 is ready. Allow \"Install unknown apps\" for TVStreamer, then Check for updates."))
+        assertEquals(UpdateLogic.Banner.MESSAGE, UpdateLogic.banner(-1, false, false, "Update error: timeout"))
     }
 }

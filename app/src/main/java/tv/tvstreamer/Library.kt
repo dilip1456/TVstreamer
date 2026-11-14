@@ -147,17 +147,18 @@ class Library(private val repo: Repo) {
         else -> true
     }
 
-    private fun visible(i: Item, unlocked: Boolean): Boolean {
+    private fun visible(i: Item, showAdult: Boolean): Boolean {
         val c = catOf(i.cat)
-        return "vod:${i.cat}" !in repo.hidden && "title:${i.key}" !in repo.hidden && (unlocked || (!i.locked && c?.locked != true))
+        return "vod:${i.cat}" !in repo.hidden && "title:${i.key}" !in repo.hidden &&
+            AdultContent.listOk(i.locked || c?.locked == true, showAdult)
     }
 
     /** Language -> count for the tab's picker: titles in the local catalog, or categories before it has loaded. */
     fun languages(tab: String): List<Pair<String, Int>> {
-        val unlocked = repo.gate(true) == null
+        val showAdult = repo.showAdult
         val counts = if (hasData)
-            all.filter { wantItem(it, tab) && visible(it, unlocked) }.groupingBy { itemLang(it) }.eachCount()
-        else repo.vodCats.filter { (!it.locked || unlocked) && catForTab(it, tab) }.groupingBy { catLang(it) }.eachCount()
+            all.filter { wantItem(it, tab) && visible(it, showAdult) }.groupingBy { itemLang(it) }.eachCount()
+        else repo.vodCats.filter { repo.listOk(it.locked) && catForTab(it, tab) }.groupingBy { catLang(it) }.eachCount()
         return counts.toList().sortedWith(compareBy<Pair<String, Int>> { it.first == Tags.OTHER }.thenByDescending { it.second })
     }
     /** What [languages] counts: "title" (local catalog) or "category". */
@@ -166,8 +167,7 @@ class Library(private val repo: Repo) {
     fun selected(tab: String): Set<String>? = repo.store.langs(tab)
 
     fun cats(tab: String, langs: Set<String>?): List<Cat> {
-        val unlocked = repo.gate(true) == null
-        return repo.visibleVod().filter { (!it.locked || unlocked) && catForTab(it, tab) && (langs == null || catLang(it) in langs) }
+        return repo.visibleVod().filter { repo.listOk(it.locked) && catForTab(it, tab) && (langs == null || catLang(it) in langs) }
     }
 
     /** A category's titles from the local catalog (portal order). */
@@ -180,9 +180,8 @@ class Library(private val repo: Repo) {
     /** Categories worth fetching for [langs]: name language selected, or titles of a selected language found in it. */
     fun wantedCats(langs: Set<String>, tab: String = ""): List<Cat> {
         if (langs.isEmpty()) return emptyList()
-        val unlocked = repo.gate(true) == null
         return repo.visibleVod().filter { c ->
-            (!c.locked || unlocked) && (tab.isEmpty() || catForTab(c, tab)) &&
+            repo.listOk(c.locked) && (tab.isEmpty() || catForTab(c, tab)) &&
                 (catLang(c) in langs || catMix[c.id]?.any { it in langs } == true)
         }
     }
@@ -481,8 +480,8 @@ class Library(private val repo: Repo) {
 
     /** Everything for the tab: not hidden / locked, language-filtered per title, classified per title (movie vs series), unique. */
     fun pool(tab: String, langs: Set<String>?): List<Item> {
-        val unlocked = repo.gate(true) == null
-        val k = CatalogIndexes.poolKey(tab, langs) + "|" + unlocked + "|" + repo.hidden.size + "|" + repo.mode()
+        val showAdult = repo.showAdult
+        val k = CatalogIndexes.poolKey(tab, langs) + "|" + showAdult + "|" + repo.hidden.size + "|" + repo.mode()
         poolMemo[k]?.let { return it }
         val keys = when {
             langs.isNullOrEmpty() -> indexes.pools["$tab|*"]
@@ -493,7 +492,7 @@ class Library(private val repo: Repo) {
             val byKey = all.associateBy { it.key }
             keys.mapNotNull { byKey[it] }
         } else all.filter { wantItem(it, tab) }
-        val out = src.filter { visible(it, unlocked) && (langs == null || itemLang(it) in langs) }
+        val out = src.filter { visible(it, showAdult) && (langs == null || itemLang(it) in langs) }
         poolMemo[k] = out
         return out
     }

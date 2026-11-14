@@ -32,10 +32,11 @@ object LiveKind {
     const val RELIGIOUS = "Religious"
     const val DOCS = "Documentary & Lifestyle"
     const val REGIONAL = "Regional / General"
+    const val ADULT = "Adult"
     const val OTHER = "Other"
 
     /** Display order of the type chips. */
-    val ORDER = listOf(NEWS, SPORTS, ENT, MOVIES, MUSIC, KIDS, DOCS, RELIGIOUS, REGIONAL, OTHER)
+    val ORDER = listOf(NEWS, SPORTS, ENT, MOVIES, MUSIC, KIDS, DOCS, RELIGIOUS, REGIONAL, ADULT, OTHER)
 
     /** Checked in this order, so "Fox Sports" is Sports and "Sony Max" is Movies before the generic "Sony" (Entertainment). */
     private val ALIASES: List<Pair<String, List<String>>> = listOf(
@@ -90,12 +91,25 @@ object LiveKind {
         ALIASES.map { (t, al) -> t to al.map { norm(it) }.filter { it.isNotEmpty() }.map { " $it " } }
     }
 
-    /** Type from a name: the first alias (whole words) found, else "". */
+    /** Type from a name: adult categories first, then the first alias (whole words) found, else "". */
     fun typeOf(text: String): String {
+        if (isAdult(text)) return ADULT
         val n = " " + norm(text) + " "
         for ((t, al) in PHRASES) if (al.any { n.contains(it) }) return t
         if (isPersonMovies(text)) return MOVIES
         return ""
+    }
+
+    /**
+     * Adult / XXX / 18+ in a category or channel name. "Adult Swim" is not adult
+     * (it is a regular entertainment / kids channel).
+     */
+    fun isAdult(text: String): Boolean {
+        val n = " " + norm(text) + " "
+        if (n.contains(" adult swim ")) return false
+        val words = listOf(" adult ", " xxx ", " 18 plus ", " porn ", " erotic ", " sexy ",
+            " playboy ", " hustler ", " brazzers ", " x rated ")
+        return words.any { n.contains(it) }
     }
 
     /** "Tom Cruise Movies", "Shah Rukh Khan Films": a person's name (2-3 plain words) followed by movies / films. */

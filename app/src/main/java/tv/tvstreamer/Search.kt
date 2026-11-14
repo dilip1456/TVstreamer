@@ -86,8 +86,7 @@ fun searchAll(repo: Repo, q: String, scope: Scope): SearchResult {
         }).distinctBy { it.key }
         wide.take(600)
     }
-    val unlocked = repo.gate(true) == null
-    val all = (vod0 + local).distinctBy { it.key }.filter { (!it.locked || unlocked) && "vod:${it.cat}" !in repo.hidden }
+    val all = (vod0 + local).distinctBy { it.key }.filter { repo.listOk(it.locked) && "vod:${it.cat}" !in repo.hidden }
     val groups = lib.cards(all)
     return SearchResult(
         live,

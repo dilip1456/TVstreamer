@@ -130,8 +130,7 @@ private inline fun <T> safely(f: () -> T): T? = runCatching(f).getOrNull()
  * movies start again, episodes open their series (which continues with the next episode).
  */
 fun heroFromHistory(repo: Repo, mode: String): HeroPick? {
-    val unlocked = repo.gate(true) == null
-    val last = repo.store.history().firstOrNull { it.kind == "vod" && (!it.locked || unlocked) && repo.lib.wantItem(it, mode) } ?: return null
+    val last = repo.store.history().firstOrNull { it.kind == "vod" && repo.listOk(it.locked) && repo.lib.wantItem(it, mode) } ?: return null
     return heroPickFor(repo, last)
 }
 
@@ -152,8 +151,7 @@ fun heroPickFor(repo: Repo, last: Item): HeroPick {
  * Empty when there is neither (the caller falls back to a featured title). Runs off the main thread.
  */
 fun heroPicks(repo: Repo, mode: String): List<HeroPick> {
-    val unlocked = repo.gate(true) == null
-    fun ok(i: Item) = i.kind == "vod" && (!i.locked || unlocked) && repo.lib.wantItem(i, mode)
+    fun ok(i: Item) = i.kind == "vod" && repo.listOk(i.locked) && repo.lib.wantItem(i, mode)
     val hist = repo.store.history().filter(::ok)
     val favs = repo.favs.filter(::ok)
     val keyOf = { i: Item -> if (i.isEpisode()) "s:" + (i.pid.ifEmpty { i.parsed.title.lowercase() }) else i.key }
@@ -194,11 +192,11 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
     val ctx = LocalContext.current
     val isTv = rememberIsTv()
     val scope = rememberCoroutineScope()
-    val unlocked = repo.gate(true) == null
+    val showAdult = repo.showAdult
     val lib = repo.lib
     var contVer by remember { mutableIntStateOf(0) }
     val cont = remember(tick, contVer) { repo.store.continueList() }
-    val recent = remember(tick) { repo.store.list("recent").filter { !it.locked }.map(repo::named) }
+    val recent = remember(tick) { repo.store.list("recent").filter { repo.listOk(it.locked) }.map(repo::named) }
     var menu by remember { mutableStateOf<Pair<Shelf, Item?>?>(null) }
     var fixItem by remember { mutableStateOf<Item?>(null) }
     var sortMenu by remember { mutableStateOf(false) }
@@ -237,19 +235,19 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
             }
             add(Shelf("cont", "Continue watching", c.map { it.first }, "vod", progress = prog))
         }
-        repo.favs.filter { !it.locked && it.kind == "vod" && wantItem(it) }.takeIf { it.isNotEmpty() }
+        repo.favs.filter { repo.listOk(it.locked) && it.kind == "vod" && wantItem(it) }.takeIf { it.isNotEmpty() }
             ?.let { add(Shelf("fav", "My List", it, "vod")) }
-        if (Gemini.enabled) Ai.suggested.filter { (!it.locked || unlocked) && wantItem(it) }.takeIf { it.isNotEmpty() }
+        if (Gemini.enabled) Ai.suggested.filter { repo.listOk(it.locked) && wantItem(it) }.takeIf { it.isNotEmpty() }
             ?.let { add(Shelf("ai", "✨ Suggested for you", it, "vod")) }
         if (mode == "home") {
-            repo.favs.filter { !it.locked && it.kind == "itv" }.takeIf { it.isNotEmpty() }?.let { add(Shelf("favc", "Favorite channels", it, "itv")) }
+            repo.favs.filter { repo.listOk(it.locked) && it.kind == "itv" }.takeIf { it.isNotEmpty() }?.let { add(Shelf("favc", "Favorite channels", it, "itv")) }
             if (recent.isNotEmpty()) add(Shelf("recent", "Recent channels", recent, "itv"))
         }
         if (tabbed && !langs.isNullOrEmpty()) {
             addAll(langShelves)
         } else {
             val catLangs = if (tabbed) null else homeLangs
-            repo.visibleVod().filter { (!it.locked || unlocked) && lib.catForTab(it, mode) && (catLangs == null || lib.catLang(it) in catLangs) }.forEach { cat ->
+            repo.visibleVod().filter { repo.listOk(it.locked) && lib.catForTab(it, mode) && (catLangs == null || lib.catLang(it) in catLangs) }.forEach { cat ->
                 val raw = lib.inCat(cat.id).takeIf { it.isNotEmpty() || !lib.catHasMore(cat.id) }?.take(ROW_LIMIT * 2)
                 // Each item is classified on its own, so categories that mix movies and series work
                 val items = raw?.filter { wantItem(it) }
@@ -276,18 +274,18 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
     val memoKey = "${System.identityHashCode(repo)}|$mode"
     var shelvesReady by remember(mode) { mutableStateOf(shelfMemo[memoKey] != null) }
     val shelves by produceState(shelfMemo[memoKey] ?: emptyList(), mode, cont, recent, langShelves, lib.version, repo.favs, repo.hidden,
-        repo.vodCats, repo.vodOrder, Ai.suggested, Gemini.enabled, unlocked, homeLangs, langs, rowErrs, repo.liveMode, repo.folders) {
+        repo.vodCats, repo.vodOrder, Ai.suggested, Gemini.enabled, showAdult, homeLangs, langs, rowErrs, repo.liveMode, repo.folders) {
         val built = withContext(Dispatchers.Default) { runCatching { buildShelves() }.getOrNull() }
         if (built != null) { value = built; shelfMemo[memoKey] = built }
         shelvesReady = true
     }
     // Hero: the last thing watched leads, then it rotates through recently played and My List; featured only when neither exists
-    val picks by produceState(heroMemo[memoKey] ?: emptyList(), tick, contVer, mode, repo.favs, unlocked) {
+    val picks by produceState(heroMemo[memoKey] ?: emptyList(), tick, contVer, mode, repo.favs, showAdult) {
         value = withContext(Dispatchers.Default) { safely { heroPicks(repo, mode) } ?: emptyList() }
         heroMemo[memoKey] = value
     }
     val featured = remember(shelves) {
-        shelves.asSequence().filter { it.cat != null || it.pool != null }.flatMap { it.items.asSequence() }.firstOrNull { it.img.isNotEmpty() && !it.locked }
+        shelves.asSequence().filter { it.cat != null || it.pool != null }.flatMap { it.items.asSequence() }.firstOrNull { it.img.isNotEmpty() && repo.listOk(it.locked) }
             ?: shelves.asSequence().flatMap { it.items.asSequence() }.firstOrNull { it.kind == "vod" && it.img.isNotEmpty() }
     }
     val slides = if (picks.isNotEmpty()) picks else listOfNotNull(featured?.let { HeroPick(it, it, 0L, 0L) })
@@ -1248,26 +1246,42 @@ fun PoolScreen(repo: Repo, tab: String, lang: String, genre: String, title: Stri
 fun LanguagesScreen(repo: Repo, tab: String, onBack: () -> Unit) {
     val isTv = rememberIsTv()
     val lib = repo.lib
-    val langs by produceState(lib.languages(tab), repo.vodCats.size, lib.version) { value = withContext(Dispatchers.Default) { lib.languages(tab) } }
-    val unit = lib.countUnit
-    var sel by remember { mutableStateOf(lib.selected(tab) ?: emptySet()) }
+    val liveTab = tab == "live"
+    val langs by produceState(
+        if (liveTab) LiveModes.languages(repo.channels, repo.liveIndex.info) else lib.languages(tab),
+        repo.vodCats.size, lib.version, repo.channels, repo.liveIndex.info
+    ) { value = withContext(Dispatchers.Default) {
+        if (liveTab) LiveModes.languages(repo.channels, repo.liveIndex.info) else lib.languages(tab)
+    } }
+    val unit = if (liveTab) "channel" else lib.countUnit
+    var sel by remember { mutableStateOf((if (liveTab) repo.liveLangs else lib.selected(tab)) ?: emptySet()) }
     val firstFr = remember { FocusRequester() }
     LaunchedEffect(Unit) { delay(120); runCatching { firstFr.requestFocus() } }
     fun save(v: Set<String>) {
         sel = v
-        repo.store.saveLangs(tab, v.ifEmpty { null })
-        if (v.isNotEmpty()) lib.ensure(tab, v)    // only the newly picked languages are fetched
+        if (liveTab) repo.chooseLiveLangs(v.ifEmpty { null })
+        else {
+            repo.store.saveLangs(tab, v.ifEmpty { null })
+            if (v.isNotEmpty()) lib.ensure(tab, v)    // only the newly picked languages are fetched
+        }
     }
     val hPad = if (isTv) 48.dp else 16.dp
+    val tabTitle = when (tab) { "series" -> "Series"; "live" -> "Live TV"; else -> "Movies" }
+    val blurb = if (liveTab)
+        "Tick the languages to show on Live TV. The language comes from the category and channel names. " +
+            "Channels with no recognisable language are listed under \"Other\". Untick everything to show every language. " +
+            "Your choices are saved on this device and with Google sync."
+    else
+        "Tick the languages to show. The language comes from the category and title names (e.g. \"HINDI 4K\", \"|EN|\", \"[Tamil]\"); " +
+            "Dub / CAM / 4K are treated as versions, not languages; a dubbed title counts as the language it is dubbed in. " +
+            "Titles with no recognisable language are listed under \"Other\". Untick everything to go back to plain category rows. " +
+            "Other languages stay reachable through Search."
     Box(Modifier.fillMaxSize().background(Pal.Bg)) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = hPad, vertical = 20.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Languages · ${if (tab == "series") "Series" else "Movies"}", color = Pal.Text, fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold)
-                    Text("Tick the languages to show. The language comes from the category and title names (e.g. \"HINDI 4K\", \"|EN|\", \"[Tamil]\"); " +
-                        "Dub / CAM / 4K are treated as versions, not languages; a dubbed title counts as the language it is dubbed in. " +
-                        "Titles with no recognisable language are listed under \"Other\". Untick everything to go back to plain category rows. " +
-                        "Other languages stay reachable through Search.", color = Pal.Dim, fontSize = Ts.SECONDARY.sp)
+                    Text("Languages · $tabTitle", color = Pal.Text, fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold)
+                    Text(blurb, color = Pal.Dim, fontSize = Ts.SECONDARY.sp)
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         PillButton("Done", onBack, Modifier.focusRequester(firstFr), primary = true, size = Ts.HEAD)
                         PillButton("Select all", { save(langs.map { it.first }.toSet()) }, size = Ts.HEAD)
@@ -1283,7 +1297,11 @@ fun LanguagesScreen(repo: Repo, tab: String, onBack: () -> Unit) {
                     Text(if (on) "☑" else "☐", color = Pal.Text, fontSize = Ts.TITLE.sp)
                     Spacer(Modifier.width(12.dp))
                     Text(l, color = Pal.Text, fontSize = Ts.ROW.sp, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal, modifier = Modifier.weight(1f))
-                    Text("%,d ".format(n) + if (unit == "title") (if (n == 1) "title" else "titles") else (if (n == 1) "category" else "categories"), color = Pal.Dim, fontSize = Ts.SECONDARY.sp)
+                    Text("%,d ".format(n) + when {
+                        unit == "title" -> if (n == 1) "title" else "titles"
+                        unit == "channel" -> if (n == 1) "channel" else "channels"
+                        else -> if (n == 1) "category" else "categories"
+                    }, color = Pal.Dim, fontSize = Ts.SECONDARY.sp)
                 }
             }
         }

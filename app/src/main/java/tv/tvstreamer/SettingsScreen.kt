@@ -122,6 +122,10 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
             }
             SettingsNav.Sec.CONTENT -> {
                 SettingRow("What to show", "Movies, series, Live TV", first) { go(Screen.Categories) }
+                SettingRow("Show adult sections", if (repo.showAdult) "On — locked portal categories are listed" else "Off — hidden from lists") {
+                    repo.showAdult = !repo.showAdult
+                    note = if (repo.showAdult) "Adult and locked sections are shown. Playing them still needs the lock password in Settings." else "Adult and locked sections are hidden from lists."
+                }
                 SettingRow("Remote buttons") { go(Screen.Remote) }
                 var hours by remember { mutableStateOf(s.catalogRefreshHours) }
                 SettingRow("Refresh movies after", "$hours hours") {
@@ -146,7 +150,7 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
                 if (AppUi.phoneNav) SettingRow("Phone player starts in", if (phoneStartLand) "Landscape" else "Portrait") {
                     phoneStartLand = !phoneStartLand; s.phoneStartLandscape = phoneStartLand
                 }
-                SettingRow("App updates", updateMode.label) {
+                SettingRow("App updates", "${updateMode.label} — ${updateMode.detail}") {
                     updateMode = updateMode.next(); s.updateMode = updateMode
                 }
                 SettingRow("Check for updates", Updater.statusLine().ifEmpty { "GitHub release" }) {
@@ -162,6 +166,7 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
             SettingsNav.Sec.LANGUAGES -> {
                 SettingRow("Movies", "", first) { go(Screen.Languages("movies", Screen.Settings)) }
                 SettingRow("Series") { go(Screen.Languages("series", Screen.Settings)) }
+                SettingRow("Live TV") { go(Screen.Languages("live", Screen.Settings)) }
             }
             SettingsNav.Sec.KEYS -> {
                 Box(first) { FieldWithLink({ SettingField("TMDB", tmdb, password = true) { tmdb = it } }, "Get key") { link("TMDB", TMDB_KEY_URL) } }

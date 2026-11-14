@@ -8,6 +8,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.widget.Toast
 import android.provider.Settings
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -29,8 +30,11 @@ import java.util.concurrent.TimeUnit
  * True silent install needs the app to be a device owner (or similarly privileged). On a normal Fire TV
  * or phone, REQUEST_INSTALL_PACKAGES + "Install unknown apps" is enough to self-update; Android may
  * still show one system confirm (USER_ACTION_NOT_REQUIRED is honoured when the OS allows it, API 31+).
- * Ask-once mode downloads in the background and shows a single in-app dialog; a dismissed version is
- * not offered again until a newer release or a manual check.
+ * Auto (the default) downloads and installs in the background, then shows a short "Updated" toast
+ * and in-app row. Ask-once shows the same banner with Update / Not now (never a popup dialog).
+ * A dismissed version is not offered again until a newer release or a manual check.
+ * Android may still show one system confirm when the OS requires it (API 31+ USER_ACTION_NOT_REQUIRED
+ * is used whenever the platform allows a silent package replace).
  */
 object Updater {
     private val http = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).build()
@@ -98,6 +102,11 @@ object Updater {
         busy = false
         if (progress < 100) progress = -1
         return msg
+    }
+
+    fun clearNotice() {
+        if (pending != null || busy || progress in 0..100) return
+        status = ""
     }
 
     fun decline(store: Store) {
@@ -252,6 +261,7 @@ object Updater {
                 progress = -1
                 pending = null
                 status = "Updated to $tag."
+                runCatching { Toast.makeText(ctx, "Updated to $tag", Toast.LENGTH_SHORT).show() }
             }
             PackageInstaller.STATUS_FAILURE_ABORTED -> Handler(Looper.getMainLooper()).post {
                 this.status = "Update $tag cancelled."

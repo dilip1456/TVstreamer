@@ -10,7 +10,7 @@ data class LiveSection(val title: String, val items: List<Item>)
 object LiveGroups {
     val ICONS = mapOf(
         LiveKind.NEWS to "📰", LiveKind.SPORTS to "⚽", LiveKind.ENT to "🎭", LiveKind.MOVIES to "🎬", LiveKind.MUSIC to "🎵",
-        LiveKind.KIDS to "🧸", LiveKind.DOCS to "🌍", LiveKind.RELIGIOUS to "🕊", LiveKind.REGIONAL to "📍", LiveKind.OTHER to "📺"
+        LiveKind.KIDS to "🧸", LiveKind.DOCS to "🌍", LiveKind.RELIGIOUS to "🕊", LiveKind.REGIONAL to "📍", LiveKind.ADULT to "🔞", LiveKind.OTHER to "📺"
     )
     fun icon(type: String) = ICONS[type] ?: "📺"
 

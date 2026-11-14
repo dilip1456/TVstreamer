@@ -69,8 +69,8 @@ class Repo(private val ctx: Context) {
 
     private fun setLive(lc: List<Cat>, ch: List<Item>) {
         val lockedIds = lc.filter { it.locked }.map { it.id }.toSet()
-        liveCats = lc
-        val groups = lc.associate { it.id to it.title }
+        liveCats = LiveCatalog.withMissingCats(lc, ch)
+        val groups = liveCats.associate { it.id to it.title }
         // Readable names (also for channels cached by older versions); number-only names become "Channel N · Group"
         rawChannels = ch.map { it.copy(locked = it.locked || it.cat in lockedIds, name = ChannelTitle.display(it.name, it.num, groups[it.cat].orEmpty())) }
         rawByKey = rawChannels.associateBy { it.key }
@@ -275,6 +275,7 @@ class Repo(private val ctx: Context) {
         liveOrder = store.catOrder("itv")
         Theme.mode = store.theme
         liveLangs = store.langs("live")?.takeIf { it.isNotEmpty() }
+        showAdult = store.showAdult
         syncTick++
     }
     /** Bumped after a cloud sync changed local data. */
@@ -365,7 +366,7 @@ class Repo(private val ctx: Context) {
     var liveSpanKeys = 0
     fun markPlayed(i: Item) { if (i.kind == "itv") { store.addRecent(i); nowPlaying = i.key } }
 
-    /** Returns an error message, or null when access is allowed. */
+    /** Returns an error message, or null when access is allowed. Playing locked items still requires this. */
     fun gate(locked: Boolean): String? {
         if (!locked) return null
         val pw = store.password
@@ -374,6 +375,14 @@ class Repo(private val ctx: Context) {
         if (pp != null && pp != pw) return "Saved password was rejected. Update it in Settings"
         return null
     }
+
+    /** Show locked / adult portal groups in lists. Default on; the user can turn it off. */
+    private var showAdultState by mutableStateOf(store.showAdult)
+    var showAdult: Boolean
+        get() = showAdultState
+        set(v) { showAdultState = v; store.showAdult = v; lib.version++ }
+    /** Whether a locked title or category is listed (play still goes through [gate]). */
+    fun listOk(locked: Boolean): Boolean = AdultContent.listOk(locked, showAdult)
 
     private val searchCache = TtlCache<String, List<Item>>(40, 10 * 60_000)
 
@@ -384,13 +393,12 @@ class Repo(private val ctx: Context) {
         val core = toks.filter { it !in STOP }
         if (core.isEmpty()) return emptyList<Item>() to emptyList()
         val hid = hidden
-        val unlocked = gate(true) == null
 
         var live = emptyList<Item>()
         if (!wantMovie || wantLive) {
             val titles = liveCats.associate { it.id to it.title }
             val first = squash(core[0])
-            live = channels.filter { "itv:${it.cat}" !in hid && (!it.locked || unlocked) }
+            live = channels.filter { "itv:${it.cat}" !in hid && listOk(it.locked) }
                 .filter { c ->
                     if (core.size == 1 && core[0].all { ch -> ch.isDigit() }) c.num.toString() == core[0]
                     else {
@@ -419,7 +427,7 @@ class Repo(private val ctx: Context) {
                 soft.all { s -> h.contains(squash(s)) }
             }
             vod = (if (f.isEmpty()) res else f)
-                .filter { "vod:${it.cat}" !in hid && (!it.locked || unlocked) }
+                .filter { "vod:${it.cat}" !in hid && listOk(it.locked) }
         }
         return live to vod
     }

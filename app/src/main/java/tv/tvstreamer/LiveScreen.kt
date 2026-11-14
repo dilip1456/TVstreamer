@@ -66,12 +66,14 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
     LaunchedEffect(repo.rawChannels, repo.liveCats) { repo.liveIndex.ensure(repo.rawChannels, repo.liveCats) }
     val ix = repo.liveIndex
     val info = ix.info
-    val unlocked = repo.gate(true) == null
+    val showAdult = repo.showAdult
     val cats = repo.visibleLive()
     val catIds = remember(cats) { cats.map { it.id }.toSet() }
     val catOrder = remember(cats) { cats.map { it.id } }
     val catTitle = remember(repo.liveCats) { repo.liveCats.associate { it.id to it.title } }
-    val base = remember(repo.channels, catIds, unlocked) { repo.channels.filter { it.cat in catIds && (!it.locked || unlocked) } }
+    val base = remember(repo.channels, catIds, showAdult) {
+        repo.channels.filter { it.cat in catIds && repo.listOk(it.locked) }
+    }
     val mode = repo.mode()
     val langs = repo.liveLangs
     val rows = remember(base, mode, repo.folders, repo.hidden, view, langs, info, catTitle) {
@@ -348,6 +350,7 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
                 val toList = Modifier
                 NavEntry("🔍", "Search", navOpen, toList, onClick = onSearch)
                 NavEntry("◉", if (mode == LiveModes.DEFAULT) "Mode: Default" else "Mode: $mode", navOpen, toList, onClick = { popup = "modes" })
+                NavEntry("🌐", langs?.sorted()?.joinToString(", ")?.let { if (it.length > 22) "Languages (${langs.size})" else "Languages: $it" } ?: "Languages: All", navOpen, toList, onClick = { popup = "langs" })
                 Spacer(Modifier.height(10.dp))
                 // A plain column (all entries composed) so Left from any channel always finds its section entry
                 Column(Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState()), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -392,6 +395,7 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
                 Label("Live TV", Ts.TITLE, Pal.Text, Modifier.weight(1f))
                 PillButton((if (mode == LiveModes.DEFAULT) "Default" else mode) + " ▾", { popup = "modes" }, size = Ts.SECONDARY)
+                PillButton(langs?.let { if (it.size <= 2) "🌐  " + it.sorted().joinToString(", ") else "🌐  ${it.size} langs" } ?: "🌐  Languages", { popup = "langs" }, size = Ts.SECONDARY, primary = langs == null)
                 PillButton("☰", { popup = "sections" }, size = Ts.SECONDARY)
                 PillButton("⋮", { popup = "more" }, size = Ts.SECONDARY)
             }
