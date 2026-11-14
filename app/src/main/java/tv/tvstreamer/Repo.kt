@@ -153,7 +153,7 @@ class Repo(private val ctx: Context) {
     }
 
     fun visibleLive() = ordered("itv").filter { "itv:${it.id}" !in hidden }
-    fun visibleVod() = ordered("vod").filter { "vod:${it.id}" !in hidden }
+    fun visibleVod() = ordered("vod").filter { groupOn("vod:${it.id}") }
 
     private fun saveOrder(kind: String, ids: List<String>) {
         if (kind == "itv") liveOrder = ids else vodOrder = ids
@@ -183,7 +183,7 @@ class Repo(private val ctx: Context) {
 
     fun resetOrder(kind: String) = saveOrder(kind, emptyList())
 
-    fun isHidden(kind: String, id: String) = "$kind:$id" in hidden
+    fun isHidden(kind: String, id: String) = if (kind == "vod") !groupOn("vod:$id") else "$kind:$id" in hidden
 
     /** Best guess from the category name: does this VOD category hold series? */
     private val seriesCatMemo = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
@@ -244,6 +244,11 @@ class Repo(private val ctx: Context) {
     fun hiddenChannelCount() = hidden.count { it.startsWith("ch:") }
     fun unhideAllChannels() { hidden = hidden.filterNot { it.startsWith("ch:") }.toSet(); store.hidden = hidden }
     fun toggleHide(kind: String, id: String) {
+        if (kind == "vod") {
+            val c = ordered(kind).find { it.id == id }
+            toggleGroupKey("vod:$id", c?.let { Names.cat(it.title) } ?: id)
+            return
+        }
         val k = "$kind:$id"
         hidden = if (k in hidden) hidden - k else hidden + k
         store.hidden = hidden
@@ -289,14 +294,14 @@ class Repo(private val ctx: Context) {
             store.favChannelsMigrated = true
         }
         folders = f
-        favs = saved.filter { it.kind != "itv" } + f.all()
+        favs = saved.filter { it.kind != "itv" } + f.channels()
     }
 
     private fun applyFolders(f: FolderSet) {
         val named = f.mapItems(::named)
         folders = named
         store.saveFolders(named)
-        favs = favs.filter { it.kind != "itv" } + named.all()
+        favs = favs.filter { it.kind != "itv" } + named.channels()
     }
 
     fun isFav(i: Item) = if (i.kind == "itv") folders.contains(i.key) else favs.any { it.key == i.key }
@@ -350,7 +355,7 @@ class Repo(private val ctx: Context) {
         channels = rawChannels.map(::named)
         val f = folders.mapItems(::named)
         if (f != folders) { folders = f; store.saveFolders(f) }
-        favs = favs.filter { it.kind != "itv" } + folders.all()
+        favs = favs.filter { it.kind != "itv" } + folders.channels()
     }
 
     /** Key of the channel playing now (Live TV marks it). */
@@ -444,7 +449,12 @@ class Repo(private val ctx: Context) {
     fun createMode(name: String, current: List<Item>?): String? {
         val n = FolderSet.clean(name)
         if (n.isEmpty()) return null
-        applyFolders(LiveModes.create(folders, n, current?.map { named(rawByKey[it.key] ?: it) }))
+        val chans = current?.map { named(rawByKey[it.key] ?: it) }?.filter { it.kind == "itv" }
+        var f = LiveModes.create(folders, n, chans)
+        // "What's visible now" also copies currently shown movie / series / Live groups so one mode
+        // drives every tab. "Everything hidden" (current == null) starts empty.
+        if (current != null) f = f.add(n, groupStubs())
+        applyFolders(f)
         selectMode(n); return n
     }
     fun renameMode(old: String, new: String) {
@@ -490,7 +500,38 @@ class Repo(private val ctx: Context) {
         if (h != hidden) { hidden = h; store.hidden = h }
     }
     /** Hold on a left-nav category / sub-category / region: hide it, or show it again (synced like channel hides). */
-    fun toggleGroup(key: String) { hidden = LiveModes.toggleGroup(key, hidden); store.hidden = hidden }
+    fun toggleGroup(key: String) = toggleGroupKey(key, Taxonomy.label(key))
+
+    /** Whether a movie / series / Live group is shown in the current catalog mode. */
+    fun groupOn(key: String): Boolean = CatalogGroups.groupOn(key, mode(), folders, hidden)
+
+    fun groupStubs(family: String? = null): List<Item> {
+        val vod = ordered("vod").filter { groupOn("vod:${it.id}") }.map { CatalogGroups.stub("vod:${it.id}", Names.cat(it.title)) }
+        val live = liveGroupKeys().mapNotNull { k -> k.takeIf { groupOn(it) }?.let { CatalogGroups.stub(it, Taxonomy.label(it)) } }
+        val all = vod + live
+        return if (family == null) all else all.filter { it.key.startsWith(family) }
+    }
+
+    private fun liveGroupKeys(): List<String> {
+        val catTitle = liveCats.associate { it.id to it.title }
+        val rows = LiveModes.rows(channels, LiveModes.DEFAULT, FolderSet(), emptySet(), LiveModes.View.ALL, null, liveIndex.info, catTitle)
+        return CatalogGroups.liveGroups(LiveModes.tree(rows, emptySet(), LiveModes.View.ALL)).map { it.key }
+    }
+
+    /** Hide / show a group in the current mode (Default: hidden set; custom: mode folder). Syncs with existing modes. */
+    fun toggleGroupKey(key: String, title: String) {
+        val (f, h) = CatalogGroups.toggle(key, title, mode(), folders, hidden, groupStubs(CatalogGroups.family(key)))
+        if (f != folders) applyFolders(f)
+        if (h != hidden) { hidden = h; store.hidden = h }
+    }
+
+    fun setGroupsOn(keys: List<Pair<String, String>>, on: Boolean) {
+        if (keys.isEmpty()) return
+        val seed = keys.map { CatalogGroups.family(it.first) }.toSet().flatMap { groupStubs(it) }
+        val (f, h) = CatalogGroups.setOn(keys, on, mode(), folders, hidden, seed)
+        if (f != folders) applyFolders(f)
+        if (h != hidden) { hidden = h; store.hidden = h }
+    }
     fun toTopOfMode(ch: Item) { val m = mode(); if (m != LiveModes.DEFAULT) applyFolders(LiveModes.toTop(ch, m, folders)) }
 
     /** Live TV languages: null = all; else only these are listed (synced with the other language choices). */

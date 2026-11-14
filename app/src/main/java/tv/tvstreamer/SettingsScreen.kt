@@ -121,7 +121,7 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
                 }, primary = true)
             }
             SettingsNav.Sec.CONTENT -> {
-                SettingRow("Categories", "Order and hide", first) { go(Screen.Categories) }
+                SettingRow("What to show", "Movies, series, Live TV", first) { go(Screen.Categories) }
                 SettingRow("Remote buttons") { go(Screen.Remote) }
                 val lib = repo.lib
                 var confirm by remember { mutableStateOf(false) }

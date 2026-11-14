@@ -14,6 +14,9 @@ data class FolderSet(val folders: Map<String, List<Item>> = emptyMap(), val orde
     fun foldersOf(key: String): List<String> = names.filter { n -> items(n).any { it.key == key } }
     /** Every favourite channel once, folder by folder. */
     fun all(): List<Item> = names.flatMap { items(it) }.distinctBy { it.key }
+    /** Live channels stored in modes / folders. Group stubs (`vod:` / `grp:`) are skipped. */
+    fun channels(): List<Item> = all().filter { it.kind == "itv" }
+    fun channelItems(name: String): List<Item> = items(name).filter { it.kind == "itv" }
 
     private fun with(m: Map<String, List<Item>>, o: List<String> = names) = FolderSet(m, o.filter { it in m }.distinct())
 

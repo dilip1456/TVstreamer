@@ -12,6 +12,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -66,9 +68,9 @@ object Theme {
 /** Colours for the current theme. Video / poster overlays keep fixed dark colours. */
 object Pal {
     private fun pick(dark: Long, light: Long) = Color(if (Theme.dark) dark else light)
-    val Bg get() = pick(0xFF0A0A0D, 0xFFF5F5F8)
-    val Surface get() = pick(0xFF14141B, 0xFFFFFFFF)
-    val Card get() = pick(0xFF1C1C24, 0xFFE6E6EC)
+    val Bg get() = pick(0xFF08080C, 0xFFF5F5F8)
+    val Surface get() = pick(0xFF12121A, 0xFFFFFFFF)
+    val Card get() = pick(0xFF1A1A22, 0xFFE6E6EC)
     val Accent = Color(0xFFE50914)
     /** Brand gold (logo #D4AF37): focus borders and highlights. */
     val Gold = Color(0xFFD4AF37)
@@ -129,7 +131,7 @@ fun Modifier.focusCard(
         .onFocusChanged { if (it.isFocused != f) { f = it.isFocused; if (f) onFocused?.invoke() } }
         .graphicsLayer { scaleX = s; scaleY = s }
         .then(if (ring > 0.01f) Modifier
-            .border(6.dp, Pal.Focus.copy(alpha = 0.22f * ring), shape)
+            .border(8.dp, Pal.Focus.copy(alpha = 0.16f * ring), shape)
             .border(2.dp, Pal.Focus.copy(alpha = 0.95f * ring), shape) else Modifier)
         .clip(shape)
         .onKeyEvent { e ->
@@ -156,6 +158,17 @@ fun NavTab(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, sel
         Text(text, color = fg, fontSize = Ts.ROW.sp, fontWeight = if (selected || f) FontWeight.SemiBold else FontWeight.Medium,
             letterSpacing = 0.2.sp, maxLines = 1)
     }
+}
+
+/** Soft gold wash behind TV / catalog headers (static gradient, no blur). */
+@Composable
+fun CinematicWash(modifier: Modifier = Modifier) {
+    if (!Theme.dark) return
+    Box(
+        modifier.fillMaxWidth().height(440.dp).background(
+            Brush.verticalGradient(listOf(Color(0xFF15110C), Pal.Gold.copy(alpha = 0.08f), Color.Transparent))
+        )
+    )
 }
 
 /** One motion language for focus and transitions: ~180 ms ease (cheap on Fire TV: no blur, no shadows). */

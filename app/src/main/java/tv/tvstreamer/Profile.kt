@@ -224,7 +224,7 @@ fun ProfileScreen(repo: Repo, go: (Screen) -> Unit) {
         item { Row1("Theme: ${Theme.label}", { Theme.mode = Theme.next(Theme.mode); repo.store.theme = Theme.mode }) }
         item { Row1("Languages for Movies", { go(Screen.Languages("movies", Screen.Profile)) }) }
         item { Row1("Languages for Series", { go(Screen.Languages("series", Screen.Profile)) }) }
-        item { Row1("Categories (order, hide, show)", { go(Screen.Categories) }) }
+        item { Row1("What to show (movies, series, Live TV)", { go(Screen.Categories) }) }
         item { Row1("Remote buttons", { go(Screen.Remote) }) }
         item {
             Row1("Video picture: " + when (aspect) { "fill" -> "Fill"; "zoom" -> "Zoom"; else -> "Fit" }, {

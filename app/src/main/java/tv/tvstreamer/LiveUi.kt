@@ -245,8 +245,8 @@ fun ModeMenu(repo: Repo, current: List<Item>, onClose: () -> Unit) {
         "new" -> { NameDialog("New mode", "", "Next", { newName = it; page = "start" }) { page = "main" }; return }
         "start" -> {
             ChoiceDialog("Start \"${FolderSet.clean(newName)}\" with", listOf(
-                "Everything hidden (pick channels to show)" to { repo.createMode(newName, null); onClose() },
-                "The channels listed now (${current.size})" to { repo.createMode(newName, current); onClose() }
+                "Everything hidden (pick what to show)" to { repo.createMode(newName, null); onClose() },
+                "What's visible now" to { repo.createMode(newName, current); onClose() }
             ), focusKey = "start", onClose = { page = "main" })
             return
         }
@@ -268,9 +268,9 @@ fun ModeMenu(repo: Repo, current: List<Item>, onClose: () -> Unit) {
     }
     val cur = repo.mode()
     ChoiceDialog("Mode", buildList {
-        add((if (cur == LiveModes.DEFAULT) "✓  " else "     ") + "Default (all channels not hidden)" to { repo.selectMode(LiveModes.DEFAULT); onClose() })
+        add((if (cur == LiveModes.DEFAULT) "✓  " else "     ") + "Default (everything not hidden)" to { repo.selectMode(LiveModes.DEFAULT); onClose() })
         repo.modes.forEach { m ->
-            add((if (cur == m) "✓  " else "     ") + "$m  (${repo.folders.items(m).size})" to { repo.selectMode(m); onClose() })
+            add((if (cur == m) "✓  " else "     ") + "$m  (${repo.folders.channelItems(m).size})" to { repo.selectMode(m); onClose() })
         }
         add("＋  New mode…" to { page = "new" })
         repo.modes.forEach { m -> add("✎  Edit \"$m\"…" to { target = m; page = "edit" }) }

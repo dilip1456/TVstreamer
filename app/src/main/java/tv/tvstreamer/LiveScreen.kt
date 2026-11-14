@@ -330,7 +330,6 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
             NavTab("Movies", { go(Screen.MoviesTab) })
             NavTab("Series", { go(Screen.SeriesTab) })
             NavTab("Live TV", {}, Modifier.focusRequester(liveTabFr), selected = true)
-            NavTab("Categories", { go(Screen.Categories) })
         }
         Row(Modifier.fillMaxWidth().weight(1f)) {
             val w by animateDpAsState(if (navOpen) 268.dp else 80.dp, tween(180), label = "nav")
@@ -414,6 +413,7 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
             "Languages…" to { popup = "langs" }) + viewOpts { popup = null } + listOf(
             "Expand all" to { expandAll(); popup = null },
             "Collapse all" to { collapseAll(); popup = null },
+            "What to show…" to { popup = null; go(Screen.Categories) },
             "Search" to { popup = null; onSearch() }
         ), focusKey = "more", onClose = { popup = null })
     }

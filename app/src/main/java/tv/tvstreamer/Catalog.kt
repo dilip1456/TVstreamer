@@ -276,7 +276,7 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
     val memoKey = "${System.identityHashCode(repo)}|$mode"
     var shelvesReady by remember(mode) { mutableStateOf(shelfMemo[memoKey] != null) }
     val shelves by produceState(shelfMemo[memoKey] ?: emptyList(), mode, cont, recent, langShelves, lib.version, repo.favs, repo.hidden,
-        repo.vodCats, repo.vodOrder, Ai.suggested, Gemini.enabled, unlocked, homeLangs, langs, rowErrs) {
+        repo.vodCats, repo.vodOrder, Ai.suggested, Gemini.enabled, unlocked, homeLangs, langs, rowErrs, repo.liveMode, repo.folders) {
         val built = withContext(Dispatchers.Default) { runCatching { buildShelves() }.getOrNull() }
         if (built != null) { value = built; shelfMemo[memoKey] = built }
         shelvesReady = true
@@ -304,7 +304,7 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
     val heroPick = slides.getOrNull(heroIx.coerceIn(0, (slides.size - 1).coerceAtLeast(0)))
     val hero = heroPick?.show
 
-    // Rows hidden with the row menu ("Hide this category") stay out; restore in Settings or Categories
+    // Rows hidden with the row menu stay out; restore in What to show or Settings > Hidden
     val shelvesShown = remember(shelves, repo.hidden) {
         val off = HomeHide.ids(repo.hidden)
         shelves.distinctBy { it.key }.filter { "${HomeHide.PREFIX}$mode|${it.key}" !in off }
@@ -345,8 +345,7 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
         } else false
     }) {
         // Soft cinematic wash at the top (static gradient, no blur — cheap on Fire TV). Not a second copy of the hero art.
-        if (Theme.dark) Box(Modifier.fillMaxWidth().height(480.dp).background(
-            Brush.verticalGradient(listOf(Color(0xFF16120C), Pal.Gold.copy(alpha = 0.08f), Color.Transparent))))
+        CinematicWash()
         // The top menu is pinned (1.53): it stays on screen while the page scrolls beneath it
         Column(Modifier.fillMaxSize()) {
             val tabs = if (!AppUi.phoneNav) listOf<Triple<String, String, () -> Unit>>(
@@ -354,14 +353,12 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                 Triple("Home", "home") { go(Screen.Home) },
                 Triple("Movies", "movies") { go(Screen.MoviesTab) },
                 Triple("Series", "series") { go(Screen.SeriesTab) },
-                Triple("Live TV", "live") { go(Screen.Live) },
-                Triple("Categories", "cats") { go(Screen.Categories) }
+                Triple("Live TV", "live") { go(Screen.Live) }
             ) else listOf<Triple<String, String, () -> Unit>>(
                 Triple("Home", "home") { go(Screen.Home) },
                 Triple("Movies", "movies") { go(Screen.MoviesTab) },
                 Triple("Series", "series") { go(Screen.SeriesTab) },
                 Triple("Live TV", "live") { go(Screen.Live) },
-                Triple("Categories", "cats") { go(Screen.Categories) },
                 Triple("Search", "search") { go(Screen.Search) },
                 Triple("Settings", "settings") { go(Screen.Settings) },
                 Triple("Update", "update") {
@@ -457,7 +454,7 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                     !shelvesReady -> "Loading…"
                     tabbed && !langs.isNullOrEmpty() && lib.loading -> "Loading…"
                     tabbed && !langs.isNullOrEmpty() -> "Nothing found for these languages yet. Try Refresh or pick more languages."
-                    else -> "Nothing here yet. Open Categories to show hidden ones."
+                    else -> "Nothing here yet. Open What to show (Options or Settings) to unhide groups."
                 }, color = Pal.Dim, fontSize = Ts.ROW.sp, modifier = Modifier.padding(hPad))
             }
             items(shelvesShown, key = { it.key }) { shelf ->
@@ -504,15 +501,15 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                     add("▲  Move row up" to { repo.moveCat("vod", c.id, -1) })
                     add("▼  Move row down" to { repo.moveCat("vod", c.id, 1) })
                     add("⤒  Move row to top" to { repo.moveCatTo("vod", c.id, true); menu = null })
-                    add("🚫  Hide this category" to { repo.toggleHide("vod", c.id); menu = null; repo.status = "\"${shelf.title}\" hidden. Show it again in Settings or Categories > Hidden." })
+                    add("🚫  Hide this category" to { repo.toggleHide("vod", c.id); menu = null; repo.status = "\"${shelf.title}\" hidden. Show it again in What to show." })
                     if (shelf.error.isNotEmpty()) add("Retry loading" to { repo.retryRow(c); menu = null })
                 }
                 if (shelf.cat == null) add("🚫  Hide this category" to {
                     repo.hideRow(mode, shelf.key, shelf.title); menu = null
-                    repo.status = "\"${shelf.title}\" hidden. Show it again in Settings or Categories > Hidden."
+                    repo.status = "\"${shelf.title}\" hidden. Show it again in What to show."
                 })
                 if (tabbed) add("🌐  Languages…" to { menu = null; go(Screen.Languages(mode, Screen.Home)) })
-                add("Browse / arrange all categories…" to { menu = null; go(Screen.Categories) })
+                add("What to show…" to { menu = null; go(Screen.Categories) })
             }
             val title = item?.let { (if (it.season.isNotEmpty()) "${it.season} · " else "") + Names.title(it.name) } ?: shelf.cat?.let { c ->
                 val pos = repo.visibleVod().indexOfFirst { it.id == c.id }
@@ -525,6 +522,7 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
             ChoiceDialog("Options", buildList {
                 add("🌐  Languages…" to { pageMenu = false; go(Screen.Languages(mode, Screen.Home)) })
                 if (!langs.isNullOrEmpty()) add("⇅  " + Sorts.label(sort) to { pageMenu = false; sortMenu = true })
+                add("What to show…" to { pageMenu = false; go(Screen.Categories) })
             }, focusKey = "page-menu") { pageMenu = false }
         }
         if (sortMenu) {
@@ -1268,7 +1266,7 @@ fun LanguagesScreen(repo: Repo, tab: String, onBack: () -> Unit) {
                     Text("Tick the languages to show. The language comes from the category and title names (e.g. \"HINDI 4K\", \"|EN|\", \"[Tamil]\"); " +
                         "Dub / CAM / 4K are treated as versions, not languages; a dubbed title counts as the language it is dubbed in. " +
                         "Titles with no recognisable language are listed under \"Other\". Untick everything to go back to plain category rows. " +
-                        "Other languages stay reachable through Search and Categories.", color = Pal.Dim, fontSize = Ts.SECONDARY.sp)
+                        "Other languages stay reachable through Search.", color = Pal.Dim, fontSize = Ts.SECONDARY.sp)
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         PillButton("Done", onBack, Modifier.focusRequester(firstFr), primary = true, size = Ts.HEAD)
                         PillButton("Select all", { save(langs.map { it.first }.toSet()) }, size = Ts.HEAD)
@@ -1291,108 +1289,6 @@ fun LanguagesScreen(repo: Repo, tab: String, onBack: () -> Unit) {
     }
 }
 
-/** Browse all categories: grid with a sample poster each, filter box, open / move / hide / unhide. */
+/** What to show: one mode-aware list of movie, series and Live TV groups. */
 @Composable
-fun CategoriesScreen(repo: Repo, go: (Screen) -> Unit) {
-    val isTv = rememberIsTv()
-    var kind by remember { mutableStateOf("vod") }
-    var showAll by remember { mutableStateOf(false) }
-    var menu by remember { mutableStateOf<Cat?>(null) }
-    val unlocked = repo.gate(true) == null
-    val all = repo.ordered(kind)
-    val q = repo.catFilter.trim()
-    // Languages picked on the Movies / Series tabs; "Show all" lists every language
-    val picked = remember { (repo.lib.selected("movies") ?: emptySet()) + (repo.lib.selected("series") ?: emptySet()) }
-    val cats = all.filter { c ->
-        !repo.isHidden(kind, c.id) &&
-            (kind != "vod" || showAll || picked.isEmpty() || repo.lib.catLang(c) in picked) &&
-            (q.isEmpty() || Names.cat(c.title).contains(q, true) || c.title.contains(q, true))
-    }
-    val screenKey = "cats:$kind"
-    val firstFr = remember { FocusRequester() }
-    LaunchedEffect(Unit) { if (isTv && repo.lastFocus[screenKey] == null) { delay(120); runCatching { firstFr.requestFocus() } } }
-    val hPad = if (isTv) 48.dp else 14.dp
-    val cardW = if (isTv) 220.dp else ((LocalConfiguration.current.screenWidthDp - 28 - 10) / 2f).coerceIn(140f, 220f).dp
-    val state = remember(kind) { repo.gridStates.getOrPut(screenKey) { LazyGridState() } }
-
-    fun openCat(c: Cat) {
-        val e = repo.gate(c.locked)
-        if (e != null) { repo.status = e; return }
-        if (kind == "vod") go(Screen.Grid(c, Screen.Categories))
-        else { repo.lastLiveCatId = c.id; repo.lastLiveCat = liveGroupOf(c); go(Screen.Live) }
-    }
-
-    Box(Modifier.fillMaxSize().background(Pal.Bg)) {
-        LazyVerticalGrid(
-            columns = GridCells.Adaptive(cardW),
-            state = state,
-            contentPadding = PaddingValues(horizontal = hPad, vertical = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            modifier = Modifier.fillMaxSize()
-        ) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("All categories", color = Pal.Text, fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold)
-                    Text(if (isTv) "Menu on a category to move or hide it." else "Long-press a category to move or hide it.", color = Pal.Dim, fontSize = Ts.SECONDARY.sp)
-                    FlowRowCompat {
-                        PillButton("Movies & Series", { kind = "vod" }, Modifier.focusRequester(firstFr), selected = kind == "vod", size = Ts.HEAD)
-                        PillButton("Live TV", { kind = "itv" }, selected = kind == "itv", size = Ts.HEAD)
-                        if (kind == "vod" && picked.isNotEmpty()) PillButton(if (showAll) "All languages" else "Show all languages", { showAll = !showAll }, selected = showAll, size = Ts.HEAD)
-                        PillButton("Reset order", { repo.resetOrder(kind) }, size = Ts.HEAD)
-                    }
-                    val kb = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
-                    val fm = androidx.compose.ui.platform.LocalFocusManager.current
-                    KeyboardGate(Modifier.fillMaxWidth(if (isTv) 0.5f else 1f)) { inner ->
-                    TextField(
-                        value = repo.catFilter, onValueChange = { repo.catFilter = it }, singleLine = true,
-                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
-                        keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { kb?.hide(); fm.moveFocus(androidx.compose.ui.focus.FocusDirection.Down) }),
-                        placeholder = { Text("Filter categories…", color = Pal.Dim) },
-                        modifier = inner.fillMaxWidth(),
-                        colors = TextFieldDefaults.colors(
-                            focusedContainerColor = Pal.Surface, unfocusedContainerColor = Pal.Surface,
-                            focusedTextColor = Pal.Text, unfocusedTextColor = Pal.Text
-                        )
-                    )
-                    }
-                    Text("${cats.size} of ${all.size}" + (if (q.isNotEmpty()) " match \"$q\"" else ""), color = Pal.Dim, fontSize = Ts.CAPTION.sp)
-                }
-            }
-            gridItems(cats, key = { "$kind:${it.id}" }) { c ->
-                val hidden = repo.isHidden(kind, c.id)
-                val locked = c.locked && !unlocked
-                if (kind == "vod" && !locked && !repo.lib.hasData) LaunchedEffect(c.id) { repo.loadRow(c) }
-                val sample = if (kind == "vod") (repo.lib.inCat(c.id).takeIf { it.isNotEmpty() } ?: repo.rows[c.id])?.firstOrNull { it.img.isNotEmpty() }?.img ?: ""
-                    else repo.channels.firstOrNull { it.cat == c.id && it.img.isNotEmpty() }?.img ?: ""
-                val label = Names.cat(c.title)
-                val fr = remember { FocusRequester() }
-                val k = "$kind:${c.id}"
-                RestoreFocus(repo, screenKey, k, fr)
-                Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).focusRequester(fr)
-                    .focusCard({ openCat(c) }, { menu = c }, { repo.focusItem(screenKey, k) }, scale = 1.05f)) {
-                    Poster(sample, label, Modifier.fillMaxSize(), if (kind == "vod") ContentScale.Crop else ContentScale.Fit, initialsSize = 30)
-                    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.35f to Color.Transparent, 1f to Color(0xEE000000))))
-                    Column(Modifier.align(Alignment.BottomStart).padding(10.dp)) {
-                        Text((if (c.locked) "🔒 " else "") + label, color = if (hidden) Pal.Dim else Pal.Text, fontSize = Ts.ROW.sp,
-                            fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        val n = if (kind == "itv") repo.channels.count { it.cat == c.id } else -1
-                        Text(listOfNotNull("#${all.indexOf(c) + 1}", if (kind == "vod") repo.lib.catLang(c) else null, if (n >= 0) "$n channels" else null, if (hidden) "hidden" else null).joinToString("  ·  "),
-                            color = Pal.Dim, fontSize = Ts.CAPTION.sp)
-                    }
-                }
-            }
-        }
-        menu?.let { c ->
-            val pos = repo.ordered(kind).indexOfFirst { it.id == c.id } + 1
-            ChoiceDialog("${Names.cat(c.title)}  (#$pos)", focusKey = c.id, opts = listOf(
-                "Open" to { menu = null; openCat(c) },
-                "▲  Move up" to { repo.moveCat(kind, c.id, -1) },
-                "▼  Move down" to { repo.moveCat(kind, c.id, 1) },
-                "⤒  Move to top" to { repo.moveCatTo(kind, c.id, true) },
-                "⤓  Move to bottom" to { repo.moveCatTo(kind, c.id, false) },
-                (if (repo.isHidden(kind, c.id)) "Unhide (show again)" else "Hide") to { repo.toggleHide(kind, c.id); menu = null }
-            ), onClose = { menu = null })
-        }
-    }
-}
+fun CategoriesScreen(repo: Repo, go: (Screen) -> Unit) = CatalogModeScreen(repo, go)

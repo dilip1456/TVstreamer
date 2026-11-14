@@ -31,6 +31,18 @@ object LiveModes {
         if (mode == DEFAULT || mode !in folders.folders) "ch:${ch.key}" !in hidden
         else folders.items(mode).any { it.key == ch.key }
 
+    /**
+     * Effective channel enablement for listing. Membership ([isOn]) is unchanged so Show in an empty
+     * custom mode still adds the channel. A group-only mode (group stubs, no channels) lists every
+     * channel that is not individually hidden; [CatalogGroups.liveChannelOn] then applies the groups.
+     */
+    fun channelEnabled(ch: Item, mode: String, folders: FolderSet, hidden: Set<String>): Boolean {
+        if (mode == DEFAULT || mode !in folders.folders) return "ch:${ch.key}" !in hidden
+        val items = folders.items(mode)
+        val hasCh = items.any { it.kind == "itv" }
+        return if (hasCh) items.any { it.key == ch.key } else "ch:${ch.key}" !in hidden
+    }
+
     /** A per-channel exception: this channel stays listed even when its type / sub / region group is hidden. */
     const val SHOW = "show:"
     fun showKey(ch: Item) = "$SHOW${ch.key}"
@@ -48,7 +60,8 @@ object LiveModes {
     /** Effective list visibility: enabled in the mode, and not group-hidden (unless forced shown). */
     fun isVisible(ch: Item, mode: String, folders: FolderSet, hidden: Set<String>,
                   type: String, sub: String, region: String): Boolean =
-        isOn(ch, mode, folders, hidden) && (!Taxonomy.groupHidden(type, sub, region, hidden) || isForced(ch, hidden))
+        channelEnabled(ch, mode, folders, hidden) &&
+            (CatalogGroups.liveChannelOn(type, sub, region, mode, folders, hidden) || isForced(ch, hidden))
 
     /**
      * Set this channel's effective visibility to [on].
@@ -92,7 +105,6 @@ object LiveModes {
      */
     fun rows(chans: List<Item>, mode: String, folders: FolderSet, hidden: Set<String>, view: View,
              langs: Set<String>?, info: Map<String, ChInfo>, catTitle: Map<String, String>): List<Row> {
-        val inMode = if (mode != DEFAULT && mode in folders.folders) folders.items(mode).map { it.key }.toSet() else null
         val localOf = HashMap<String, Boolean>()
         return chans.asSequence().filter { langOk(it, langs, info) }.map { c ->
             val title = catTitle[c.cat].orEmpty()
@@ -100,8 +112,8 @@ object LiveModes {
             val type = if (local) LiveKind.NEWS else info[c.key]?.type ?: LiveKind.OTHER
             val sub = Taxonomy.sub(type, title, c.name)
             val region = if (type == LiveKind.SPORTS) Taxonomy.region(title, c.name) else ""
-            val chOn = if (inMode != null) c.key in inMode else "ch:${c.key}" !in hidden
-            val hiddenByGroup = Taxonomy.groupHidden(type, sub, region, hidden)
+            val chOn = channelEnabled(c, mode, folders, hidden)
+            val hiddenByGroup = !CatalogGroups.liveChannelOn(type, sub, region, mode, folders, hidden)
             Row(c, chOn && (!hiddenByGroup || isForced(c, hidden)), type, sub, region)
         }.filter { view.shows(it.on) }.toList()
     }
