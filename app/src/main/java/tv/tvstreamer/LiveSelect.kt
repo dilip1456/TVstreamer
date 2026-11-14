@@ -40,9 +40,34 @@ object LiveSelect {
         return f to h
     }
 
+    /**
+     * Keys for "Select all": the focused section, or every section of the focused type,
+     * or all keys in the current view when no section is focused.
+     */
+    fun selectScope(focusSec: String, sections: List<LiveModes.Section>, viewKeys: List<String>): List<String> {
+        if (focusSec.isNotEmpty()) {
+            sections.firstOrNull { it.key == focusSec }?.let { return it.rows.map { r -> r.ch.key } }
+            val ofType = sections.filter { LiveCollapse.typeKey(it.type) == focusSec }
+                .flatMap { s -> s.rows.map { it.ch.key } }
+            if (ofType.isNotEmpty()) return ofType
+        }
+        return viewKeys
+    }
+
+    /** True when [scope] is the whole current view (not one section or type). */
+    fun scopeIsView(scope: List<String>, viewKeys: List<String>): Boolean =
+        scope.isNotEmpty() && scope.size == viewKeys.size && scope.toSet() == viewKeys.toSet()
+
+    fun selectAllLabel(sel: Set<String>, scope: List<String>, wholeView: Boolean): String =
+        if (scope.isNotEmpty() && sel.containsAll(scope)) {
+            if (wholeView) "Clear all" else "Clear section"
+        } else {
+            if (wholeView) "Select all" else "Select section"
+        }
+
     fun summary(n: Int, on: Boolean, mode: String): String {
         val what = if (n == 1) "1 channel" else "$n channels"
-        return if (mode == LiveModes.DEFAULT) (if (on) "Unhidden $what" else "Hidden $what")
+        return if (mode == LiveModes.DEFAULT) (if (on) "Showed $what" else "Hid $what")
             else (if (on) "Added $what to $mode" else "Removed $what from $mode")
     }
 }

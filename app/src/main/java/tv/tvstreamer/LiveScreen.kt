@@ -49,6 +49,7 @@ import kotlinx.coroutines.launch
  *  - Modes: Default (every channel not hidden) or a custom mode (only its channels). "All channels" / "Only hidden"
  *    also list the others, dimmed; each row has a Hide or Show chip (tap / TV OK). Hold OK / long-press still
  *    toggles on TV when browsing hidden, or starts Select on the phone. Menu on a channel = channel menu.
+ *    On the phone, Select shows a compact action bar (count, Hide, Show, Select all, Cancel) above the nav bar.
  *  - Languages: only the selected languages are listed (Options / Menu on the remote, or ⋮ on the phone).
  *  - Guide: now / next loaded only for the rows on screen. Back from the player lands on the channel that played.
  */
@@ -235,15 +236,15 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
                 PillButton("Try again", { ix.ensure(repo.channels, repo.liveCats, force = true) }, size = Ts.CAPTION)
             }
             when {
-                repo.channels.isEmpty() -> Label(repo.status.ifEmpty { "No channels loaded yet" }, Ts.ROW, Pal.Dim, maxLines = 3)
+                repo.channels.isEmpty() -> Label(repo.status.ifEmpty { "No channels loaded yet" }, Ts.ROW, Pal.Dim, Modifier.weight(1f), maxLines = 3)
                 sections.isEmpty() -> Label(when {
                     view == LiveModes.View.HIDDEN -> "Nothing hidden."
                     mode != LiveModes.DEFAULT && !browseAll -> "\"$mode\" has no channels yet. Menu > All channels, then hold OK on a channel to add it."
                     langs != null -> "No channels in the selected languages."
                     else -> "No channels to show."
-                }, Ts.ROW, Pal.Dim, maxLines = 3)
-                else -> LazyColumn(state = state, modifier = Modifier.fillMaxSize().onPreviewKeyEvent { e -> pageKey(e) }, verticalArrangement = Arrangement.spacedBy(2.dp),
-                    contentPadding = PaddingValues(bottom = 48.dp)) {
+                }, Ts.ROW, Pal.Dim, Modifier.weight(1f), maxLines = 3)
+                else -> LazyColumn(state = state, modifier = Modifier.weight(1f).fillMaxWidth().onPreviewKeyEvent { e -> pageKey(e) }, verticalArrangement = Arrangement.spacedBy(2.dp),
+                    contentPadding = PaddingValues(bottom = 12.dp)) {
                     val firstVisibleKey = sections.firstOrNull { s ->
                         !LiveCollapse.isTypeCollapsed(s.type, collapsed) && s.key !in collapsed && s.rows.isNotEmpty()
                     }?.rows?.first()?.ch?.key
@@ -295,13 +296,15 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
                 }
             }
             sel?.let { cur ->
-                val secKeys = sections.firstOrNull { it.key == focusSec }?.rows?.map { it.ch.key }.orEmpty()
+                val viewKeys = rows.map { it.ch.key }.distinct()
+                val selScope = LiveSelect.selectScope(focusSec, sections, viewKeys)
+                val whole = LiveSelect.scopeIsView(selScope, viewKeys)
                 SelectBar(cur.size, mode, tv, barFr,
                     canHide = LiveSelect.targets(rows, cur, false).isNotEmpty(),
                     canShow = LiveSelect.targets(rows, cur, true).isNotEmpty(),
-                    allLabel = if (secKeys.isNotEmpty() && cur.containsAll(secKeys)) "Clear section" else "Select section",
+                    allLabel = LiveSelect.selectAllLabel(cur, selScope, whole),
                     onHide = { bulk(false) }, onShow = { bulk(true) },
-                    onAll = { sel = LiveSelect.selectAll(cur, secKeys) }, onCancel = { sel = null })
+                    onAll = { sel = LiveSelect.selectAll(cur, selScope) }, onCancel = { sel = null })
             }
             undo?.let { (k, nowHidden) ->
                 Row(Modifier.fillMaxWidth().padding(top = 6.dp).clip(RoundedCornerShape(Radii.row)).background(Pal.Surface.copy(alpha = 0.94f))
@@ -650,17 +653,31 @@ private fun CheckDot(on: Boolean) {
 private fun SelectBar(n: Int, mode: String, tv: Boolean, fr: FocusRequester, canHide: Boolean, canShow: Boolean, allLabel: String,
                       onHide: () -> Unit, onShow: () -> Unit, onAll: () -> Unit, onCancel: () -> Unit) {
     val custom = mode != LiveModes.DEFAULT
-    Row(
-        Modifier.fillMaxWidth().padding(top = 6.dp).clip(RoundedCornerShape(Radii.row)).background(Pal.Surface.copy(alpha = 0.94f))
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)
+    val hideLabel = if (custom) "Remove" else "Hide"
+    val showLabel = if (custom) "Add" else "Show"
+    // First enabled action takes initial focus on TV; Hide / Show stay visible (dimmed) so the bar is predictable.
+    val focusHide = canHide
+    val focusShow = !canHide && canShow
+    val focusAll = !canHide && !canShow
+    fun act(enabled: Boolean, focused: Boolean): Modifier =
+        Modifier.defaultMinSize(minHeight = 44.dp).then(if (focused) Modifier.focusRequester(fr) else Modifier).alpha(if (enabled) 1f else 0.4f)
+    Column(
+        Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 4.dp)
+            .clip(RoundedCornerShape(Radii.row))
+            .background(Pal.Surface)
+            .border(1.dp, Color(0x22D4AF37), RoundedCornerShape(Radii.row))
+            .padding(horizontal = 12.dp, vertical = 10.dp)
     ) {
-        Label(if (n == 0) "Select channels" else "$n selected", Ts.HEAD, Pal.Text, Modifier.weight(1f))
-        if (tv) Label("OK check · Menu actions", Ts.CAPTION, Pal.Dim)
-        if (canHide) PillButton(if (custom) "Remove from mode" else "Hide", onHide, Modifier.focusRequester(fr), size = Ts.SECONDARY)
-        if (canShow) PillButton(if (custom) "Add to mode" else "Unhide", onShow, if (canHide) Modifier else Modifier.focusRequester(fr), size = Ts.SECONDARY)
-        PillButton(allLabel, onAll, if (canHide || canShow) Modifier else Modifier.focusRequester(fr), size = Ts.SECONDARY)
-        PillButton("Cancel", onCancel, size = Ts.SECONDARY)
+        Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Label(if (n == 0) "Select channels" else "$n selected", Ts.HEAD, Pal.Text, Modifier.weight(1f))
+            if (tv) Label("OK check · Menu actions", Ts.CAPTION, Pal.Dim)
+        }
+        ButtonFlow(gapDp = 8) {
+            PillButton(hideLabel, { if (canHide) onHide() }, act(canHide, focusHide), primary = canHide, compact = true, size = Ts.HEAD)
+            PillButton(showLabel, { if (canShow) onShow() }, act(canShow, focusShow), primary = canShow, compact = true, size = Ts.HEAD)
+            PillButton(allLabel, onAll, act(true, focusAll), compact = true, size = Ts.HEAD)
+            PillButton("Cancel", onCancel, Modifier.defaultMinSize(minHeight = 44.dp), compact = true, size = Ts.HEAD)
+        }
     }
 }
 
