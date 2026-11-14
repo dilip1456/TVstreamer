@@ -164,8 +164,6 @@ private fun choices(tracks: Tracks, type: Int): List<TrackChoice> {
 @Composable
 fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit) {
     val ctx = LocalContext.current
-    var lastOkKey by remember { mutableStateOf<String?>(null) }
-    var lastOkAt by remember { mutableStateOf(0L) }
     DisposableEffect(Unit) { Theme.forceDark = true; onDispose { Theme.forceDark = false } }
     val isTv = rememberIsTv()
     val phone = AppUi.phoneNav
@@ -231,6 +229,7 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
     val seekFr = remember { FocusRequester() }
     val retryFr = remember { FocusRequester() }
     val upNextFr = remember { FocusRequester() }
+    val hideShowFr = remember { FocusRequester() }
 
     val http = remember { OkHttpDataSource.Factory(streamHttp).setUserAgent(UA) }
     val exo = remember {
@@ -615,17 +614,22 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
             controls = false
         }
     }
-    LaunchedEffect(layer, infoTick) {
-        if (layer == LiveOverlay.Layer.INFO) { delay(LiveOverlay.INFO_MS); if (layer == LiveOverlay.Layer.INFO) layer = LiveOverlay.Layer.NONE }
+    var infoFocused by remember { mutableStateOf(false) }
+    LaunchedEffect(layer, infoTick, infoFocused) {
+        if (layer == LiveOverlay.Layer.INFO && !infoFocused) {
+            delay(LiveOverlay.INFO_MS)
+            if (layer == LiveOverlay.Layer.INFO && !infoFocused) layer = LiveOverlay.Layer.NONE
+        }
     }
     LaunchedEffect(flashTick) { if (flash.isNotEmpty()) { delay(700); flash = "" } }
 
     // Move focus to the right place whenever the overlay changes.
-    LaunchedEffect(controls, err, dialog, panel) {
+    LaunchedEffect(controls, err, dialog, panel, layer) {
         delay(60)
         runCatching {
             when {
                 dialog != null || panel -> {}
+                live && layer == LiveOverlay.Layer.INFO && err.isEmpty() -> hideShowFr.requestFocus()
                 err.isNotEmpty() && !controls -> rootFr.requestFocus()   // the error is a quiet bar: keep zapping
                 controls -> if (focusSeekBar && canSeek) seekFr.requestFocus() else playFr.requestFocus()
                 else -> rootFr.requestFocus()
@@ -651,6 +655,16 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
     // Phone: Back in landscape exits fullscreen first (back to portrait), then leaves the player
     BackHandler(phone && landscape && dialog == null && !showUpNext && !Popups.any && !(live && layer != LiveOverlay.Layer.NONE)) {
         landscape = false
+    }
+    // Visible portrait Back (and the system Back key) pop one layer, then leave the player
+    fun goBack() {
+        when {
+            dialog != null -> { dialog = null; touch() }
+            showUpNext -> upNextCancelled = item.key
+            panel -> layer = LiveOverlay.Layer.NONE
+            live && layer == LiveOverlay.Layer.INFO -> layer = LiveOverlay.Layer.NONE
+            else -> onBack()
+        }
     }
 
     // Keys that are swallowed on KeyDown also have their KeyUp swallowed,
@@ -692,17 +706,10 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
                         Key.Menu -> LiveOverlay.Pad.MENU
                         else -> null
                     } ?: return@onPreviewKeyEvent false
-                    // OK twice quickly: hide / unhide this channel (it keeps playing, marked Hidden in the bar)
-                    if (pad == LiveOverlay.Pad.OK && err.isEmpty()) {
-                        if (e.nativeKeyEvent.repeatCount > 0) { swallowUp += k; return@onPreviewKeyEvent true }
-                        val now = android.os.SystemClock.uptimeMillis()
-                        if (DoublePress.isDouble(lastOkKey, lastOkAt, item.key, now)) {
-                            lastOkKey = null; repo.toggleOn(item)
-                            toast(ctx, if (repo.isOn(item)) "Unhidden" else "Hidden")
-                            layer = LiveOverlay.Layer.INFO; infoTick++
-                            swallowUp += k; return@onPreviewKeyEvent true
-                        }
-                        lastOkKey = item.key; lastOkAt = now
+                    // Info-bar actions (Hide/Show, Channels, …) take a single OK; Left / Right move focus between them
+                    if (layer == LiveOverlay.Layer.INFO && err.isEmpty() &&
+                        (pad == LiveOverlay.Pad.OK || pad == LiveOverlay.Pad.LEFT || pad == LiveOverlay.Pad.RIGHT)) {
+                        return@onPreviewKeyEvent false
                     }
                     val (nl, fx) = LiveOverlay.press(layer, pad, hasError = err.isNotEmpty(), channels = list.size)
                     layer = nl
@@ -861,18 +868,32 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
             exit = androidx.compose.animation.fadeOut(Motion.spec()),
             modifier = Modifier.align(Alignment.BottomCenter)
         ) {
-            LiveInfoBar(repo, item, idx, list.size, isTv, actions = if (!phone) null else ({
-                PillButton(if (landscape) "Portrait" else "Fullscreen", { toggleLandscape() }, size = 13)
-                PillButton("☰  Channels", { layer = LiveOverlay.Layer.CHANNELS }, size = 13)
-                PillButton("Schedule", { layer = LiveOverlay.Layer.GUIDE }, size = 13)
-                PillButton("⋮", { dialog = "menu" }, size = 13)
-            }))
+            LiveInfoBar(repo, item, idx, list.size, isTv,
+                modifier = Modifier.onFocusChanged { infoFocused = it.hasFocus },
+                actions = {
+                    val shown = repo.isOn(item)
+                    PillButton(if (shown) "Hide" else "Show", {
+                        repo.toggleOn(item)
+                        toast(ctx, if (repo.isOn(item)) "Shown" else "Hidden")
+                        infoTick++
+                    }, Modifier.focusRequester(hideShowFr), size = 13, compact = true, selected = !shown)
+                    if (phone) PillButton(if (landscape) "Portrait" else "Fullscreen", { toggleLandscape() }, size = 13, compact = true)
+                    PillButton("Channels", { layer = LiveOverlay.Layer.CHANNELS }, size = 13, compact = true)
+                    PillButton("Schedule", { layer = LiveOverlay.Layer.GUIDE }, size = 13, compact = true)
+                    PillButton("More", { dialog = "menu" }, size = 13, compact = true)
+                })
         }
-        // Phone, portrait: a Fullscreen control stays visible so playback can go landscape without opening the bar first.
-        if (phone && !landscape && dialog == null && !panel && !controls && err.isEmpty() &&
-            !(live && layer == LiveOverlay.Layer.INFO)) {
-            Box(Modifier.align(Alignment.TopEnd).padding(12.dp)) {
-                CtrlButton(Ic.Fullscreen, "Fullscreen", { toggleLandscape() })
+        // Phone portrait: Back (and Fullscreen when the auto-hiding chrome is away) stay on screen.
+        // Landscape and TV keep the existing chrome that can hide.
+        if (phone && !landscape) {
+            val showFs = dialog == null && !panel && !controls && err.isEmpty() && !(live && layer == LiveOverlay.Layer.INFO)
+            Row(
+                Modifier.align(Alignment.TopStart).fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                CtrlButton(Ic.Back, "Back", { goBack() }, compact = true)
+                Spacer(Modifier.weight(1f))
+                if (showFs) CtrlButton(Ic.Fullscreen, "Fullscreen", { toggleLandscape() }, compact = true)
             }
         }
         if (controls && !live) {
@@ -892,7 +913,9 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
                     onMove = { barPos = when (barPos) { "bottom" -> "left"; "left" -> "right"; else -> "bottom" }; repo.store.barPos = barPos; touch() },
                     onTouch = { touch() },
                     landscape = landscape,
-                    onFullscreen = if (phone) ({ toggleLandscape(); touch() }) else null
+                    onFullscreen = if (phone) ({ toggleLandscape(); touch() }) else null,
+                    compact = phone && !landscape,
+                    startGuard = if (phone && !landscape) 48.dp else 0.dp
                 )
             }
         }
@@ -1083,9 +1106,10 @@ fun MenuEntry(label: String, onClick: () -> Unit, modifier: Modifier = Modifier,
 }
 
 @Composable
-private fun CtrlButton(icon: ImageVector, desc: String, onClick: () -> Unit, modifier: Modifier = Modifier, big: Boolean = false, enabled: Boolean = true) {
+private fun CtrlButton(icon: ImageVector, desc: String, onClick: () -> Unit, modifier: Modifier = Modifier,
+                      big: Boolean = false, enabled: Boolean = true, compact: Boolean = false) {
     var f by remember { mutableStateOf(false) }
-    val sz = if (big) 72.dp else 52.dp
+    val sz = when { compact && big -> 56.dp; compact -> 40.dp; big -> 72.dp; else -> 52.dp }
     Box(
         modifier.size(sz).popupOpener().onFocusChanged { f = it.isFocused }.clip(CircleShape)
             .background(if (f) Color.White else Color(0x40FFFFFF))
@@ -1093,7 +1117,7 @@ private fun CtrlButton(icon: ImageVector, desc: String, onClick: () -> Unit, mod
         contentAlignment = Alignment.Center
     ) {
         Icon(icon, desc, tint = when { f -> Color.Black; enabled -> Color.White; else -> Color(0x66FFFFFF) },
-            modifier = Modifier.size(if (big) 40.dp else 28.dp))
+            modifier = Modifier.size(when { compact && big -> 32.dp; compact -> 22.dp; big -> 40.dp; else -> 28.dp }))
     }
 }
 
@@ -1148,7 +1172,8 @@ private fun Controls(
     playFr: FocusRequester, seekFr: FocusRequester,
     onPlay: () -> Unit, onSeekBy: (Long) -> Unit, onSeekTo: (Long) -> Unit,
     onPrev: () -> Unit, onNext: () -> Unit, onFav: () -> Unit, onDialog: (String) -> Unit, onAspect: () -> Unit,
-    onMove: () -> Unit, onTouch: () -> Unit, landscape: Boolean = false, onFullscreen: (() -> Unit)? = null
+    onMove: () -> Unit, onTouch: () -> Unit, landscape: Boolean = false, onFullscreen: (() -> Unit)? = null,
+    compact: Boolean = false, startGuard: androidx.compose.ui.unit.Dp = 0.dp
 ) {
     val pad = if (isTv) 40.dp else 16.dp
     if (isTv) {
@@ -1161,9 +1186,9 @@ private fun Controls(
         Row(
             Modifier.align(Alignment.TopStart).fillMaxWidth()
                 .background(Brush.verticalGradient(listOf(Color(0xCC000000), Color.Transparent)))
-                .padding(horizontal = pad, vertical = if (isTv) 24.dp else 12.dp),
+                .padding(start = pad + startGuard, end = pad, top = if (isTv) 24.dp else 12.dp, bottom = if (isTv) 24.dp else 12.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp)
+            horizontalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 14.dp)
         ) {
             Column(Modifier.weight(1f)) {
                 Text((if (live && item.num > 0) "${item.num}  " else "") + item.name, color = Color.White,
@@ -1174,23 +1199,23 @@ private fun Controls(
                 ).joinToString("  ·  ")
                 if (sub.isNotEmpty()) Text(sub, color = Pal.Dim, fontSize = 14.sp, maxLines = 1)
             }
-            CtrlButton(if (isFav) Ic.Star else Ic.StarOutline, "Favorite", onFav)
+            CtrlButton(if (isFav) Ic.Star else Ic.StarOutline, "Favorite", onFav, compact = compact)
             if (onFullscreen != null) CtrlButton(if (landscape) Ic.FullscreenExit else Ic.Fullscreen,
-                if (landscape) "Exit fullscreen" else "Fullscreen", onFullscreen)
-            CtrlButton(Ic.More, "Options", { onDialog("menu") })
+                if (landscape) "Exit fullscreen" else "Fullscreen", onFullscreen, compact = compact)
+            CtrlButton(Ic.More, "Options", { onDialog("menu") }, compact = compact)
         }
 
-        // Centre: prev, -10, play/pause, +10, next
+        // Centre: prev, -10, play/pause, +10, next — tighter in portrait so they are not squashed
         Row(
             Modifier.align(Alignment.Center),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(if (isTv) 28.dp else 18.dp)
+            horizontalArrangement = Arrangement.spacedBy(if (isTv) 28.dp else if (compact) 8.dp else 18.dp)
         ) {
-            if (list.size > 1) CtrlButton(Ic.Prev, if (live) "Previous channel" else "Previous", onPrev)
-            if (!live) CtrlButton(Ic.Rewind, "Back 10 seconds", { onSeekBy(-SEEK_MS) }, enabled = canSeek)
-            CtrlButton(if (playing) Ic.Pause else Ic.Play, if (playing) "Pause" else "Play", onPlay, Modifier.focusRequester(playFr), big = true)
-            if (!live) CtrlButton(Ic.Forward, "Forward 10 seconds", { onSeekBy(SEEK_MS) }, enabled = canSeek)
-            if (hasNext) CtrlButton(Ic.Next, if (live) "Next channel" else "Next", onNext)
+            if (list.size > 1) CtrlButton(Ic.Prev, if (live) "Previous channel" else "Previous", onPrev, compact = compact)
+            if (!live) CtrlButton(Ic.Rewind, "Back 10 seconds", { onSeekBy(-SEEK_MS) }, enabled = canSeek, compact = compact)
+            CtrlButton(if (playing) Ic.Pause else Ic.Play, if (playing) "Pause" else "Play", onPlay, Modifier.focusRequester(playFr), big = true, compact = compact)
+            if (!live) CtrlButton(Ic.Forward, "Forward 10 seconds", { onSeekBy(SEEK_MS) }, enabled = canSeek, compact = compact)
+            if (hasNext) CtrlButton(Ic.Next, if (live) "Next channel" else "Next", onNext, compact = compact)
         }
 
         // Option buttons (movable: bottom / left / right, as before)
@@ -1217,7 +1242,7 @@ private fun Controls(
                 Text("● LIVE", color = Pal.Accent, fontSize = 14.sp, fontWeight = FontWeight.Bold)
             }
             if (barPos == "bottom") {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) { opts() }
+                ButtonFlow(gapDp = 8) { opts() }
             }
         }
         if (barPos != "bottom") {

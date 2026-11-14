@@ -143,7 +143,10 @@ object LiveModes {
                     val h = Taxonomy.regionKey(type, r) in hidden
                     if (h && !view.showsHidden && l.none { it.on }) null else Node(Taxonomy.regionKey(type, r), type, r, l.size, h || tHidden, region = true)
                 }
-            Node(Taxonomy.typeKey(type), type, type, rs.size, tHidden, if (subs.size > 1 || regions.isNotEmpty()) subs + regions else emptyList())
+            // Always nest named sub-categories under the type (Sports, News, Kids, …), not only when there are two.
+            val kids = if (regions.isNotEmpty() || subs.size > 1 || (subs.size == 1 && !subs[0].label.equals(type, true)))
+                subs + regions else emptyList()
+            Node(Taxonomy.typeKey(type), type, type, rs.size, tHidden, kids)
         }
     }
 

@@ -81,6 +81,7 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
     var sdk by remember { mutableStateOf(s.subdlKey) }
     var autoNext by remember { mutableStateOf(s.autoNext) }
     var phoneStartLand by remember { mutableStateOf(s.phoneStartLandscape) }
+    var updateMode by remember { mutableStateOf(s.updateMode) }
     var subSize by remember { mutableStateOf(s.subSize) }
     var note by remember { mutableStateOf("") }
     var learn by remember { mutableStateOf<Pair<String, String>?>(null) }
@@ -137,6 +138,13 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
                 SettingRow("Autoplay next episode", if (autoNext) "On" else "Off", first) { autoNext = !autoNext; s.autoNext = autoNext }
                 if (AppUi.phoneNav) SettingRow("Phone player starts in", if (phoneStartLand) "Landscape" else "Portrait") {
                     phoneStartLand = !phoneStartLand; s.phoneStartLandscape = phoneStartLand
+                }
+                SettingRow("App updates", updateMode.label) {
+                    updateMode = updateMode.next(); s.updateMode = updateMode
+                }
+                SettingRow("Check for updates", Updater.statusLine().ifEmpty { "GitHub release" }) {
+                    note = "Checking for updates…"
+                    scope.launch { note = Updater.check(ctx, s, manual = true) }
                 }
                 SettingRow("Subtitle size", subSize.replaceFirstChar { it.uppercase() }) {
                     subSize = TrackPrefs.SIZES[(TrackPrefs.SIZES.indexOf(subSize) + 1) % TrackPrefs.SIZES.size]; s.subSize = subSize

@@ -172,6 +172,7 @@ fun PillButton(
     primary: Boolean = false,
     selected: Boolean = false,
     size: Int = 14,
+    compact: Boolean = false,
     onMenu: (() -> Unit)? = null
 ) {
     var f by remember { mutableStateOf(false) }
@@ -192,7 +193,7 @@ fun PillButton(
             .background(bg)
             .onKeyEvent { e -> if (onMenu != null && e.type == KeyEventType.KeyUp && e.key == Key.Menu) { onMenu(); true } else false }
             .combinedClickable(onClick = onClick, onLongClick = onMenu)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(horizontal = if (compact) 12.dp else 16.dp, vertical = if (compact) 6.dp else 8.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(text, color = if (f) Color.Black else if (primary) Color.White else Pal.Text, fontSize = size.sp,

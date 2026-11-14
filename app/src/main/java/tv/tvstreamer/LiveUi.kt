@@ -361,10 +361,10 @@ fun GuidePanel(repo: Repo, ch: Item, onClose: () -> Unit) {
 /**
  * Live player info bar (OK / after zapping): a slim strip along the bottom (about an eighth of the screen) on a soft
  * gradient scrim: number and name, what is on now with a thin progress line and times, and what is next. Small text,
- * no box over the picture. It never takes focus, so Up / Down keep zapping.
+ * no box over the picture. Hide / Show and the other actions are focusable (a single OK activates them); Up / Down still zap.
  */
 @Composable
-fun LiveInfoBar(repo: Repo, ch: Item, pos: Int, count: Int, isTv: Boolean, modifier: Modifier = Modifier, actions: (@Composable RowScope.() -> Unit)? = null) {
+fun LiveInfoBar(repo: Repo, ch: Item, pos: Int, count: Int, isTv: Boolean, modifier: Modifier = Modifier, actions: (@Composable () -> Unit)? = null) {
     LaunchedEffect(ch.id) { repo.epg.wantFirst(ch.id) }
     val t = rememberMinute()
     val entry = repo.epg.guide[ch.id]
@@ -374,25 +374,32 @@ fun LiveInfoBar(repo: Repo, ch: Item, pos: Int, count: Int, isTv: Boolean, modif
         modifier.fillMaxWidth()
             .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color.Transparent, Color(0xB3000000), Color(0xE6000000))))
             .padding(start = if (isTv) 48.dp else 14.dp, end = if (isTv) 48.dp else 14.dp, top = if (isTv) 28.dp else 18.dp, bottom = if (isTv) 18.dp else 12.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+        verticalArrangement = Arrangement.spacedBy(if (isTv) 4.dp else 6.dp)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             if (ch.num > 0) Text("${ch.num}", color = Pal.Gold, fontSize = 14.sp, fontWeight = FontWeight.Bold)
             Text(ChannelTitle.pretty(ch.name), color = Color.White, fontSize = if (isTv) 16.sp else 14.sp, fontWeight = FontWeight.SemiBold,
-                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 260.dp))
-            Text(now?.title ?: if (entry == null) "Loading guide…" else "No guide", color = if (now != null) Color.White else Pal.Dim,
-                fontSize = if (isTv) 14.sp else 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            if (next != null) Text("Next ${hhmm(next.start)}  ${next.title}", color = Pal.Dim, fontSize = 12.sp, maxLines = 1,
-                overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = if (isTv) 340.dp else 160.dp))
-            if (!repo.isOn(ch)) Text("Hidden", color = Pal.Dim, fontSize = 11.sp,
-                modifier = Modifier.background(Color(0x33FFFFFF), RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 1.dp))
+                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = if (isTv) Modifier.widthIn(max = 260.dp) else Modifier.weight(1f))
+            if (isTv) {
+                Text(now?.title ?: if (entry == null) "Loading guide…" else "No guide", color = if (now != null) Color.White else Pal.Dim,
+                    fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                if (next != null) Text("Next ${hhmm(next.start)}  ${next.title}", color = Pal.Dim, fontSize = 12.sp, maxLines = 1,
+                    overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 340.dp))
+            }
             if (count > 1 && isTv) Text("${pos + 1}/$count", color = Pal.Dim, fontSize = 11.sp)
+        }
+        if (!isTv) {
+            Text(now?.title ?: if (entry == null) "Loading guide…" else "No guide", color = if (now != null) Color.White else Pal.Dim,
+                fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (next != null) Text("Next ${hhmm(next.start)}  ${next.title}", color = Pal.Dim, fontSize = 12.sp, maxLines = 1,
+                overflow = TextOverflow.Ellipsis)
         }
         if (now != null) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(hhmm(now.start), color = Pal.Dim, fontSize = 11.sp)
             ProgressLine(now.progress(t), Modifier.weight(1f))
             Text(hhmm(now.stop), color = Pal.Dim, fontSize = 11.sp)
         }
-        if (actions != null) Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 4.dp), content = actions)
+        // Phone: wrap so Fullscreen / Channels / Schedule / more are not squashed into one tight row
+        if (actions != null) ButtonFlow(gapDp = 8) { actions() }
     }
 }

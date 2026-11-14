@@ -142,9 +142,9 @@ class LiveHideShowTest {
         val node = LiveModes.nodeForSection(tree, cricketSec)
         assertEquals(Taxonomy.subKey(LiveKind.SPORTS, "Cricket"), node?.key)
         val kidsSec = LiveModes.Section(LiveKind.KIDS, "Cartoons", listOf(LiveModes.Row(toon, true, LiveKind.KIDS, "Cartoons", "")))
-        // Kids has a single sub in this set, so the type node has no children and the header maps to the type
+        // Kids also nests its sub-category, even when there is only one
         val kids = LiveModes.nodeForSection(tree, kidsSec)
-        assertEquals(Taxonomy.typeKey(LiveKind.KIDS), kids?.key)
+        assertEquals(Taxonomy.subKey(LiveKind.KIDS, "Cartoons"), kids?.key)
     }
 
     @Test fun swipeLeftPastThresholdCommitsHideOrShow() {

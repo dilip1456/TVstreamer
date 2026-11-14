@@ -192,6 +192,16 @@ class Store(ctx: Context) {
         get() = p.getString("bar_pos", "bottom") ?: "bottom"
         set(v) { p.edit().putString("bar_pos", v).apply() }
 
+    /** In-app updater: "ask" (Ask once, default) or "auto". */
+    var updateMode: UpdateLogic.Mode
+        get() = UpdateLogic.Mode.parse(p.getString("update_mode", "ask"))
+        set(v) { p.edit().putString("update_mode", UpdateLogic.Mode.encode(v)).apply() }
+
+    /** Version code the user dismissed in Ask-once mode (device-local; 0 = none). */
+    var updateDeclinedCode: Long
+        get() = p.getString("update_declined", "0")?.toLongOrNull() ?: 0L
+        set(v) { p.edit().putString("update_declined", v.toString()).apply() }
+
     /**
      * Phone / mobile: start the player in landscape. Default off — playback starts (and browsing stays) in
      * portrait; a Fullscreen control in the player switches to landscape. Fire TV ignores this.
@@ -296,10 +306,15 @@ class Store(ctx: Context) {
         set(v) { p.edit().putString("keymap", v).apply() }
 
     /** Languages picked for a tab ("movies" / "series"). null = never chosen (show everything). */
-    /** Collapsed Live TV sections (1.56). */
+    /** Collapsed Live TV sections (1.56) and type parents (Sports, News, and the rest). */
     var liveCollapsed: String
         get() = p.getString("live_collapsed", "").orEmpty()
         set(v) { p.edit().putString("live_collapsed", v).apply() }
+
+    /** Last opened type in the Live TV left nav (Sports, News, …). */
+    var liveNavType: String
+        get() = p.getString("live_nav_type", "").orEmpty()
+        set(v) { p.edit().putString("live_nav_type", v).apply() }
 
     fun langs(tab: String): Set<String>? =
         if (!p.contains("langs_$tab")) null else p.getStringSet("langs_$tab", emptySet())?.toSet()
@@ -452,7 +467,7 @@ class Store(ctx: Context) {
         /** Prefs stored in their own sync entries. */
         val STRUCTURED = setOf("fav", "hidden", "custom_cats", "recent", "resume", "lastep", "ch_names")
         /** Never synced. */
-        val LOCAL_ONLY = setOf("fav_ch_migrated")
+        val LOCAL_ONLY = setOf("fav_ch_migrated", "update_declined")
     }
 
     fun cacheWrite(name: String, text: String) { runCatching { File(dir, name).writeText(text) } }

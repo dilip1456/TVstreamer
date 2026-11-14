@@ -82,13 +82,11 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
         LiveModes.sections(rows, info, catTitle, catOrder, if (mode != LiveModes.DEFAULT) repo.folders.items(mode).map { it.key } else null)
     }
     val types = remember(sections) { sections.map { it.type }.distinct() }
-    // List positions: section header index, flat channel list (what the player steps through)
+    // List positions: type + section header index, flat channel list (what the player steps through)
     val collapsed = repo.liveCollapsed
-    val layout = remember(sections, collapsed) {
-        val starts = HashMap<String, Int>(); val typeStart = HashMap<String, Int>()
-        for ((k, i) in LiveCollapse.starts(sections.map { it.key to it.rows.size }, collapsed)) starts[k] = i
-        for (s in sections) typeStart.putIfAbsent(s.type, starts[s.key] ?: 0)
-        Triple(starts, typeStart, sections.flatMap { s -> s.rows.map { it.ch } })
+    val collapseLayout = remember(sections, collapsed) { LiveCollapse.layout(sections, collapsed) }
+    val layout = remember(sections, collapseLayout) {
+        Triple(collapseLayout.sectionStart, collapseLayout.typeStart, sections.flatMap { s -> s.rows.map { it.ch } })
     }
     val flat = layout.third
     val flatPos = remember(flat) { flat.withIndex().associate { it.value.key to it.index } }
@@ -190,24 +188,32 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
     val undoFr = remember { FocusRequester() }
     LaunchedEffect(undo) { if (undo != null) { delay(120); if (tv) runCatching { undoFr.requestFocus() }; delay(5000); undo = null } }
     fun holdGroup(n: LiveModes.Node) { repo.toggleGroup(n.key); undo = n.key to (n.key in repo.hidden) }
-    var expanded by remember { mutableStateOf("") }
+    var expanded by remember { mutableStateOf(repo.liveNavType) }
+    fun openNav(type: String) { expanded = type; repo.rememberNavType(type) }
     fun nodeSections(n: LiveModes.Node) = sections.filter { sc -> sc.type == n.type && when {
         n.region -> sc.rows.any { it.region == n.label }
         n.key == Taxonomy.typeKey(n.type) -> true
         else -> sc.label == n.label || sc.label.startsWith(n.label + " · ")
     } }
     fun jumpNode(n: LiveModes.Node) {
+        if (n.key == Taxonomy.typeKey(n.type) || LiveCollapse.isTypeCollapsed(n.type, collapsed)) {
+            layout.second[n.type]?.let { at -> scope.launch { runCatching { state.animateScrollToItem(at) } } }
+            return
+        }
         val sec = nodeSections(n).firstOrNull() ?: return
         var at = layout.first[sec.key] ?: return
-        if (n.region && sec.key !in collapsed) at += 1 + sec.rows.indexOfFirst { it.region == n.label }.coerceAtLeast(0)
+        if (n.region && sec.key !in collapsed && !LiveCollapse.isTypeCollapsed(n.type, collapsed))
+            at += 1 + sec.rows.indexOfFirst { it.region == n.label }.coerceAtLeast(0)
         scope.launch { runCatching { state.animateScrollToItem(at) } }
     }
+    fun expandAll() { repo.setCollapsed(LiveCollapse.expandAll()) }
+    fun collapseAll() { repo.setCollapsed(LiveCollapse.collapseAll(types)) }
     // Channel / Page up-down jump a whole section and land on its header (1.56)
     fun pageKey(e: androidx.compose.ui.input.key.KeyEvent): Boolean {
         val down = when (e.key) { Key.ChannelDown, Key.PageDown, Key.MediaFastForward -> true; Key.ChannelUp, Key.PageUp, Key.MediaRewind -> false; else -> return false }
         if (e.type != KeyEventType.KeyDown) return true
-        val cur = focusSec.ifEmpty { sections.firstOrNull()?.key.orEmpty() }
-        val k = LiveCollapse.step(sections.map { it.key }, cur, down) ?: return true
+        val cur = focusSec.ifEmpty { collapseLayout.visibleHeaders.firstOrNull().orEmpty() }
+        val k = LiveCollapse.step(collapseLayout.visibleHeaders, cur, down) ?: return true
         val at = layout.first[k] ?: return true
         scope.launch { runCatching { state.scrollToItem(at) }; delay(60); runCatching { headFr(k).requestFocus() } }
         return true
@@ -236,33 +242,52 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
                 }, 16, Pal.Dim, maxLines = 3)
                 else -> LazyColumn(state = state, modifier = Modifier.fillMaxSize().onPreviewKeyEvent { e -> pageKey(e) }, verticalArrangement = Arrangement.spacedBy(2.dp),
                     contentPadding = PaddingValues(bottom = 48.dp)) {
-                    sections.forEachIndexed { si, s ->
-                        val folded = s.key in collapsed
-                        stickyHeader(key = "h|${s.key}") {
-                            SectionHeader(s, folded, tv, Modifier.focusRequester(headFr(s.key))
-                                .onFocusChanged { if (it.isFocused) focusSec = s.key }
-                                .then(if (rail) Modifier.focusProperties { left = navReq("t:" + s.type) } else Modifier),
-                                onToggle = { repo.toggleCollapsed(listOf(s.key)) },
-                                onHold = { LiveModes.nodeForSection(tree, s)?.let { holdGroup(it) } })
+                    val firstVisibleKey = sections.firstOrNull { s ->
+                        !LiveCollapse.isTypeCollapsed(s.type, collapsed) && s.key !in collapsed && s.rows.isNotEmpty()
+                    }?.rows?.first()?.ch?.key
+                    sections.groupBy { it.type }.forEach { (type, group) ->
+                        val tKey = LiveCollapse.typeKey(type)
+                        val typeFolded = tKey in collapsed
+                        val nType = group.sumOf { it.rows.size }
+                        stickyHeader(key = "t|$type") {
+                            TypeHeader(type, nType, typeFolded, tv, Modifier.focusRequester(headFr(tKey))
+                                .onFocusChanged { if (it.isFocused) focusSec = tKey }
+                                .then(if (rail) Modifier.focusProperties { left = navReq("t:$type") } else Modifier),
+                                onToggle = { repo.toggleCollapsed(listOf(tKey)) },
+                                onHold = { tree.firstOrNull { it.type == type }?.let { holdGroup(it) } })
                         }
-                        if (!folded) items(s.rows, key = { r -> "${s.key}|${r.ch.key}" }) { r ->
-                            val ch = r.ch
-                            val first = si == 0 && r === s.rows.first()
-                            ChannelRow(repo, ch, r.on, browseAll, ch.key == repo.nowPlaying, tv, sel?.let { ch.key in it },
-                                Modifier
-                                    .then(if (ch.key == repo.nowPlaying) Modifier.focusRequester(playingFr)
-                                        else if (ch.key == focusKey) Modifier.focusRequester(restoreFr) else Modifier)
-                                    .onFocusChanged { if (it.isFocused) { focusKey = ch.key; focusSec = s.key } }
-                                    .then(if (first) Modifier.focusRequester(firstFr) else Modifier)
-                                    .then(if (rail) Modifier.focusProperties { left = navReq("t:" + s.type) } else Modifier),
-                                onClick = { sel?.let { sel = LiveSelect.toggle(it, ch.key) } ?: playAt(ch) },
-                                onKeyOk = { keyOk(ch) },
-                                onToggle = { if (!tv) { focusSec = s.key; sel = LiveSelect.toggle(sel ?: emptySet(), ch.key) } else repo.toggleOn(ch) },
-                                onSetShown = {
-                                    repo.setOnRows(listOf(r), !r.on)
-                                    toast(ctx, LiveSelect.summary(1, !r.on, mode))
-                                },
-                                onMenu = { if (sel != null) runCatching { barFr.requestFocus() } else menuCh = ch })
+                        if (!typeFolded) {
+                            val subs = LiveCollapse.showSubs(group)
+                            group.forEach { s ->
+                                val folded = s.key in collapsed
+                                if (subs) stickyHeader(key = "h|${s.key}") {
+                                    SectionHeader(s, folded, tv, Modifier.focusRequester(headFr(s.key))
+                                        .onFocusChanged { if (it.isFocused) focusSec = s.key }
+                                        .then(if (rail) Modifier.focusProperties { left = navReq("t:" + s.type) } else Modifier),
+                                        onToggle = { repo.toggleCollapsed(listOf(s.key)) },
+                                        onHold = { LiveModes.nodeForSection(tree, s)?.let { holdGroup(it) } },
+                                        underType = true)
+                                }
+                                if (!folded) items(s.rows, key = { r -> "${s.key}|${r.ch.key}" }) { r ->
+                                    val ch = r.ch
+                                    val first = ch.key == firstVisibleKey
+                                    ChannelRow(repo, ch, r.on, browseAll, ch.key == repo.nowPlaying, tv, sel?.let { ch.key in it },
+                                        Modifier
+                                            .then(if (ch.key == repo.nowPlaying) Modifier.focusRequester(playingFr)
+                                                else if (ch.key == focusKey) Modifier.focusRequester(restoreFr) else Modifier)
+                                            .onFocusChanged { if (it.isFocused) { focusKey = ch.key; focusSec = s.key } }
+                                            .then(if (first) Modifier.focusRequester(firstFr) else Modifier)
+                                            .then(if (rail) Modifier.focusProperties { left = navReq("t:" + s.type) } else Modifier),
+                                        onClick = { sel?.let { sel = LiveSelect.toggle(it, ch.key) } ?: playAt(ch) },
+                                        onKeyOk = { keyOk(ch) },
+                                        onToggle = { if (!tv) { focusSec = s.key; sel = LiveSelect.toggle(sel ?: emptySet(), ch.key) } else repo.toggleOn(ch) },
+                                        onSetShown = {
+                                            repo.setOnRows(listOf(r), !r.on)
+                                            toast(ctx, LiveSelect.summary(1, !r.on, mode))
+                                        },
+                                        onMenu = { if (sel != null) runCatching { barFr.requestFocus() } else menuCh = ch })
+                                }
+                            }
                         }
                     }
                 }
@@ -286,11 +311,11 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
         }
     }
 
-    // TV: the same top menu as Home / Movies / Series, so Up from the list reaches it. Back in the list goes to it first.
+    // TV: the same top menu as Home / Movies / Series, so Up from the list reaches it.
+    // Back leaves Live TV in one press (no wasted "focus the tabs first" step).
     val liveTabFr = remember { FocusRequester() }
     var headerFocused by remember { mutableStateOf(false) }
     val header = tv && !AppUi.phoneNav
-    BackHandler(header && !headerFocused && sel == null && undo == null && !Popups.any) { runCatching { liveTabFr.requestFocus() } }
     if (rail) Column(Modifier.fillMaxSize()) {
         if (header) Row(
             Modifier.fillMaxWidth().padding(start = 48.dp, end = 48.dp, top = 14.dp, bottom = 2.dp).onFocusChanged { headerFocused = it.hasFocus },
@@ -325,8 +350,11 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
                     tree.forEach { n ->
                         val open = expanded == n.type
                         NavEntry(LiveGroups.icon(n.type), n.label, navOpen, Modifier.focusRequester(navReq("t:${n.type}")).then(toList),
-                            count = n.count, dim = n.hidden, arrow = if (n.children.isEmpty()) "" else if (open) "▾" else "▸",
-                            onFocus = { expanded = n.type; jumpNode(n) }, onLongClick = { holdGroup(n) }, onClick = { expanded = if (open) "" else n.type; jumpNode(n) })
+                            count = n.count, dim = n.hidden,
+                            arrow = if (n.children.isEmpty()) (if (LiveCollapse.isTypeCollapsed(n.type, collapsed)) "▸" else "▾")
+                                    else if (open) "▾" else "▸",
+                            onFocus = { openNav(n.type); jumpNode(n) }, onLongClick = { holdGroup(n) },
+                            onClick = { openNav(n.type); repo.toggleCollapsed(listOf(LiveCollapse.typeKey(n.type))); jumpNode(n) })
                         if (open && navOpen) n.children.forEachIndexed { ci, c ->
                             if (c.region && (ci == 0 || !n.children[ci - 1].region)) Label("Regions", 11, Pal.Dim, Modifier.padding(start = 44.dp, top = 6.dp))
                             NavEntry(if (c.region) "◦" else "·", c.label, navOpen, Modifier.padding(start = 22.dp), count = c.count, dim = c.hidden, small = true,
@@ -338,7 +366,7 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
                 }
             }
             Column(Modifier.weight(1f).fillMaxHeight().padding(start = 12.dp, end = 32.dp, top = 18.dp)) {
-                Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(bottom = 10.dp)) {
+                Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp)) {
                     Label("Live TV", Ts.TITLE, Pal.Text)
                     Label(listOfNotNull(
                         if (mode == LiveModes.DEFAULT) null else mode,
@@ -346,6 +374,9 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
                         langs?.sorted()?.joinToString(", ")?.let { if (it.length > 40) "${langs.size} languages" else it },
                         if (view != LiveModes.View.ACTIVE) view.label.lowercase() else null
                     ).joinToString("  ·  "), 14, Pal.Dim, Modifier.padding(bottom = 4.dp))
+                    Spacer(Modifier.weight(1f))
+                    PillButton("Expand all", { expandAll() }, size = 13, compact = true)
+                    PillButton("Collapse all", { collapseAll() }, size = 13, compact = true)
                 }
                 ListPane(Modifier.weight(1f))
             }
@@ -357,6 +388,10 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
                 PillButton((if (mode == LiveModes.DEFAULT) "Default" else mode) + " ▾", { popup = "modes" }, size = 13)
                 PillButton("☰", { popup = "sections" }, size = 13)
                 PillButton("⋮", { popup = "more" }, size = 13)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
+                PillButton("Expand all", { expandAll() }, size = 13, compact = true)
+                PillButton("Collapse all", { collapseAll() }, size = 13, compact = true)
             }
             ListPane(Modifier.weight(1f))
         }
@@ -370,6 +405,8 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
         } }, focusKey = "sections", onClose = { popup = null })
         "more" -> ChoiceDialog("Live TV", listOf(
             "Languages…" to { popup = "langs" }) + viewOpts { popup = null } + listOf(
+            "Expand all" to { expandAll(); popup = null },
+            "Collapse all" to { collapseAll(); popup = null },
             "Search" to { popup = null; onSearch() }
         ), focusKey = "more", onClose = { popup = null })
     }
@@ -402,7 +439,27 @@ private fun holdOkKey(e: androidx.compose.ui.input.key.KeyEvent, held: Boolean, 
 }
 
 @Composable
-private fun SectionHeader(s: LiveModes.Section, folded: Boolean, tv: Boolean, modifier: Modifier, onToggle: () -> Unit, onHold: () -> Unit) {
+private fun TypeHeader(type: String, count: Int, folded: Boolean, tv: Boolean, modifier: Modifier, onToggle: () -> Unit, onHold: () -> Unit) {
+    var f by remember { mutableStateOf(false) }
+    var held by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(10.dp)
+    Row(Modifier.fillMaxWidth().background(Pal.Bg).padding(top = 8.dp, bottom = 2.dp).then(modifier).popupOpener()
+            .onFocusChanged { f = it.isFocused }
+            .onPreviewKeyEvent { e -> holdOkKey(e, held, { held = it }, onHold) }
+            .clip(shape).background(if (f) Pal.FocusBg else Color.Transparent)
+            .then(if (f) Modifier.border(2.dp, Pal.Gold, shape) else Modifier)
+            .combinedClickable(onClick = onToggle, onLongClick = onHold)
+            .padding(horizontal = 10.dp, vertical = if (tv) 8.dp else 6.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Label(if (folded) "▸" else "▾", Ts.SECONDARY, if (f) Pal.Gold else Pal.Dim)
+        Label(type.uppercase(), Ts.HEAD, Pal.GoldText, Modifier.weight(1f, fill = false))
+        Label("$count", Ts.CAPTION, Pal.Dim)
+    }
+}
+
+@Composable
+private fun SectionHeader(s: LiveModes.Section, folded: Boolean, tv: Boolean, modifier: Modifier, onToggle: () -> Unit, onHold: () -> Unit,
+                          underType: Boolean = false) {
     var f by remember { mutableStateOf(false) }
     var held by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(10.dp)
@@ -413,11 +470,11 @@ private fun SectionHeader(s: LiveModes.Section, folded: Boolean, tv: Boolean, mo
             .clip(shape).background(if (f) Pal.FocusBg else Color.Transparent)
             .then(if (f) Modifier.border(2.dp, Pal.Gold, shape) else Modifier)
             .combinedClickable(onClick = onToggle, onLongClick = onHold)
-            .padding(horizontal = 10.dp, vertical = if (tv) 6.dp else 5.dp),
+            .padding(start = if (underType) 22.dp else 10.dp, end = 10.dp, top = if (tv) 6.dp else 5.dp, bottom = if (tv) 6.dp else 5.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Label(if (folded) "▸" else "▾", Ts.SECONDARY, if (f) Pal.Gold else Pal.Dim)
-        Label(s.type.uppercase(), Ts.HEAD, Pal.GoldText)
-        if (!s.label.equals(s.type, true)) Label(s.label, Ts.HEAD, Pal.Text, Modifier.weight(1f, fill = false))
+        if (!underType) Label(s.type.uppercase(), Ts.HEAD, Pal.GoldText)
+        Label(if (underType || !s.label.equals(s.type, true)) s.label else s.type, Ts.HEAD, Pal.Text, Modifier.weight(1f, fill = false))
         Label("${s.rows.size}", Ts.CAPTION, Pal.Dim)
     }
 }
@@ -507,7 +564,7 @@ private fun ChannelRow(repo: Repo, ch: Item, on: Boolean, browseAll: Boolean, pl
                 else Label(ChannelTitle.initials(name), Ts.CAPTION, Pal.GoldText)
             }
             Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Label(name, Ts.ROW, if (playing) Pal.GoldText else Pal.Text, Modifier.weight(1f, fill = false))
+                Label(name, Ts.ROW, if (playing) Pal.GoldText else Pal.Text, Modifier.weight(1f))
                 if (lang.isNotEmpty()) Label(lang, Ts.CAPTION, Pal.Dim)
                 if (playing) Label("● NOW", Ts.CAPTION, Pal.Gold)
             }
@@ -519,13 +576,19 @@ private fun ChannelRow(repo: Repo, ch: Item, on: Boolean, browseAll: Boolean, pl
         row()
         return
     }
-    // Phone: swipe the row left to reveal Hide / Show and commit past the threshold (toggle visibility).
+    // Phone: swipe the row left to reveal Hide / Show and commit past the threshold.
+    // The reveal is only drawn while swiping, and the row has an opaque background, so the
+    // affordance cannot show through and overlap the Hide / Show chip at rest.
     Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))) {
-        Box(Modifier.matchParentSize().background(if (on) Color(0x44C04545) else Pal.Soft2), contentAlignment = Alignment.CenterEnd) {
-            Label(if (on) "Hide" else "Show", Ts.SECONDARY, Color.White, Modifier.padding(end = 18.dp))
+        if (swipe < 0f) {
+            Box(Modifier.matchParentSize().background(if (on) Color(0x44C04545) else Pal.Soft2), contentAlignment = Alignment.CenterEnd) {
+                Label(if (on) "Hide" else "Show", Ts.SECONDARY, Color.White, Modifier.padding(end = 18.dp))
+            }
         }
         Box(
             Modifier
+                .fillMaxWidth()
+                .background(Pal.Bg)
                 .offset { IntOffset(swipe.roundToInt(), 0) }
                 .draggable(
                     state = drag,

@@ -335,10 +335,7 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
 
     val hPad = if (isTv) 48.dp else 14.dp
     val state = remember(mode) { repo.listStates.getOrPut(screenKey) { LazyListState() } }
-    // TV Back inside the page: first back to the top menu; Back on the menu then leaves the tab as before
-    androidx.activity.compose.BackHandler(enabled = isTv && !AppUi.phoneNav && !navFocused && !Popups.any) {
-        scope.launch { runCatching { state.scrollToItem(0) }; delay(30); runCatching { navFr.requestFocus() } }
-    }
+    // Back leaves the tab in one press (no wasted "focus the top menu first" step). Up still reaches the tabs.
     Box(Modifier.fillMaxSize().background(Pal.Bg)) {
         // Soft gold glow at the top (one static gradient: no blur, cheap on Fire TV)
         if (Theme.dark) Box(Modifier.fillMaxWidth().height(420.dp).background(Brush.verticalGradient(listOf(Pal.Gold.copy(alpha = 0.10f), Color.Transparent))))
@@ -361,10 +358,7 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                 Triple("Settings", "settings") { go(Screen.Settings) },
                 Triple("Update", "update") {
                     updateMsg = "Checking for updates..."
-                    scope.launch {
-                        val code = try { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionCode } catch (e: Exception) { 1 }
-                        updateMsg = Updater.checkAndUpdate(ctx, code)
-                    }
+                    scope.launch { updateMsg = Updater.check(ctx, repo.store, manual = true) }
                 }
             )
             Column(Modifier.fillMaxWidth().padding(start = hPad, end = hPad, top = if (isTv) 18.dp else 10.dp, bottom = if (isTv) 10.dp else 6.dp)) {

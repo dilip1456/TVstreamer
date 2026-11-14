@@ -172,11 +172,8 @@ fun AccountMenu(store: Store, go: (Screen) -> Unit, onClose: () -> Unit) {
             Row1("Preferences (languages, remote, playback, sync)", { onClose(); go(Screen.Profile) })
             if (Cloud.signedIn) Row1(if (Cloud.busy) "Syncing..." else "Sync now" + syncAgo(), { Cloud.syncNow() })
             Row1("Check for update", {
-                msg = "Checking for updates..."
-                scope.launch {
-                    val code = try { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionCode } catch (e: Exception) { 1 }
-                    msg = Updater.checkAndUpdate(ctx, code)
-                }
+                msg = "Checking for updates…"
+                scope.launch { msg = Updater.check(ctx, store, manual = true).ifEmpty { Updater.statusLine() } }
             })
             if (Cloud.signedIn) Row1("Sign out", { Cloud.signOut(); msg = "Signed out. Data on this device is kept." })
             else Row1("Sign in with Google", { onClose(); go(Screen.Account) })
@@ -238,11 +235,8 @@ fun ProfileScreen(repo: Repo, go: (Screen) -> Unit) {
         item { Row1("Settings (portal, MAC, more)", { go(Screen.Settings) }) }
         item {
             PillButton("Check for update", {
-                msg = "Checking for updates..."
-                scope.launch {
-                    val code = try { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionCode } catch (e: Exception) { 1 }
-                    msg = Updater.checkAndUpdate(ctx, code)
-                }
+                msg = "Checking for updates…"
+                scope.launch { msg = Updater.check(ctx, repo.store, manual = true).ifEmpty { Updater.statusLine() } }
             })
         }
         if (msg.isNotEmpty()) item { Label(msg, 14, Pal.Warn, maxLines = 4) }

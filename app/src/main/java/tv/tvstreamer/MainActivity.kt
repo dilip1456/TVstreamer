@@ -174,8 +174,7 @@ fun App(repo: Repo) {
     var fromSearch by remember { mutableStateOf<Screen?>(null) }
     LaunchedEffect(Unit) {
         repo.load()
-        val code = try { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionCode } catch (e: Exception) { 1 }
-        val msg = Updater.checkAndUpdate(ctx, code, interactive = false)
+        val msg = Updater.onLaunch(ctx, repo.store)
         if (msg.isNotEmpty() && !msg.startsWith("Up to date")) repo.status = msg
     }
 
@@ -315,6 +314,12 @@ fun App(repo: Repo) {
                 tick++
             }, Modifier.align(Alignment.BottomCenter))
             if (AppUi.accountMenu && cur !is Screen.Play) AccountMenu(repo.store, go) { AppUi.accountMenu = false }
+            // Ask-once: one in-app confirm after a silent download. Not shown over the player.
+            Updater.pending?.let { p ->
+                if (cur !is Screen.Play) ChoiceDialog("Update ${p.label}", listOf("Install now" to { Updater.approve(ctx, repo.store) })) {
+                    Updater.decline(repo.store)
+                }
+            }
         }
     }
 }

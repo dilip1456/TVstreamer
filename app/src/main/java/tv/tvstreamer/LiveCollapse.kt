@@ -1,21 +1,78 @@
 package tv.tvstreamer
 
 /**
- * Collapsible Live TV sections (1.56). OK on a section header, or on a sub-category in the left tree, folds its
- * channels away or shows them again. The collapsed section keys are saved, so the list looks the same next time.
+ * Collapsible Live TV sections. OK on a type header (Sports, News, Kids, …) folds every sub-category and its
+ * channels away; OK on a sub-category header folds just that group. Expand all / Collapse all cover every type.
+ * The collapsed keys are saved, so the list looks the same next time.
  */
 object LiveCollapse {
+    /** Parent-type key, distinct from a section key such as "Sports/Cricket". */
+    fun typeKey(type: String) = "$type/*"
+
+    fun isTypeCollapsed(type: String, collapsed: Set<String>) = typeKey(type) in collapsed
+
+    /**
+     * Whether a type shows a header for each of its [sections]. A lone section whose label is the type name
+     * (e.g. a single "Religious" block) uses only the type header.
+     */
+    fun showSubs(sections: List<LiveModes.Section>): Boolean =
+        sections.size > 1 || sections.firstOrNull()?.let { !it.label.equals(it.type, ignoreCase = true) } == true
+
     fun toggle(set: Set<String>, keys: Collection<String>): Set<String> =
         if (keys.isEmpty()) set else if (keys.all { it in set }) set - keys.toSet() else set + keys
 
     fun encode(set: Set<String>): String = set.sorted().joinToString("\n")
     fun decode(s: String?): Set<String> = s.orEmpty().split('\n').filter { it.isNotBlank() }.toSet()
 
+    fun collapseAll(types: Collection<String>): Set<String> = types.map { typeKey(it) }.toSet()
+    fun expandAll(): Set<String> = emptySet()
+
     /** List index of each section header given which sections are collapsed (a collapsed section is just its header). */
     fun starts(sections: List<Pair<String, Int>>, collapsed: Set<String>): Map<String, Int> {
         val out = LinkedHashMap<String, Int>(); var i = 0
         for ((k, n) in sections) { out[k] = i; i += 1 + if (k in collapsed) 0 else n }
         return out
+    }
+
+    /**
+     * Positions in the Live TV list when each type has a parent header, and collapsing that type hides every
+     * sub-category header and their channels (Sports, News, Kids, and the rest use the same rule).
+     */
+    data class Layout(
+        val typeStart: Map<String, Int>,
+        val sectionStart: Map<String, Int>,
+        val size: Int,
+        val visibleHeaders: List<String>
+    )
+
+    fun layout(sections: List<LiveModes.Section>, collapsed: Set<String>): Layout {
+        var i = 0
+        val typeStart = LinkedHashMap<String, Int>()
+        val sectionStart = LinkedHashMap<String, Int>()
+        val headers = ArrayList<String>()
+        for ((type, group) in sections.groupBy { it.type }) {
+            val tk = typeKey(type)
+            typeStart[type] = i
+            headers += tk
+            i += 1
+            val subs = showSubs(group)
+            if (tk in collapsed) {
+                for (s in group) sectionStart[s.key] = typeStart.getValue(type)
+                continue
+            }
+            if (!subs) {
+                val s = group.first()
+                sectionStart[s.key] = typeStart.getValue(type)
+                i += s.rows.size
+                continue
+            }
+            for (s in group) {
+                sectionStart[s.key] = i
+                headers += s.key
+                i += 1 + if (s.key in collapsed) 0 else s.rows.size
+            }
+        }
+        return Layout(typeStart, sectionStart, i, headers)
     }
 
     /** Section to jump to with Channel / Page up-down: the next (or previous) one from [current]. */
