@@ -56,14 +56,14 @@ fun NowNext(repo: Repo, ch: Item, modifier: Modifier = Modifier) {
     val next = Epg.next(progs, t)
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         if (now != null) {
-            Text(now.title, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(now.title, color = Color.White, fontSize = Ts.ROW.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(hhmm(now.start), color = Pal.Dim, fontSize = 12.sp)
+                Text(hhmm(now.start), color = Pal.Dim, fontSize = Ts.CAPTION.sp)
                 ProgressLine(now.progress(t), Modifier.weight(1f))
-                Text(hhmm(now.stop), color = Pal.Dim, fontSize = 12.sp)
+                Text(hhmm(now.stop), color = Pal.Dim, fontSize = Ts.CAPTION.sp)
             }
         }
-        if (next != null) Text("Next  ${hhmm(next.start)}  ${next.title}", color = Pal.Dim, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        if (next != null) Text("Next  ${hhmm(next.start)}  ${next.title}", color = Pal.Dim, fontSize = Ts.SECONDARY.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -73,10 +73,10 @@ fun InfoDialog(title: String, text: String, onClose: () -> Unit) {
     val fr = remember { FocusRequester() }
     LaunchedEffect(Unit) { delay(60); runCatching { fr.requestFocus() } }
     PopupFrame(onClose) {
-        Column(Modifier.widthIn(min = 320.dp, max = 620.dp).background(Pal.Surface, RoundedCornerShape(18.dp)).padding(22.dp),
+        Column(Modifier.widthIn(min = 320.dp, max = 620.dp).background(Pal.Surface, RoundedCornerShape(Radii.panel)).border(1.dp, Color(0x22D4AF37), RoundedCornerShape(Radii.panel)).padding(22.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(title, color = Pal.Text, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-            Text(text, color = Pal.Dim, fontSize = 13.sp, modifier = Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()))
+            Text(title, color = Pal.Text, fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold)
+            Text(text, color = Pal.Dim, fontSize = Ts.SECONDARY.sp, modifier = Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()))
             MenuEntry("Close", onClose, Modifier.focusRequester(fr), dim = true)
         }
     }
@@ -101,7 +101,7 @@ fun ChannelPanel(repo: Repo, list: List<Item>, playing: Int, title: String = "Ch
             .collect { repo.epg.want(it) }
     }
     PopupFrame(onClose, alignment = Alignment.CenterStart, scrim = Color(0x26000000)) {
-        Column(Modifier.padding(horizontal = 20.dp).fillMaxHeight(0.84f).width(360.dp).clip(RoundedCornerShape(18.dp)).background(Color(0xB80E0E14)).border(1.dp, Color(0x1FFFFFFF), RoundedCornerShape(18.dp)).padding(vertical = 14.dp)) {
+        Column(Modifier.padding(horizontal = 20.dp).fillMaxHeight(0.84f).width(360.dp).clip(RoundedCornerShape(Radii.panel)).background(Pal.Surface.copy(alpha = 0.94f)).border(1.dp, Color(0x22D4AF37), RoundedCornerShape(Radii.panel)).padding(vertical = 14.dp)) {
             Text(title, color = Pal.Text, fontSize = Ts.ROW.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 18.dp))
             Text("OK play · ◀ ▶ later shows", color = Pal.Dim, fontSize = Ts.CAPTION.sp, modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp))
             LazyColumn(state = state, contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -123,7 +123,7 @@ fun ChannelPanel(repo: Repo, list: List<Item>, playing: Int, title: String = "Ch
                                     else -> false
                                 }
                             }
-                            .clip(RoundedCornerShape(10.dp))
+                            .clip(RoundedCornerShape(Radii.row))
                             .background(if (f) Color(0x26FFFFFF) else Color.Transparent)
                             .clickable {
                                 val p = shown
@@ -135,20 +135,20 @@ fun ChannelPanel(repo: Repo, list: List<Item>, playing: Int, title: String = "Ch
                             .padding(horizontal = 10.dp, vertical = 6.dp)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            if (ch.num > 0) Text("${ch.num}", color = Pal.Dim, fontSize = 12.sp, modifier = Modifier.widthIn(min = 34.dp))
-                            Text(ChannelTitle.pretty(ch.name), color = if (i == playing) Pal.Gold else Pal.Text, fontSize = 14.sp,
+                            if (ch.num > 0) Text("${ch.num}", color = Pal.Dim, fontSize = Ts.CAPTION.sp, modifier = Modifier.widthIn(min = 34.dp))
+                            Text(ChannelTitle.pretty(ch.name), color = if (i == playing) Pal.Gold else Pal.Text, fontSize = Ts.HEAD.sp,
                                 fontWeight = if (f) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f))
-                            if (i == playing) Text("● NOW", color = Pal.Gold, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            if (i == playing) Text("● NOW", color = Pal.Gold, fontSize = Ts.CAPTION.sp, fontWeight = FontWeight.Bold)
                         }
                         if (shown != null) {
                             val on = shown.isOn(t)
                             val label = (if (on) "Now" else hhmm(shown.start)) + "  " + shown.title +
                                 (if (!on && repo.hasReminder(ch, shown)) "  ⏰" else "")
-                            Text(label, color = if (f) Pal.Text else Pal.Dim, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(label, color = if (f) Pal.Text else Pal.Dim, fontSize = Ts.CAPTION.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             if (on) ProgressLine(shown.progress(t), Modifier.fillMaxWidth().padding(top = 4.dp))
                             if (f && step > 0) Text(if (repo.hasReminder(ch, shown)) "OK: remove reminder" else "OK: remind me",
-                                color = Pal.Gold, fontSize = 11.sp)
+                                color = Pal.Gold, fontSize = Ts.CAPTION.sp)
                         }
                     }
                 }
@@ -308,12 +308,12 @@ fun GuidePanel(repo: Repo, ch: Item, onClose: () -> Unit) {
     val loaded = repo.epg.guide[ch.id] != null
     LaunchedEffect(progs.isNotEmpty()) { delay(80); runCatching { first.requestFocus() } }
     PopupFrame(onClose, alignment = Alignment.CenterEnd, scrim = Color(0x26000000)) {
-        Column(Modifier.padding(horizontal = 20.dp).fillMaxHeight(0.84f).width(380.dp).clip(RoundedCornerShape(18.dp)).background(Color(0xB80E0E14)).border(1.dp, Color(0x1FFFFFFF), RoundedCornerShape(18.dp)).padding(vertical = 14.dp)) {
-            Text(ChannelTitle.pretty(ch.name), color = Pal.Text, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1,
+        Column(Modifier.padding(horizontal = 20.dp).fillMaxHeight(0.84f).width(380.dp).clip(RoundedCornerShape(Radii.panel)).background(Pal.Surface.copy(alpha = 0.94f)).border(1.dp, Color(0x22D4AF37), RoundedCornerShape(Radii.panel)).padding(vertical = 14.dp)) {
+            Text(ChannelTitle.pretty(ch.name), color = Pal.Text, fontSize = Ts.ROW.sp, fontWeight = FontWeight.SemiBold, maxLines = 1,
                 overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 18.dp))
-            Text("Schedule  ·  OK on a later show: remind me", color = Pal.Dim, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp))
+            Text("Schedule  ·  OK on a later show: remind me", color = Pal.Dim, fontSize = Ts.CAPTION.sp, modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp))
             if (progs.isEmpty()) {
-                Text(if (loaded) "No schedule for this channel." else "Loading the schedule…", color = Pal.Dim, fontSize = 15.sp,
+                Text(if (loaded) "No schedule for this channel." else "Loading the schedule…", color = Pal.Dim, fontSize = Ts.ROW.sp,
                     modifier = Modifier.padding(24.dp))
                 MenuEntry("Close", onClose, Modifier.padding(horizontal = 14.dp).focusRequester(first), dim = true)
             } else LazyColumn(contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -325,7 +325,7 @@ fun GuidePanel(repo: Repo, ch: Item, onClose: () -> Unit) {
                         Modifier.fillMaxWidth().then(if (i == 0) Modifier.focusRequester(first) else Modifier)
                             .popupOpener()
                             .onFocusChanged { f = it.isFocused }
-                            .clip(RoundedCornerShape(10.dp))
+                            .clip(RoundedCornerShape(Radii.row))
                             .background(if (f) Color(0x26FFFFFF) else Color.Transparent)
                             .clickable {
                                 if (on) onClose() else {
@@ -336,21 +336,21 @@ fun GuidePanel(repo: Repo, ch: Item, onClose: () -> Unit) {
                             .padding(horizontal = 10.dp, vertical = 6.dp)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Text(if (on) "NOW" else hhmm(p.start), color = if (on) Pal.Gold else Pal.Dim, fontSize = 12.sp,
+                            Text(if (on) "NOW" else hhmm(p.start), color = if (on) Pal.Gold else Pal.Dim, fontSize = Ts.CAPTION.sp,
                                 fontWeight = if (on) FontWeight.Bold else FontWeight.Normal, modifier = Modifier.widthIn(min = 56.dp))
-                            Text(p.title, color = Pal.Text, fontSize = 14.sp, fontWeight = if (f || on) FontWeight.SemiBold else FontWeight.Normal,
+                            Text(p.title, color = Pal.Text, fontSize = Ts.HEAD.sp, fontWeight = if (f || on) FontWeight.SemiBold else FontWeight.Normal,
                                 maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                            if (reminded) Text("⏰", fontSize = 12.sp)
+                            if (reminded) Text("⏰", fontSize = Ts.CAPTION.sp)
                         }
                         if (on) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
                             modifier = Modifier.padding(top = 6.dp)) {
-                            Text(hhmm(p.start), color = Pal.Dim, fontSize = 11.sp)
+                            Text(hhmm(p.start), color = Pal.Dim, fontSize = Ts.CAPTION.sp)
                             ProgressLine(p.progress(t), Modifier.weight(1f))
-                            Text(hhmm(p.stop), color = Pal.Dim, fontSize = 11.sp)
+                            Text(hhmm(p.stop), color = Pal.Dim, fontSize = Ts.CAPTION.sp)
                         }
-                        if (f && p.desc.isNotBlank()) Text(p.desc, color = Pal.Dim, fontSize = 12.sp, maxLines = 3, overflow = TextOverflow.Ellipsis,
+                        if (f && p.desc.isNotBlank()) Text(p.desc, color = Pal.Dim, fontSize = Ts.CAPTION.sp, maxLines = 3, overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.padding(top = 4.dp))
-                        if (f && !on) Text(if (reminded) "OK: remove reminder" else "OK: remind me", color = Pal.Gold, fontSize = 11.sp)
+                        if (f && !on) Text(if (reminded) "OK: remove reminder" else "OK: remind me", color = Pal.Gold, fontSize = Ts.CAPTION.sp)
                     }
                 }
             }
@@ -377,27 +377,27 @@ fun LiveInfoBar(repo: Repo, ch: Item, pos: Int, count: Int, isTv: Boolean, modif
         verticalArrangement = Arrangement.spacedBy(if (isTv) 4.dp else 6.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (ch.num > 0) Text("${ch.num}", color = Pal.Gold, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-            Text(ChannelTitle.pretty(ch.name), color = Color.White, fontSize = if (isTv) 16.sp else 14.sp, fontWeight = FontWeight.SemiBold,
+            if (ch.num > 0) Text("${ch.num}", color = Pal.Gold, fontSize = Ts.HEAD.sp, fontWeight = FontWeight.Bold)
+            Text(ChannelTitle.pretty(ch.name), color = Color.White, fontSize = Ts.ROW.sp, fontWeight = FontWeight.SemiBold,
                 maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = if (isTv) Modifier.widthIn(max = 260.dp) else Modifier.weight(1f))
             if (isTv) {
                 Text(now?.title ?: if (entry == null) "Loading guide…" else "No guide", color = if (now != null) Color.White else Pal.Dim,
-                    fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                if (next != null) Text("Next ${hhmm(next.start)}  ${next.title}", color = Pal.Dim, fontSize = 12.sp, maxLines = 1,
+                    fontSize = Ts.HEAD.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                if (next != null) Text("Next ${hhmm(next.start)}  ${next.title}", color = Pal.Dim, fontSize = Ts.CAPTION.sp, maxLines = 1,
                     overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 340.dp))
             }
-            if (count > 1 && isTv) Text("${pos + 1}/$count", color = Pal.Dim, fontSize = 11.sp)
+            if (count > 1 && isTv) Text("${pos + 1}/$count", color = Pal.Dim, fontSize = Ts.CAPTION.sp)
         }
         if (!isTv) {
             Text(now?.title ?: if (entry == null) "Loading guide…" else "No guide", color = if (now != null) Color.White else Pal.Dim,
-                fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (next != null) Text("Next ${hhmm(next.start)}  ${next.title}", color = Pal.Dim, fontSize = 12.sp, maxLines = 1,
+                fontSize = Ts.SECONDARY.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (next != null) Text("Next ${hhmm(next.start)}  ${next.title}", color = Pal.Dim, fontSize = Ts.CAPTION.sp, maxLines = 1,
                 overflow = TextOverflow.Ellipsis)
         }
         if (now != null) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(hhmm(now.start), color = Pal.Dim, fontSize = 11.sp)
+            Text(hhmm(now.start), color = Pal.Dim, fontSize = Ts.CAPTION.sp)
             ProgressLine(now.progress(t), Modifier.weight(1f))
-            Text(hhmm(now.stop), color = Pal.Dim, fontSize = 11.sp)
+            Text(hhmm(now.stop), color = Pal.Dim, fontSize = Ts.CAPTION.sp)
         }
         // Phone: wrap so Fullscreen / Channels / Schedule / more are not squashed into one tight row
         if (actions != null) ButtonFlow(gapDp = 8) { actions() }

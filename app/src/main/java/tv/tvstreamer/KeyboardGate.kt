@@ -22,7 +22,7 @@ import kotlinx.coroutines.delay
  * [modifier] (size, focus requesters) goes on the outer frame; [field] gets the modifier for the TextField itself.
  */
 @Composable
-fun KeyboardGate(modifier: Modifier = Modifier, enabled: Boolean = rememberIsTv(), shape: Shape = RoundedCornerShape(8.dp),
+fun KeyboardGate(modifier: Modifier = Modifier, enabled: Boolean = rememberIsTv(), shape: Shape = RoundedCornerShape(Radii.field),
                  field: @Composable (Modifier) -> Unit) {
     if (!enabled) { field(modifier); return }
     val kb = LocalSoftwareKeyboardController.current

@@ -4,6 +4,7 @@ package tv.tvstreamer
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -411,9 +412,9 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                                         langs.size <= 3 -> "🌐  " + langs.sorted().joinToString(", ")
                                         else -> "🌐  ${langs.size} languages"
                                     }
-                                    PillButton(label, { go(Screen.Languages(mode, Screen.Home)) }, size = 14, primary = langs.isNullOrEmpty())
+                                    PillButton(label, { go(Screen.Languages(mode, Screen.Home)) }, size = Ts.HEAD, primary = langs.isNullOrEmpty())
                                 }
-                                if (!langs.isNullOrEmpty()) item(key = "sort") { PillButton("⇅  " + Sorts.label(sort), { sortMenu = true }, size = 14) }
+                                if (!langs.isNullOrEmpty()) item(key = "sort") { PillButton("⇅  " + Sorts.label(sort), { sortMenu = true }, size = Ts.HEAD) }
                             }
                         }
                         if (lib.loading) {
@@ -544,7 +545,7 @@ private fun Hero(repo: Repo, raw: Item, isTv: Boolean, hPad: Dp, playLabel: Stri
     // Any key press inside the banner pauses the rotation for a while; the buttons stay the same composables, so a
     // slide change never moves D-pad focus
     // A rounded hero card (Netflix TV style) inset from the screen edges; full-bleed on phones
-    val card = if (isTv) Modifier.padding(horizontal = hPad).clip(RoundedCornerShape(22.dp)) else Modifier
+    val card = if (isTv) Modifier.padding(horizontal = hPad).clip(RoundedCornerShape(Radii.panel)) else Modifier
     val backdrop = BackdropArt.distinct(meta?.backdrop, item.img)
     Box(Modifier.fillMaxWidth().then(card).height(if (isTv) 360.dp else 260.dp)
         .onPreviewKeyEvent { if (it.type == KeyEventType.KeyDown) onTouch(); false }) {
@@ -566,7 +567,7 @@ private fun Hero(repo: Repo, raw: Item, isTv: Boolean, hPad: Dp, playLabel: Stri
                 Text(name, color = Pal.Text, fontSize = if (isTv) Ts.DISPLAY.sp else Ts.TITLE.sp, fontWeight = FontWeight.SemiBold,
                     letterSpacing = (-0.3).sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 MetaLine(item)
-                if (item.desc.isNotEmpty()) Text(item.desc, color = Pal.Desc, fontSize = if (isTv) 15.sp else 13.sp, maxLines = 3,
+                if (item.desc.isNotEmpty()) Text(item.desc, color = Pal.Desc, fontSize = Ts.SECONDARY.sp, maxLines = 3,
                     overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth(if (isTv) 0.8f else 1f))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                     PillButton(playLabel.ifEmpty { if (item.isSeries) "▶  Episodes" else "▶  Play" }, onPlay, playModifier.onFocusChanged { if (it.isFocused) Keys.focused = raw }, primary = true)
@@ -624,7 +625,7 @@ private fun ShelfRow(repo: Repo, screen: String, shelf: Shelf, isTv: Boolean, hP
                 // Phones: "⋮" next to the title opens the row menu (move / hide). TV: Menu (or long-press OK) on any card in
                 // the row opens the same menu, so Up / Down between rows needs no extra stop
                 Spacer(Modifier.width(6.dp))
-                Box(Modifier.focusCard({ onMenu(null) }, shape = RoundedCornerShape(12.dp)).padding(horizontal = 10.dp, vertical = 2.dp)) {
+                Box(Modifier.focusCard({ onMenu(null) }, shape = RoundedCornerShape(Radii.row)).padding(horizontal = 10.dp, vertical = 2.dp)) {
                     Text("⋮", color = Pal.Dim, fontSize = Ts.ROW.sp)
                 }
             }
@@ -633,7 +634,7 @@ private fun ShelfRow(repo: Repo, screen: String, shelf: Shelf, isTv: Boolean, hP
             Row(Modifier.padding(horizontal = hPad, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("Couldn't load: ${shelf.error}", color = Pal.Warn, fontSize = Ts.SECONDARY.sp, maxLines = 2, modifier = Modifier.weight(1f, fill = false))
                 Spacer(Modifier.width(10.dp))
-                PillButton("Retry", { shelf.cat?.let { repo.retryRow(it) } }, size = 13)
+                PillButton("Retry", { shelf.cat?.let { repo.retryRow(it) } }, size = Ts.SECONDARY)
             }
             return@Column
         }
@@ -695,12 +696,12 @@ fun PosterCard(raw: Item, width: Dp, progress: Float?, modifier: Modifier, onCli
                 else -> ""
             }
             if (tag.isNotEmpty()) {
-                Text(tag, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold,
+                Text(tag, color = Color.White, fontSize = Ts.CAPTION.sp, fontWeight = FontWeight.Bold,
                     modifier = Modifier.align(Alignment.TopStart).padding(6.dp).background(if (tag == "CAM" || tag == "TS") Color(0xFF8D6E00) else Pal.Accent, RoundedCornerShape(3.dp)).padding(horizontal = 4.dp, vertical = 1.dp))
             }
             if (fav) Text("★", color = Color(0xFFFFD54F), fontSize = 16.sp,
                 modifier = Modifier.align(Alignment.TopEnd).padding(4.dp).background(Color(0x99000000), RoundedCornerShape(10.dp)).padding(horizontal = 5.dp))
-            if (item.locked) Text("🔒", fontSize = 14.sp, modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp))
+            if (item.locked) Text("🔒", fontSize = Ts.HEAD.sp, modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp))
             if (progress != null && progress > 0f) {
                 Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(4.dp).background(Color(0x88FFFFFF)))
                 Box(Modifier.align(Alignment.BottomStart).fillMaxWidth(progress).height(4.dp).background(Pal.Accent))
@@ -722,12 +723,12 @@ fun ChannelTile(item: Item, width: Dp, fav: Boolean, modifier: Modifier, onClick
     Column(Modifier.width(width)) {
         Box(modifier.fillMaxWidth().aspectRatio(16f / 9f).focusCard(onClick, onMenu, onFocused).background(Pal.Card)) {
             Poster(item.img, item.name, Modifier.fillMaxSize().padding(if (item.img.isNotEmpty()) 10.dp else 0.dp), ContentScale.Fit)
-            if (item.num > 0) Text("${item.num}", color = Color.White, fontSize = 11.sp,
+            if (item.num > 0) Text("${item.num}", color = Color.White, fontSize = Ts.CAPTION.sp,
                 modifier = Modifier.align(Alignment.BottomStart).padding(5.dp).background(Color(0xAA000000), RoundedCornerShape(3.dp)).padding(horizontal = 4.dp))
             if (fav) Text("★", color = Color(0xFFFFD54F), fontSize = 15.sp, modifier = Modifier.align(Alignment.TopEnd).padding(5.dp))
         }
         Spacer(Modifier.height(6.dp))
-        Text(item.name, color = Pal.Text2, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(item.name, color = Pal.Text2, fontSize = Ts.SECONDARY.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -885,15 +886,15 @@ fun DetailScreen(repo: Repo, item: Item, play: (List<Item>, Int) -> Unit, onBack
             verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(if (isTv) 28.dp else 14.dp)) {
-                    Poster(shownItem.img, name, Modifier.width(if (isTv) 200.dp else 116.dp).aspectRatio(2f / 3f).clip(RoundedCornerShape(12.dp)))
+                    Poster(shownItem.img, name, Modifier.width(if (isTv) 200.dp else 116.dp).aspectRatio(2f / 3f).clip(RoundedCornerShape(Radii.poster)))
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(name, color = Pal.Text, fontSize = if (isTv) Ts.DISPLAY.sp else Ts.TITLE.sp, fontWeight = FontWeight.SemiBold,
                             letterSpacing = (-0.3).sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
                         MetaLine(shownItem, meta)
-                        if (shownItem.desc.isNotEmpty()) Text(shownItem.desc, color = Pal.Desc, fontSize = if (isTv) 16.sp else 14.sp,
+                        if (shownItem.desc.isNotEmpty()) Text(shownItem.desc, color = Pal.Desc, fontSize = Ts.SECONDARY.sp,
                             maxLines = if (isTv) 6 else 8, overflow = TextOverflow.Ellipsis)
-                        meta?.cast?.takeIf { it.isNotEmpty() }?.let { Text("Cast: $it", color = Pal.Dim, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis) }
-                        if (msg.isNotEmpty()) Text(msg, color = Pal.Warn, fontSize = 14.sp, maxLines = 4)
+                        meta?.cast?.takeIf { it.isNotEmpty() }?.let { Text("Cast: $it", color = Pal.Dim, fontSize = Ts.SECONDARY.sp, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+                        if (msg.isNotEmpty()) Text(msg, color = Pal.Warn, fontSize = Ts.HEAD.sp, maxLines = 4)
                         Spacer(Modifier.height(4.dp))
                         FlowRowCompat {
                             val pm = Modifier.focusRequester(playFr)
@@ -929,7 +930,7 @@ fun DetailScreen(repo: Repo, item: Item, play: (List<Item>, Int) -> Unit, onBack
                             // OK / tap: a movie version plays at once (resuming where it was left); a series version opens its seasons
                             PillButton((if (sel) "✓  " else "") + labels[i] + (pct?.let { "  ·  $it%" } ?: ""),
                                 { cur = v; repo.store.saveSort(verPref, v.key); if (!v.isSeries) start(listOf(v), 0) },
-                                selected = sel, primary = sel, size = 14, onMenu = { more = true })
+                                selected = sel, primary = sel, size = Ts.HEAD, onMenu = { more = true })
                         }
                     }
                 }
@@ -944,14 +945,14 @@ fun DetailScreen(repo: Repo, item: Item, play: (List<Item>, Int) -> Unit, onBack
                     items(refs, key = { it.id }) { r ->
                         val n = loaded[r.id]?.size
                         val tag = when { seasonBusy[r.id] == true -> "  …"; n != null -> "  $n"; else -> "" }
-                        PillButton(seasonName(r.name) + tag, { season = r.name }, selected = r.name == curSeason, size = 15)
+                        PillButton(seasonName(r.name) + tag, { season = r.name }, selected = r.name == curSeason, size = Ts.ROW)
                     }
                 }
             }
             if (cur.isSeries && seasonLoading && !listLoading) {
                 items(4) {
                     Row(Modifier.fillMaxWidth().background(Pal.Soft).padding(8.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                        Box(Modifier.width(epW).aspectRatio(16f / 9f).clip(RoundedCornerShape(6.dp)).shimmer())
+                        Box(Modifier.width(epW).aspectRatio(16f / 9f).clip(RoundedCornerShape(Radii.card)).shimmer())
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Box(Modifier.fillMaxWidth(0.6f).height(16.dp).clip(RoundedCornerShape(4.dp)).shimmer())
                             Box(Modifier.fillMaxWidth(0.9f).height(12.dp).clip(RoundedCornerShape(4.dp)).shimmer())
@@ -974,7 +975,7 @@ fun DetailScreen(repo: Repo, item: Item, play: (List<Item>, Int) -> Unit, onBack
                         .focusCard({ start(eps, all) }, scale = 1.02f).background(Pal.Soft).padding(8.dp),
                     horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Box(Modifier.width(epW).aspectRatio(16f / 9f).clip(RoundedCornerShape(6.dp))) {
+                    Box(Modifier.width(epW).aspectRatio(16f / 9f).clip(RoundedCornerShape(Radii.card))) {
                         Poster(em?.still?.ifEmpty { null } ?: e.img.ifEmpty { shownItem.img }, title, Modifier.fillMaxSize(), initialsSize = 18)
                         Box(Modifier.fillMaxSize().background(Color(0x33000000)))
                         Text("▶", color = Color.White, fontSize = 22.sp, modifier = Modifier.align(Alignment.Center))
@@ -986,9 +987,9 @@ fun DetailScreen(repo: Repo, item: Item, play: (List<Item>, Int) -> Unit, onBack
                     Column(Modifier.weight(1f)) {
                         Text(title, color = Pal.Text, fontSize = Ts.ROW.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         val sub = listOfNotNull(e.length.ifEmpty { null }, em?.airDate?.ifEmpty { null }).joinToString("  ·  ")
-                        if (sub.isNotEmpty()) Text(sub, color = Pal.Dim, fontSize = 12.sp)
+                        if (sub.isNotEmpty()) Text(sub, color = Pal.Dim, fontSize = Ts.CAPTION.sp)
                         val ov = em?.overview?.ifEmpty { null } ?: e.desc.takeIf { it.isNotEmpty() && it != cur.desc }
-                        if (ov != null) Text(ov, color = Pal.Dim, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        if (ov != null) Text(ov, color = Pal.Dim, fontSize = Ts.SECONDARY.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }
@@ -1019,7 +1020,7 @@ private fun FixMatchDialog(item: Item, onClose: () -> Unit) {
     LaunchedEffect(Unit) { run(); delay(150); runCatching { fr.requestFocus() } }
     // One Back closes the dialog (not the details page behind it); focus returns to "Fix match"
     PopupFrame(onClose, scrim = Color(0xCC000000)) {
-        Column(Modifier.widthIn(max = 640.dp).fillMaxWidth(0.9f).heightIn(max = 560.dp).background(Pal.Surface, RoundedCornerShape(14.dp)).padding(18.dp),
+        Column(Modifier.widthIn(max = 640.dp).fillMaxWidth(0.9f).heightIn(max = 560.dp).background(Pal.Surface, RoundedCornerShape(Radii.panel)).border(1.dp, Color(0x22D4AF37), RoundedCornerShape(Radii.panel)).padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Fix match: ${Names.title(item.name)}", color = Pal.Text, fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             val kb = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
@@ -1031,26 +1032,26 @@ private fun FixMatchDialog(item: Item, onClose: () -> Unit) {
                     focusedTextColor = Pal.Text, unfocusedTextColor = Pal.Text))
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PillButton("Search", { run() }, Modifier.focusRequester(fr), primary = true, size = 14)
-                PillButton("Movie", { type = "movie"; run() }, selected = type == "movie", size = 14)
-                PillButton("Series", { type = "tv"; run() }, selected = type == "tv", size = 14)
-                PillButton("Close", onClose, size = 14)
+                PillButton("Search", { run() }, Modifier.focusRequester(fr), primary = true, size = Ts.HEAD)
+                PillButton("Movie", { type = "movie"; run() }, selected = type == "movie", size = Ts.HEAD)
+                PillButton("Series", { type = "tv"; run() }, selected = type == "tv", size = Ts.HEAD)
+                PillButton("Close", onClose, size = Ts.HEAD)
             }
             if (busy) CircularProgressIndicator(color = Pal.Accent)
             LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 val r = results
-                if (r != null && r.isEmpty() && !busy) item { Text("No TMDB results. Edit the title and search again.", color = Pal.Dim, fontSize = 14.sp) }
+                if (r != null && r.isEmpty() && !busy) item { Text("No TMDB results. Edit the title and search again.", color = Pal.Dim, fontSize = Ts.HEAD.sp) }
                 items(r ?: emptyList(), key = { "${it.type}${it.id}" }) { c ->
                     Row(Modifier.fillMaxWidth().focusCard({ scope.launch { Tmdb.setOverride(item, c); onClose() } }, scale = 1.02f)
                         .background(Pal.Row).padding(6.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Poster(c.poster, c.title, Modifier.width(46.dp).aspectRatio(2f / 3f).clip(RoundedCornerShape(4.dp)), initialsSize = 12)
                         Column(Modifier.weight(1f)) {
-                            Text(c.title + (if (c.year.isNotEmpty()) " (${c.year})" else ""), color = Pal.Text, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            if (c.overview.isNotEmpty()) Text(c.overview, color = Pal.Dim, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Text(c.title + (if (c.year.isNotEmpty()) " (${c.year})" else ""), color = Pal.Text, fontSize = Ts.ROW.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            if (c.overview.isNotEmpty()) Text(c.overview, color = Pal.Dim, fontSize = Ts.CAPTION.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         }
                     }
                 }
-                item { PillButton("No match: use the portal's info", { scope.launch { Tmdb.setOverride(item, null); onClose() } }, Modifier.fillMaxWidth(), size = 14) }
+                item { PillButton("No match: use the portal's info", { scope.launch { Tmdb.setOverride(item, null); onClose() } }, Modifier.fillMaxWidth(), size = Ts.HEAD) }
             }
         }
     }
@@ -1128,14 +1129,14 @@ fun GridScreen(repo: Repo, cat: Cat, open: (Item) -> Unit, play: (List<Item>, In
         ) {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Column {
-                    Text(Names.cat(cat.title), color = Pal.Text, fontSize = if (isTv) 28.sp else 22.sp, fontWeight = FontWeight.Bold)
-                    Text(if (more) "${items.size}+ titles" else "${items.size} titles", color = Pal.Dim, fontSize = 13.sp)
+                    Text(Names.cat(cat.title), color = Pal.Text, fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold)
+                    Text(if (more) "${items.size}+ titles" else "${items.size} titles", color = Pal.Dim, fontSize = Ts.SECONDARY.sp)
                     Spacer(Modifier.height(6.dp))
-                    PillButton("⇅  Sort: " + Sorts.label(sort), { sortMenu = true }, size = 14)
+                    PillButton("⇅  Sort: " + Sorts.label(sort), { sortMenu = true }, size = Ts.HEAD)
                     if (msg.isNotEmpty()) Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(msg, color = Pal.Warn, fontSize = 13.sp, maxLines = 2, modifier = Modifier.weight(1f, fill = false))
+                        Text(msg, color = Pal.Warn, fontSize = Ts.SECONDARY.sp, maxLines = 2, modifier = Modifier.weight(1f, fill = false))
                         Spacer(Modifier.width(8.dp))
-                        PillButton("Retry", { next() }, size = 13)
+                        PillButton("Retry", { next() }, size = Ts.SECONDARY)
                     }
                 }
             }
@@ -1224,9 +1225,9 @@ fun PoolScreen(repo: Repo, tab: String, lang: String, genre: String, title: Stri
             verticalArrangement = Arrangement.spacedBy(if (isTv) 18.dp else 12.dp), modifier = Modifier.fillMaxSize()) {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(title, color = Pal.Text, fontSize = if (isTv) 28.sp else 22.sp, fontWeight = FontWeight.Bold)
-                    Text("${cards.size} titles" + (if (lib.loading) " · loading more…" else ""), color = Pal.Dim, fontSize = 13.sp)
-                    PillButton("⇅  Sort: " + Sorts.label(sort), { sortMenu = true }, Modifier.focusRequester(firstFr), size = 14)
+                    Text(title, color = Pal.Text, fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold)
+                    Text("${cards.size} titles" + (if (lib.loading) " · loading more…" else ""), color = Pal.Dim, fontSize = Ts.SECONDARY.sp)
+                    PillButton("⇅  Sort: " + Sorts.label(sort), { sortMenu = true }, Modifier.focusRequester(firstFr), size = Ts.HEAD)
                 }
             }
             gridItemsIndexed(cards, key = { _, g -> g.key }) { i, g ->
@@ -1263,15 +1264,15 @@ fun LanguagesScreen(repo: Repo, tab: String, onBack: () -> Unit) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = hPad, vertical = 20.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Languages · ${if (tab == "series") "Series" else "Movies"}", color = Pal.Text, fontSize = if (isTv) 28.sp else 22.sp, fontWeight = FontWeight.Bold)
+                    Text("Languages · ${if (tab == "series") "Series" else "Movies"}", color = Pal.Text, fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold)
                     Text("Tick the languages to show. The language comes from the category and title names (e.g. \"HINDI 4K\", \"|EN|\", \"[Tamil]\"); " +
                         "Dub / CAM / 4K are treated as versions, not languages; a dubbed title counts as the language it is dubbed in. " +
                         "Titles with no recognisable language are listed under \"Other\". Untick everything to go back to plain category rows. " +
-                        "Other languages stay reachable through Search and Categories.", color = Pal.Dim, fontSize = 13.sp)
+                        "Other languages stay reachable through Search and Categories.", color = Pal.Dim, fontSize = Ts.SECONDARY.sp)
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        PillButton("Done", onBack, Modifier.focusRequester(firstFr), primary = true, size = 14)
-                        PillButton("Select all", { save(langs.map { it.first }.toSet()) }, size = 14)
-                        PillButton("Select none", { save(emptySet()) }, size = 14)
+                        PillButton("Done", onBack, Modifier.focusRequester(firstFr), primary = true, size = Ts.HEAD)
+                        PillButton("Select all", { save(langs.map { it.first }.toSet()) }, size = Ts.HEAD)
+                        PillButton("Select none", { save(emptySet()) }, size = Ts.HEAD)
                     }
                 }
             }
@@ -1283,7 +1284,7 @@ fun LanguagesScreen(repo: Repo, tab: String, onBack: () -> Unit) {
                     Text(if (on) "☑" else "☐", color = Pal.Text, fontSize = Ts.TITLE.sp)
                     Spacer(Modifier.width(12.dp))
                     Text(l, color = Pal.Text, fontSize = Ts.ROW.sp, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal, modifier = Modifier.weight(1f))
-                    Text("%,d ".format(n) + if (unit == "title") (if (n == 1) "title" else "titles") else (if (n == 1) "category" else "categories"), color = Pal.Dim, fontSize = 13.sp)
+                    Text("%,d ".format(n) + if (unit == "title") (if (n == 1) "title" else "titles") else (if (n == 1) "category" else "categories"), color = Pal.Dim, fontSize = Ts.SECONDARY.sp)
                 }
             }
         }
@@ -1332,13 +1333,13 @@ fun CategoriesScreen(repo: Repo, go: (Screen) -> Unit) {
         ) {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("All categories", color = Pal.Text, fontSize = if (isTv) 28.sp else 22.sp, fontWeight = FontWeight.Bold)
-                    Text(if (isTv) "Menu on a category to move or hide it." else "Long-press a category to move or hide it.", color = Pal.Dim, fontSize = 13.sp)
+                    Text("All categories", color = Pal.Text, fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold)
+                    Text(if (isTv) "Menu on a category to move or hide it." else "Long-press a category to move or hide it.", color = Pal.Dim, fontSize = Ts.SECONDARY.sp)
                     FlowRowCompat {
-                        PillButton("Movies & Series", { kind = "vod" }, Modifier.focusRequester(firstFr), selected = kind == "vod", size = 14)
-                        PillButton("Live TV", { kind = "itv" }, selected = kind == "itv", size = 14)
-                        if (kind == "vod" && picked.isNotEmpty()) PillButton(if (showAll) "All languages" else "Show all languages", { showAll = !showAll }, selected = showAll, size = 14)
-                        PillButton("Reset order", { repo.resetOrder(kind) }, size = 14)
+                        PillButton("Movies & Series", { kind = "vod" }, Modifier.focusRequester(firstFr), selected = kind == "vod", size = Ts.HEAD)
+                        PillButton("Live TV", { kind = "itv" }, selected = kind == "itv", size = Ts.HEAD)
+                        if (kind == "vod" && picked.isNotEmpty()) PillButton(if (showAll) "All languages" else "Show all languages", { showAll = !showAll }, selected = showAll, size = Ts.HEAD)
+                        PillButton("Reset order", { repo.resetOrder(kind) }, size = Ts.HEAD)
                     }
                     val kb = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
                     val fm = androidx.compose.ui.platform.LocalFocusManager.current
@@ -1355,7 +1356,7 @@ fun CategoriesScreen(repo: Repo, go: (Screen) -> Unit) {
                         )
                     )
                     }
-                    Text("${cats.size} of ${all.size}" + (if (q.isNotEmpty()) " match \"$q\"" else ""), color = Pal.Dim, fontSize = 12.sp)
+                    Text("${cats.size} of ${all.size}" + (if (q.isNotEmpty()) " match \"$q\"" else ""), color = Pal.Dim, fontSize = Ts.CAPTION.sp)
                 }
             }
             gridItems(cats, key = { "$kind:${it.id}" }) { c ->
@@ -1377,7 +1378,7 @@ fun CategoriesScreen(repo: Repo, go: (Screen) -> Unit) {
                             fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         val n = if (kind == "itv") repo.channels.count { it.cat == c.id } else -1
                         Text(listOfNotNull("#${all.indexOf(c) + 1}", if (kind == "vod") repo.lib.catLang(c) else null, if (n >= 0) "$n channels" else null, if (hidden) "hidden" else null).joinToString("  ·  "),
-                            color = Pal.Dim, fontSize = 11.sp)
+                            color = Pal.Dim, fontSize = Ts.CAPTION.sp)
                     }
                 }
             }

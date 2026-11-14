@@ -153,7 +153,7 @@ fun NavTab(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, sel
             .padding(horizontal = 16.dp, vertical = 7.dp),
         contentAlignment = Alignment.Center
     ) {
-        Text(text, color = fg, fontSize = 15.sp, fontWeight = if (selected || f) FontWeight.SemiBold else FontWeight.Medium,
+        Text(text, color = fg, fontSize = Ts.ROW.sp, fontWeight = if (selected || f) FontWeight.SemiBold else FontWeight.Medium,
             letterSpacing = 0.2.sp, maxLines = 1)
     }
 }
@@ -173,7 +173,7 @@ fun PillButton(
     modifier: Modifier = Modifier,
     primary: Boolean = false,
     selected: Boolean = false,
-    size: Int = 14,
+    size: Int = Ts.HEAD,
     compact: Boolean = false,
     onMenu: (() -> Unit)? = null
 ) {

@@ -227,19 +227,19 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
     @Composable
     fun ListPane(modifier: Modifier) {
         Column(modifier) {
-            if (ix.state == LiveIndex.State.RUNNING && info.isEmpty()) Label("Sorting channels… ${if (ix.total > 0) ix.done * 100 / ix.total else 0}%", 14, Pal.Dim)
+            if (ix.state == LiveIndex.State.RUNNING && info.isEmpty()) Label("Sorting channels… ${if (ix.total > 0) ix.done * 100 / ix.total else 0}%", Ts.HEAD, Pal.Dim)
             if (ix.state == LiveIndex.State.FAILED) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Label(ix.error.ifEmpty { "Could not sort channels" }, 14, Pal.Warn)
-                PillButton("Try again", { ix.ensure(repo.channels, repo.liveCats, force = true) }, size = 12)
+                Label(ix.error.ifEmpty { "Could not sort channels" }, Ts.HEAD, Pal.Warn)
+                PillButton("Try again", { ix.ensure(repo.channels, repo.liveCats, force = true) }, size = Ts.CAPTION)
             }
             when {
-                repo.channels.isEmpty() -> Label(repo.status.ifEmpty { "No channels loaded yet" }, 16, Pal.Dim, maxLines = 3)
+                repo.channels.isEmpty() -> Label(repo.status.ifEmpty { "No channels loaded yet" }, Ts.ROW, Pal.Dim, maxLines = 3)
                 sections.isEmpty() -> Label(when {
                     view == LiveModes.View.HIDDEN -> "Nothing hidden."
                     mode != LiveModes.DEFAULT && !browseAll -> "\"$mode\" has no channels yet. Menu > All channels, then hold OK on a channel to add it."
                     langs != null -> "No channels in the selected languages."
                     else -> "No channels to show."
-                }, 16, Pal.Dim, maxLines = 3)
+                }, Ts.ROW, Pal.Dim, maxLines = 3)
                 else -> LazyColumn(state = state, modifier = Modifier.fillMaxSize().onPreviewKeyEvent { e -> pageKey(e) }, verticalArrangement = Arrangement.spacedBy(2.dp),
                     contentPadding = PaddingValues(bottom = 48.dp)) {
                     val firstVisibleKey = sections.firstOrNull { s ->
@@ -302,10 +302,10 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
                     onAll = { sel = LiveSelect.selectAll(cur, secKeys) }, onCancel = { sel = null })
             }
             undo?.let { (k, nowHidden) ->
-                Row(Modifier.fillMaxWidth().padding(top = 6.dp).clip(RoundedCornerShape(16.dp)).background(Pal.Surface.copy(alpha = 0.94f))
+                Row(Modifier.fillMaxWidth().padding(top = 6.dp).clip(RoundedCornerShape(Radii.row)).background(Pal.Surface.copy(alpha = 0.94f))
                     .padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Label((if (nowHidden) "Hidden " else "Showing ") + Taxonomy.label(k), 14, Pal.Text, Modifier.weight(1f))
-                    PillButton("Undo", { repo.toggleGroup(k); undo = null }, Modifier.focusRequester(undoFr), size = 13)
+                    Label((if (nowHidden) "Hidden " else "Showing ") + Taxonomy.label(k), Ts.HEAD, Pal.Text, Modifier.weight(1f))
+                    PillButton("Undo", { repo.toggleGroup(k); undo = null }, Modifier.focusRequester(undoFr), size = Ts.SECONDARY)
                 }
             }
         }
@@ -362,7 +362,7 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
                             onFocus = { openNav(n.type); jumpNode(n) }, onLongClick = { holdGroup(n) },
                             onClick = { openNav(n.type); repo.toggleCollapsed(listOf(LiveCollapse.typeKey(n.type))); jumpNode(n) })
                         if (open && navOpen) n.children.forEachIndexed { ci, c ->
-                            if (c.region && (ci == 0 || !n.children[ci - 1].region)) Label("Regions", 11, Pal.Dim, Modifier.padding(start = 44.dp, top = 6.dp))
+                            if (c.region && (ci == 0 || !n.children[ci - 1].region)) Label("Regions", Ts.CAPTION, Pal.Dim, Modifier.padding(start = 44.dp, top = 6.dp))
                             NavEntry(if (c.region) "◦" else "·", c.label, navOpen, Modifier.padding(start = 22.dp), count = c.count, dim = c.hidden, small = true,
                                 onFocus = { jumpNode(c) }, onLongClick = { holdGroup(c) },
                                 // 1.56: OK on a sub-category folds its channels in the list (or shows them again)
@@ -382,8 +382,8 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
                         if (view != LiveModes.View.ACTIVE) view.label.lowercase() else null
                     ).joinToString("  ·  "), 14, Pal.Dim, Modifier.padding(bottom = 4.dp))
                     Spacer(Modifier.weight(1f))
-                    PillButton("Expand all", { expandAll() }, size = 13, compact = true)
-                    PillButton("Collapse all", { collapseAll() }, size = 13, compact = true)
+                    PillButton("Expand all", { expandAll() }, size = Ts.SECONDARY, compact = true)
+                    PillButton("Collapse all", { collapseAll() }, size = Ts.SECONDARY, compact = true)
                 }
                 ListPane(Modifier.weight(1f))
             }
@@ -392,13 +392,13 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
         Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
                 Label("Live TV", Ts.TITLE, Pal.Text, Modifier.weight(1f))
-                PillButton((if (mode == LiveModes.DEFAULT) "Default" else mode) + " ▾", { popup = "modes" }, size = 13)
-                PillButton("☰", { popup = "sections" }, size = 13)
-                PillButton("⋮", { popup = "more" }, size = 13)
+                PillButton((if (mode == LiveModes.DEFAULT) "Default" else mode) + " ▾", { popup = "modes" }, size = Ts.SECONDARY)
+                PillButton("☰", { popup = "sections" }, size = Ts.SECONDARY)
+                PillButton("⋮", { popup = "more" }, size = Ts.SECONDARY)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
-                PillButton("Expand all", { expandAll() }, size = 13, compact = true)
-                PillButton("Collapse all", { collapseAll() }, size = 13, compact = true)
+                PillButton("Expand all", { expandAll() }, size = Ts.SECONDARY, compact = true)
+                PillButton("Collapse all", { collapseAll() }, size = Ts.SECONDARY, compact = true)
             }
             ListPane(Modifier.weight(1f))
         }
@@ -449,7 +449,7 @@ private fun holdOkKey(e: androidx.compose.ui.input.key.KeyEvent, held: Boolean, 
 private fun TypeHeader(type: String, count: Int, folded: Boolean, tv: Boolean, modifier: Modifier, onToggle: () -> Unit, onHold: () -> Unit) {
     var f by remember { mutableStateOf(false) }
     var held by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(14.dp)
+    val shape = RoundedCornerShape(Radii.row)
     Row(Modifier.fillMaxWidth().background(Pal.Bg).padding(top = 8.dp, bottom = 2.dp).then(modifier).popupOpener()
             .onFocusChanged { f = it.isFocused }
             .onPreviewKeyEvent { e -> holdOkKey(e, held, { held = it }, onHold) }
@@ -469,7 +469,7 @@ private fun SectionHeader(s: LiveModes.Section, folded: Boolean, tv: Boolean, mo
                           underType: Boolean = false) {
     var f by remember { mutableStateOf(false) }
     var held by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(12.dp)
+    val shape = RoundedCornerShape(Radii.row)
     // Focusable header: OK / click folds the section; hold OK (TV) / long-press (phone) hides or shows the group.
     Row(Modifier.fillMaxWidth().background(Pal.Bg).padding(top = 6.dp, bottom = 2.dp).then(modifier).popupOpener()
             .onFocusChanged { f = it.isFocused }
@@ -493,7 +493,7 @@ private fun NavEntry(icon: String, label: String, open: Boolean, modifier: Modif
                      onFocus: (() -> Unit)? = null, onLongClick: (() -> Unit)? = null, onClick: () -> Unit) {
     var f by remember { mutableStateOf(false) }
     var held by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(14.dp)
+    val shape = RoundedCornerShape(Radii.row)
     val bg by androidx.compose.animation.animateColorAsState(when { f -> Pal.FocusBg; selected -> Pal.ChipSel.copy(alpha = 0.55f); else -> Color.Transparent }, tween(160), label = "nav")
     val fg = if (f) Pal.GoldText else Pal.Text
     Row(
@@ -530,7 +530,7 @@ private fun ChannelRow(repo: Repo, ch: Item, on: Boolean, browseAll: Boolean, pl
                        onClick: () -> Unit, onKeyOk: () -> Unit, onToggle: () -> Unit, onSetShown: () -> Unit, onMenu: () -> Unit) {
     var f by remember { mutableStateOf(false) }
     var held by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(14.dp)
+    val shape = RoundedCornerShape(Radii.row)
     val local = remember(ch.cat, repo.liveCats) { LiveKind.isLocalNews(repo.liveCats.firstOrNull { it.id == ch.cat }?.title.orEmpty()) }
     val name = remember(ch.name, local) { ChannelTitle.pretty(ch.name, local) }
     val lang = remember(ch.key, repo.liveIndex.info) { ChannelTitle.langTag(repo.liveIndex.info[ch.key]?.lang) }
@@ -589,7 +589,7 @@ private fun ChannelRow(repo: Repo, ch: Item, on: Boolean, browseAll: Boolean, pl
     // Phone: swipe the row left to reveal Hide / Show and commit past the threshold.
     // The reveal is only drawn while swiping, and the row has an opaque background, so the
     // affordance cannot show through and overlap the Hide / Show chip at rest.
-    Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))) {
+    Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(Radii.row))) {
         if (swipe < 0f) {
             Box(Modifier.matchParentSize().background(if (on) Color(0x44C04545) else Pal.Soft2), contentAlignment = Alignment.CenterEnd) {
                 Label(if (on) "Hide" else "Show", Ts.SECONDARY, Color.White, Modifier.padding(end = 18.dp))
@@ -638,7 +638,7 @@ private fun HideShowChip(shown: Boolean, tv: Boolean, onClick: () -> Unit, modif
 private fun CheckDot(on: Boolean) {
     val c by androidx.compose.animation.animateColorAsState(if (on) Pal.Gold else Color.Transparent, tween(160), label = "check")
     Box(Modifier.size(22.dp).clip(RoundedCornerShape(11.dp)).background(c).border(2.dp, if (on) Pal.Gold else Pal.Dim, RoundedCornerShape(11.dp)),
-        contentAlignment = Alignment.Center) { if (on) Label("✓", 13, Color.Black) }
+        contentAlignment = Alignment.Center) { if (on) Label("✓", Ts.SECONDARY, Color.Black) }
 }
 
 /** Slim Select-mode bar at the bottom: count and soft pill actions. */
@@ -647,16 +647,16 @@ private fun SelectBar(n: Int, mode: String, tv: Boolean, fr: FocusRequester, can
                       onHide: () -> Unit, onShow: () -> Unit, onAll: () -> Unit, onCancel: () -> Unit) {
     val custom = mode != LiveModes.DEFAULT
     Row(
-        Modifier.fillMaxWidth().padding(top = 6.dp).clip(RoundedCornerShape(16.dp)).background(Pal.Surface.copy(alpha = 0.94f))
+        Modifier.fillMaxWidth().padding(top = 6.dp).clip(RoundedCornerShape(Radii.row)).background(Pal.Surface.copy(alpha = 0.94f))
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Label(if (n == 0) "Select channels" else "$n selected", 14, Pal.Text, Modifier.weight(1f))
-        if (tv) Label("OK check · Menu actions", 11, Pal.Dim)
-        if (canHide) PillButton(if (custom) "Remove from mode" else "Hide", onHide, Modifier.focusRequester(fr), size = 13)
-        if (canShow) PillButton(if (custom) "Add to mode" else "Unhide", onShow, if (canHide) Modifier else Modifier.focusRequester(fr), size = 13)
-        PillButton(allLabel, onAll, if (canHide || canShow) Modifier else Modifier.focusRequester(fr), size = 13)
-        PillButton("Cancel", onCancel, size = 13)
+        Label(if (n == 0) "Select channels" else "$n selected", Ts.HEAD, Pal.Text, Modifier.weight(1f))
+        if (tv) Label("OK check · Menu actions", Ts.CAPTION, Pal.Dim)
+        if (canHide) PillButton(if (custom) "Remove from mode" else "Hide", onHide, Modifier.focusRequester(fr), size = Ts.SECONDARY)
+        if (canShow) PillButton(if (custom) "Add to mode" else "Unhide", onShow, if (canHide) Modifier else Modifier.focusRequester(fr), size = Ts.SECONDARY)
+        PillButton(allLabel, onAll, if (canHide || canShow) Modifier else Modifier.focusRequester(fr), size = Ts.SECONDARY)
+        PillButton("Cancel", onCancel, size = Ts.SECONDARY)
     }
 }
 
@@ -665,26 +665,26 @@ private fun SelectBar(n: Int, mode: String, tv: Boolean, fr: FocusRequester, can
 fun NumBadge(num: Int, modifier: Modifier = Modifier) {
     if (num <= 0) return
     Box(modifier.background(Color(0xCC000000), RoundedCornerShape(6.dp)).padding(horizontal = 5.dp, vertical = 1.dp)) {
-        Label("$num", 11, Color.White)
+        Label("$num", Ts.CAPTION, Color.White)
     }
 }
 
 /** Rounded logo tile (search results): logo (or initials), number badge, ★ when in a mode, gold ring when playing. */
 @Composable
 fun LiveTile(ch: Item, fav: Boolean, playing: Boolean, checked: Boolean, tv: Boolean, onClick: () -> Unit, onMenu: () -> Unit) {
-    val shape = RoundedCornerShape(12.dp)
+    val shape = RoundedCornerShape(Radii.row)
     val name = ChannelTitle.pretty(ch.name)
     Column {
         Box(Modifier.fillMaxWidth().aspectRatio(16f / 10f).focusCard(onClick, onMenu, { Keys.focused = ch }, scale = 1.06f, shape = shape)
             .background(Pal.Card, shape)
             .then(if (playing) Modifier.border(2.dp, Pal.Gold, shape) else Modifier)) {
             if (ch.img.isNotEmpty()) Poster(ch.img, name, Modifier.fillMaxSize().padding(if (tv) 14.dp else 10.dp), ContentScale.Fit, initialsSize = if (tv) 26 else 20)
-            else Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Label(ChannelTitle.initials(name), if (tv) 26 else 20, Pal.GoldText) }
+            else Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Label(ChannelTitle.initials(name), if (tv) Ts.DISPLAY else Ts.TITLE, Pal.GoldText) }
             NumBadge(ch.num, Modifier.align(Alignment.TopStart).padding(5.dp))
-            if (fav) Label("★", 14, Pal.Gold, Modifier.align(Alignment.TopEnd).padding(5.dp))
-            if (checked) Box(Modifier.fillMaxSize().background(Color(0x66000000)), contentAlignment = Alignment.Center) { Label("✓", 18, Pal.Gold) }
+            if (fav) Label("★", Ts.HEAD, Pal.Gold, Modifier.align(Alignment.TopEnd).padding(5.dp))
+            if (checked) Box(Modifier.fillMaxSize().background(Color(0x66000000)), contentAlignment = Alignment.Center) { Label("✓", Ts.TITLE, Pal.Gold) }
         }
         Spacer(Modifier.height(5.dp))
-        Label(name, if (tv) 14 else 12, if (playing) Pal.GoldText else Pal.Text2, maxLines = if (tv) 1 else 2)
+        Label(name, Ts.SECONDARY, if (playing) Pal.GoldText else Pal.Text2, maxLines = if (tv) 1 else 2)
     }
 }

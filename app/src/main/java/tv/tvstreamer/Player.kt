@@ -833,11 +833,11 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
                 contentAlignment = Alignment.Center
             ) {
                 Text(if (left) "«  −${seekTotal / 1000}s" else "+${seekTotal / 1000}s  »",
-                    color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                    color = Color.White, fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold)
             }
         }
         if (fastHold) {
-            Text("2×  ▶▶", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold,
+            Text("2×  ▶▶", color = Color.White, fontSize = Ts.ROW.sp, fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.align(Alignment.TopCenter).padding(top = 24.dp)
                     .background(Color(0x99000000), RoundedCornerShape(20.dp)).padding(horizontal = 16.dp, vertical = 6.dp))
         }
@@ -846,17 +846,17 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
             CircularProgressIndicator(Modifier.align(Alignment.Center).size(56.dp), color = Pal.Accent)
         }
         if (flash.isNotEmpty()) {
-            Text(flash, color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold,
-                modifier = Modifier.align(Alignment.Center).background(Color(0x99000000), RoundedCornerShape(12.dp)).padding(horizontal = 20.dp, vertical = 10.dp))
+            Text(flash, color = Color.White, fontSize = Ts.DISPLAY.sp, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.align(Alignment.Center).background(Color(0x99000000), RoundedCornerShape(Radii.row)).padding(horizontal = 20.dp, vertical = 10.dp))
         }
 
         // Channel / episode banner after zapping, even when controls are hidden.
         var showZap by remember { mutableStateOf(false) }
         LaunchedEffect(zapTick) { if (zapTick > 0) { showZap = true; delay(3500); showZap = false } }
         if (showZap && !controls && !live) {
-            Column(Modifier.align(Alignment.TopStart).padding(24.dp).background(Color(0xCC000000), RoundedCornerShape(10.dp)).padding(14.dp)) {
-                Text((if (live && item.num > 0) "${item.num}  " else "") + (if (live) ChannelTitle.pretty(item.name) else item.name), color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                if (list.size > 1) Text("${idx + 1} / ${list.size}", color = Pal.Dim, fontSize = 14.sp)
+            Column(Modifier.align(Alignment.TopStart).padding(24.dp).background(Color(0xCC000000), RoundedCornerShape(Radii.row)).padding(14.dp)) {
+                Text((if (live && item.num > 0) "${item.num}  " else "") + (if (live) ChannelTitle.pretty(item.name) else item.name), color = Color.White, fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold)
+                if (list.size > 1) Text("${idx + 1} / ${list.size}", color = Pal.Dim, fontSize = Ts.HEAD.sp)
                 if (live) NowNext(repo, item, Modifier.widthIn(max = 420.dp))
             }
         }
@@ -876,11 +876,11 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
                         repo.toggleOn(item)
                         toast(ctx, if (repo.isOn(item)) "Shown" else "Hidden")
                         infoTick++
-                    }, Modifier.focusRequester(hideShowFr), size = 13, compact = true, selected = !shown)
-                    if (phone) PillButton(if (landscape) "Portrait" else "Fullscreen", { toggleLandscape() }, size = 13, compact = true)
-                    PillButton("Channels", { layer = LiveOverlay.Layer.CHANNELS }, size = 13, compact = true)
-                    PillButton("Schedule", { layer = LiveOverlay.Layer.GUIDE }, size = 13, compact = true)
-                    PillButton("More", { dialog = "menu" }, size = 13, compact = true)
+                    }, Modifier.focusRequester(hideShowFr), size = Ts.SECONDARY, compact = true, selected = !shown)
+                    if (phone) PillButton(if (landscape) "Portrait" else "Fullscreen", { toggleLandscape() }, size = Ts.SECONDARY, compact = true)
+                    PillButton("Channels", { layer = LiveOverlay.Layer.CHANNELS }, size = Ts.SECONDARY, compact = true)
+                    PillButton("Schedule", { layer = LiveOverlay.Layer.GUIDE }, size = Ts.SECONDARY, compact = true)
+                    PillButton("More", { dialog = "menu" }, size = Ts.SECONDARY, compact = true)
                 })
         }
         // Phone portrait: Back (and Fullscreen when the auto-hiding chrome is away) stay on screen.
@@ -927,8 +927,8 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
                     .background(Color(0xEE15151C), RoundedCornerShape(14.dp)).padding(18.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Text("Next episode in ${upNextIn}s", color = Color.White, fontSize = if (isTv) 20.sp else 17.sp, fontWeight = FontWeight.Bold)
-                if (n != null) Text(listOf(n.season, n.name).filter { it.isNotBlank() }.joinToString(" · "), color = Pal.Dim, fontSize = 14.sp,
+                Text("Next episode in ${upNextIn}s", color = Color.White, fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold)
+                if (n != null) Text(listOf(n.season, n.name).filter { it.isNotBlank() }.joinToString(" · "), color = Pal.Dim, fontSize = Ts.HEAD.sp,
                     maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     PillButton("▶  Play now", { nextEp?.let { playEpisode(it, finished = true) } }, Modifier.focusRequester(upNextFr), primary = true)
@@ -941,20 +941,20 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
         if (err.isNotEmpty() && !controls) {
             Row(
                 Modifier.align(Alignment.BottomCenter).padding(bottom = if (isTv) 36.dp else 20.dp, start = 16.dp, end = 16.dp)
-                    .widthIn(max = 720.dp).background(Color(0xE6141419), RoundedCornerShape(12.dp))
+                    .widthIn(max = 720.dp).background(Color(0xE6141419), RoundedCornerShape(Radii.row))
                     .padding(horizontal = 18.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text("Can't play ${if (live) ChannelTitle.pretty(item.name) else item.name}", color = Color.White, fontSize = 15.sp,
+                    Text("Can't play ${if (live) ChannelTitle.pretty(item.name) else item.name}", color = Color.White, fontSize = Ts.ROW.sp,
                         fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(if (skipIn) "Not working · skipping to the next channel…" else
                         err.lineSequence().firstOrNull().orEmpty() + if (isTv) (if (live && list.size > 1) "  ·  OK retry  ·  ▲▼ other channel" else "  ·  OK retry") else "",
-                        color = Pal.Dim, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        color = Pal.Dim, fontSize = Ts.CAPTION.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 if (!isTv) {
-                    PillButton("Retry", { autoRetries = 0; linkFrom = 0; attempt++ }, size = 13)
-                    if (list.size > 1) PillButton("Next", { go(idx + 1) }, size = 13)
+                    PillButton("Retry", { autoRetries = 0; linkFrom = 0; attempt++ }, size = Ts.SECONDARY)
+                    if (list.size > 1) PillButton("Next", { go(idx + 1) }, size = Ts.SECONDARY)
                 }
             }
         }
@@ -1066,13 +1066,13 @@ fun ChoiceDialog(title: String, opts: List<Pair<String, () -> Unit>>, focusKey: 
     PopupFrame(onClose, alignment = Alignment.CenterEnd, scrim = Color(0x40000000)) {
         Column(
             Modifier.padding(end = 48.dp).widthIn(min = 252.dp, max = 340.dp).heightIn(max = 440.dp)
-                .clip(RoundedCornerShape(20.dp))
+                .clip(RoundedCornerShape(Radii.panel))
                 .background(Pal.Surface.copy(alpha = 0.94f))
-                .border(1.dp, Color(0x22D4AF37), RoundedCornerShape(20.dp))
+                .border(1.dp, Color(0x22D4AF37), RoundedCornerShape(Radii.panel))
                 .padding(horizontal = 10.dp, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
-            Text(title, color = Pal.Dim, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            Text(title, color = Pal.Dim, fontSize = Ts.SECONDARY.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp))
             Spacer(Modifier.height(4.dp))
             LazyColumn(verticalArrangement = Arrangement.spacedBy(1.dp)) {
@@ -1095,7 +1095,7 @@ fun MenuEntry(label: String, onClick: () -> Unit, modifier: Modifier = Modifier,
     val bg by androidx.compose.animation.animateColorAsState(if (f) Pal.Gold else Color.Transparent, Motion.colorSpec(), label = "menuBg")
     Box(
         modifier.fillMaxWidth().popupOpener().onFocusChanged { f = it.isFocused }
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(Radii.row))
             .background(bg)
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = Ts.MENU_PAD)
@@ -1192,12 +1192,12 @@ private fun Controls(
         ) {
             Column(Modifier.weight(1f)) {
                 Text((if (live && item.num > 0) "${item.num}  " else "") + item.name, color = Color.White,
-                    fontSize = if (isTv) 24.sp else 18.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 val sub = listOfNotNull(
                     item.season.ifEmpty { null },
                     if (list.size > 1) "${idx + 1} / ${list.size}" else null
                 ).joinToString("  ·  ")
-                if (sub.isNotEmpty()) Text(sub, color = Pal.Dim, fontSize = 14.sp, maxLines = 1)
+                if (sub.isNotEmpty()) Text(sub, color = Pal.Dim, fontSize = Ts.HEAD.sp, maxLines = 1)
             }
             CtrlButton(if (isFav) Ic.Star else Ic.StarOutline, "Favorite", onFav, compact = compact)
             if (onFullscreen != null) CtrlButton(if (landscape) Ic.FullscreenExit else Ic.Fullscreen,
@@ -1220,9 +1220,9 @@ private fun Controls(
 
         // Option buttons (movable: bottom / left / right, as before)
         val opts: @Composable () -> Unit = {
-            if (hasAudio || !live) PillButton("Audio", { onDialog("audio") }, size = 14)
-            PillButton("Subtitles", { onDialog("subs") }, size = 14)
-            PillButton(when (aspect) { "fill" -> "Fill"; "zoom" -> "Zoom"; else -> "Fit" }, onAspect, size = 14)
+            if (hasAudio || !live) PillButton("Audio", { onDialog("audio") }, size = Ts.HEAD)
+            PillButton("Subtitles", { onDialog("subs") }, size = Ts.HEAD)
+            PillButton(when (aspect) { "fill" -> "Fill"; "zoom" -> "Zoom"; else -> "Fit" }, onAspect, size = Ts.HEAD)
         }
 
         // Bottom: seek bar / live badge (+ options when bar is at the bottom)
@@ -1234,12 +1234,12 @@ private fun Controls(
         ) {
             if (!live) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(fmt(pos), color = Color.White, fontSize = 14.sp)
+                    Text(fmt(pos), color = Color.White, fontSize = Ts.HEAD.sp)
                     SeekBar(pos, dur, buffered, seekFr, onSeekBy, onSeekTo, Modifier.weight(1f))
-                    Text(if (dur > 0) fmt(dur) else "--:--", color = Color.White, fontSize = 14.sp)
+                    Text(if (dur > 0) fmt(dur) else "--:--", color = Color.White, fontSize = Ts.HEAD.sp)
                 }
             } else {
-                Text("● LIVE", color = Pal.Accent, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Text("● LIVE", color = Pal.Accent, fontSize = Ts.HEAD.sp, fontWeight = FontWeight.Bold)
             }
             if (barPos == "bottom") {
                 ButtonFlow(gapDp = 8) { opts() }
@@ -1290,20 +1290,20 @@ private fun TvControls(
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Text((if (live && item.num > 0) "${item.num}  " else "") + item.name, color = Color.White,
-                fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             val sub = listOfNotNull(
                 item.season.ifEmpty { null },
                 if (list.size > 1) "${idx + 1} / ${list.size}" else null
             ).joinToString("  ·  ")
-            if (sub.isNotEmpty()) Text(sub, color = Pal.Dim, fontSize = 14.sp, maxLines = 1)
+            if (sub.isNotEmpty()) Text(sub, color = Pal.Dim, fontSize = Ts.HEAD.sp, maxLines = 1)
             if (!live) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    Text(fmt(pos), color = Color.White, fontSize = 15.sp)
+                    Text(fmt(pos), color = Color.White, fontSize = Ts.ROW.sp)
                     SeekBar(pos, dur, buffered, seekFr, onSeekBy, onSeekTo, Modifier.weight(1f))
-                    Text(if (dur > 0) fmt(dur) else "--:--", color = Color.White, fontSize = 15.sp)
+                    Text(if (dur > 0) fmt(dur) else "--:--", color = Color.White, fontSize = Ts.ROW.sp)
                 }
             } else {
-                Text("● LIVE", color = Pal.Accent, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                Text("● LIVE", color = Pal.Accent, fontSize = Ts.ROW.sp, fontWeight = FontWeight.Bold)
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 if (list.size > 1) CtrlButton(Ic.Prev, if (live) "Previous channel" else "Previous", onPrev)

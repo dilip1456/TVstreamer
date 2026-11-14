@@ -39,40 +39,40 @@ fun HiddenRowsPanel(repo: Repo, modifier: Modifier = Modifier, title: Boolean = 
     val groups = repo.hidden.filter { it.startsWith(Taxonomy.PREFIX) }.sorted()
     val titles = repo.hiddenTitleCount()
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        if (title) Label("Hidden", 18)
-        if (rows.isEmpty() && cats.isEmpty() && liveCats.isEmpty() && groups.isEmpty() && channels == 0 && titles == 0) Label("Nothing hidden", 13, Pal.Dim)
+        if (title) Label("Hidden", Ts.TITLE)
+        if (rows.isEmpty() && cats.isEmpty() && liveCats.isEmpty() && groups.isEmpty() && channels == 0 && titles == 0) Label("Nothing hidden", Ts.SECONDARY, Pal.Dim)
         rows.forEach { e ->
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Label("${HomeHide.title(e)}  ·  ${HomeHide.tabLabel(HomeHide.tab(e))}", 14, Pal.Text, Modifier.weight(1f))
-                PillButton("Show again", { repo.unhideRow(e) }, size = 13)
+                Label("${HomeHide.title(e)}  ·  ${HomeHide.tabLabel(HomeHide.tab(e))}", Ts.HEAD, Pal.Text, Modifier.weight(1f))
+                PillButton("Show again", { repo.unhideRow(e) }, size = Ts.SECONDARY)
             }
         }
         cats.forEach { c ->
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Label("${Names.cat(c.title)}  ·  category", 14, Pal.Text, Modifier.weight(1f))
-                PillButton("Show again", { repo.toggleHide("vod", c.id) }, size = 13)
+                Label("${Names.cat(c.title)}  ·  category", Ts.HEAD, Pal.Text, Modifier.weight(1f))
+                PillButton("Show again", { repo.toggleHide("vod", c.id) }, size = Ts.SECONDARY)
             }
         }
         liveCats.forEach { c ->
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Label("${Names.cat(c.title)}  ·  Live TV", 14, Pal.Text, Modifier.weight(1f))
-                PillButton("Show again", { repo.toggleHide("itv", c.id) }, size = 13)
+                Label("${Names.cat(c.title)}  ·  Live TV", Ts.HEAD, Pal.Text, Modifier.weight(1f))
+                PillButton("Show again", { repo.toggleHide("itv", c.id) }, size = Ts.SECONDARY)
             }
         }
         groups.forEach { g ->
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Label("${Taxonomy.label(g)}  ·  Live TV group", 14, Pal.Text, Modifier.weight(1f))
-                PillButton("Show again", { repo.toggleGroup(g) }, size = 13)
+                Label("${Taxonomy.label(g)}  ·  Live TV group", Ts.HEAD, Pal.Text, Modifier.weight(1f))
+                PillButton("Show again", { repo.toggleGroup(g) }, size = Ts.SECONDARY)
             }
         }
         if (channels > 0) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Label("$channels hidden channel" + (if (channels > 1) "s" else ""), 14, Pal.Text, Modifier.weight(1f))
-            PillButton("Show again", { repo.unhideAllChannels() }, size = 13)
+            Label("$channels hidden channel" + (if (channels > 1) "s" else ""), Ts.HEAD, Pal.Text, Modifier.weight(1f))
+            PillButton("Show again", { repo.unhideAllChannels() }, size = Ts.SECONDARY)
         }
         if (titles > 0) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Label("$titles hidden title" + (if (titles > 1) "s" else ""), 14, Pal.Text, Modifier.weight(1f))
-            PillButton("Show again", { repo.unhideAllTitles() }, size = 13)
+            Label("$titles hidden title" + (if (titles > 1) "s" else ""), Ts.HEAD, Pal.Text, Modifier.weight(1f))
+            PillButton("Show again", { repo.unhideAllTitles() }, size = Ts.SECONDARY)
         }
-        if (rows.size + cats.size > 1) PillButton("Show all rows again", { repo.unhideAllRows() }, size = 13)
+        if (rows.size + cats.size > 1) PillButton("Show all rows again", { repo.unhideAllRows() }, size = Ts.SECONDARY)
     }
 }

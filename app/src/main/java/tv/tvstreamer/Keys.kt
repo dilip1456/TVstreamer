@@ -180,35 +180,35 @@ fun RemoteScreen(onBack: () -> Unit) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = hPad, vertical = 20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Remote buttons", color = Pal.Text, fontSize = if (isTv) 28.sp else 22.sp, fontWeight = FontWeight.Bold)
+                    Text("Remote buttons", color = Pal.Text, fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold)
                     Text("Give a remote button its own action, separately for a short press and for holding it. " +
                         "Holding Menu adds or removes the focused / playing title from favorites; a short Menu press still opens the options menu.",
-                        color = Pal.Dim, fontSize = 13.sp)
+                        color = Pal.Dim, fontSize = Ts.SECONDARY.sp)
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         PillButton(if (learning) "Press a button on the remote…" else "＋  Learn a button", { learnMsg = ""; learning = true }, Modifier.focusRequester(firstFr), primary = true)
                         PillButton("Reset to defaults", { Keys.reset(); learnMsg = "Defaults restored" })
                     }
-                    if (learnMsg.isNotEmpty()) Text(learnMsg, color = Pal.Warn, fontSize = 14.sp)
+                    if (learnMsg.isNotEmpty()) Text(learnMsg, color = Pal.Warn, fontSize = Ts.HEAD.sp)
                 }
             }
             items(codes, key = { it }) { c ->
                 Row(Modifier.fillMaxWidth().focusCard({ picked = c }, scale = 1.02f).background(Pal.Soft).padding(12.dp),
                     verticalAlignment = Alignment.CenterVertically) {
-                    Text(Keys.name(c), color = Pal.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                    Text("Press: ${Keys.shortOf(c).label}    Hold: ${Keys.longOf(c).label}", color = Pal.Dim, fontSize = 13.sp)
+                    Text(Keys.name(c), color = Pal.Text, fontSize = Ts.ROW.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    Text("Press: ${Keys.shortOf(c).label}    Hold: ${Keys.longOf(c).label}", color = Pal.Dim, fontSize = Ts.SECONDARY.sp)
                 }
             }
             item {
-                Column(Modifier.padding(top = 16.dp).background(Pal.Field, RoundedCornerShape(8.dp)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("About the app buttons (Netflix, Prime Video, Hulu …)", color = Pal.Text, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                Column(Modifier.padding(top = 16.dp).background(Pal.Field, RoundedCornerShape(Radii.field)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("About the app buttons (Netflix, Prime Video, Hulu …)", color = Pal.Text, fontSize = Ts.ROW.sp, fontWeight = FontWeight.SemiBold)
                     Text("Those shortcut buttons are handled by Fire TV itself, so apps usually never see them and they can't be learned here. " +
                         "If you press one while TVStreamer is open and nothing shows up above, that's why. " +
                         "To make a remote shortcut button open TVStreamer, use Fire TV's own setting on supported remotes: " +
                         "Settings > Controllers & Bluetooth Devices > Amazon Fire TV Remotes > (your remote) > Remote button shortcuts / customize. " +
                         "Availability varies by remote and Fire TV software version.",
-                        color = Pal.Dim, fontSize = 13.sp)
+                        color = Pal.Dim, fontSize = Ts.SECONDARY.sp)
                     Text("Buttons that do reach the app (for example Menu, Play/Pause, Rewind/Fast forward, and on some remotes Guide, Captions, " +
-                        "the coloured buttons or Channel up/down) can be learned.", color = Pal.Dim, fontSize = 13.sp)
+                        "the coloured buttons or Channel up/down) can be learned.", color = Pal.Dim, fontSize = Ts.SECONDARY.sp)
                 }
             }
         }

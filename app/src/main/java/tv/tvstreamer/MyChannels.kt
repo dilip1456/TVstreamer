@@ -1,6 +1,7 @@
 package tv.tvstreamer
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -36,13 +37,13 @@ fun NameDialog(title: String, initial: String, confirm: String, onDone: (String)
     LaunchedEffect(Unit) { delay(80); runCatching { fr.requestFocus() } }
     PopupFrame(onClose) {
         Column(
-            Modifier.widthIn(min = 300.dp, max = 480.dp).background(Pal.Surface.copy(alpha = 0.98f), RoundedCornerShape(18.dp))
+            Modifier.widthIn(min = 300.dp, max = 480.dp).background(Pal.Surface.copy(alpha = 0.98f), RoundedCornerShape(Radii.panel)).border(1.dp, Color(0x22D4AF37), RoundedCornerShape(Radii.panel))
                 .padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Label(title, 20)
+            Label(title, Ts.TITLE)
             Box(Modifier.focusRequester(fr)) { SettingField("Name", text) { text = it } }
-            PillButton(confirm, { if (text.isNotBlank()) onDone(text) }, primary = true, size = 15)
+            PillButton(confirm, { if (text.isNotBlank()) onDone(text) }, primary = true, size = Ts.ROW)
         }
     }
 }

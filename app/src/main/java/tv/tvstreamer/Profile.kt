@@ -177,7 +177,7 @@ fun AccountMenu(store: Store, go: (Screen) -> Unit, onClose: () -> Unit) {
             })
             if (Cloud.signedIn) Row1("Sign out", { Cloud.signOut(); msg = "Signed out. Data on this device is kept." })
             else Row1("Sign in with Google", { onClose(); go(Screen.Account) })
-            if (msg.isNotEmpty()) Label(msg, 14, Pal.Warn, maxLines = 3)
+            if (msg.isNotEmpty()) Label(msg, Ts.HEAD, Pal.Warn, maxLines = 3)
             Row1("Close", onClose)
         }
     }
@@ -206,10 +206,10 @@ fun ProfileScreen(repo: Repo, go: (Screen) -> Unit) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.padding(vertical = 8.dp)) {
                 Avatar(64.dp)
                 Column(Modifier.weight(1f)) {
-                    Label(if (Cloud.signedIn) Cloud.name.ifEmpty { "Google account" } else "Profile", 24, Pal.Text)
-                    Label(if (Cloud.signedIn) Cloud.email else "Not signed in", 14, Pal.Dim)
-                    if (Cloud.signedIn) Label((if (Cloud.busy) "Syncing..." else Cloud.status.ifEmpty { "Signed in" }) + syncAgo(), 13, Pal.Dim)
-                    if (Cloud.error.isNotEmpty()) Label(Cloud.error, 13, Pal.Warn, maxLines = 3)
+                    Label(if (Cloud.signedIn) Cloud.name.ifEmpty { "Google account" } else "Profile", Ts.TITLE, Pal.Text)
+                    Label(if (Cloud.signedIn) Cloud.email else "Not signed in", Ts.SECONDARY, Pal.Dim)
+                    if (Cloud.signedIn) Label((if (Cloud.busy) "Syncing..." else Cloud.status.ifEmpty { "Signed in" }) + syncAgo(), Ts.SECONDARY, Pal.Dim)
+                    if (Cloud.error.isNotEmpty()) Label(Cloud.error, Ts.SECONDARY, Pal.Warn, maxLines = 3)
                 }
             }
         }
@@ -220,7 +220,7 @@ fun ProfileScreen(repo: Repo, go: (Screen) -> Unit) {
                 PillButton("Sign out", { Cloud.signOut() })
             }
         } else item { PillButton("Sign in with Google (sync TV and phone)", { go(Screen.Account) }, Modifier.focusRequester(firstFr), primary = true) }
-        item { Label("Preferences", 18, Pal.Text, Modifier.padding(top = 8.dp)) }
+        item { Label("Preferences", Ts.TITLE, Pal.Text, Modifier.padding(top = 8.dp)) }
         item { Row1("Theme: ${Theme.label}", { Theme.mode = Theme.next(Theme.mode); repo.store.theme = Theme.mode }) }
         item { Row1("Languages for Movies", { go(Screen.Languages("movies", Screen.Profile)) }) }
         item { Row1("Languages for Series", { go(Screen.Languages("series", Screen.Profile)) }) }
@@ -239,9 +239,9 @@ fun ProfileScreen(repo: Repo, go: (Screen) -> Unit) {
                 scope.launch { msg = Updater.check(ctx, repo.store, manual = true).ifEmpty { Updater.statusLine() } }
             })
         }
-        if (msg.isNotEmpty()) item { Label(msg, 14, Pal.Warn, maxLines = 4) }
-        item { Label("About", 18, Pal.Text, Modifier.padding(top = 8.dp)) }
-        item { Label("TVstreamer v$ver · Stalker portal player for Fire TV and Android phones", 14, Pal.Dim, maxLines = 2) }
+        if (msg.isNotEmpty()) item { Label(msg, Ts.HEAD, Pal.Warn, maxLines = 4) }
+        item { Label("About", Ts.TITLE, Pal.Text, Modifier.padding(top = 8.dp)) }
+        item { Label("TVstreamer v$ver · Stalker portal player for Fire TV and Android phones", Ts.HEAD, Pal.Dim, maxLines = 2) }
         item { Spacer(Modifier.height(24.dp)) }
     }
 }

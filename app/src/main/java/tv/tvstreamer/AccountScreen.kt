@@ -49,7 +49,7 @@ fun AccountScreen(repo: Repo, onReady: () -> Unit) {
 
     var noteErr by remember { mutableStateOf<GoogleError?>(null) }
     val tv = rememberIsTv()
-    val body = if (tv) 17 else 15
+    val body = Ts.ROW
     // TV: start on the main action (Sync now / Sign in), there is no on-screen Back button
     val firstFr = remember { androidx.compose.ui.focus.FocusRequester() }
     LaunchedEffect(Cloud.signedIn) { if (tv) { kotlinx.coroutines.delay(150); runCatching { firstFr.requestFocus() } } }
@@ -99,16 +99,16 @@ fun AccountScreen(repo: Repo, onReady: () -> Unit) {
         Label("Google account & sync", if (tv) 32 else 26, maxLines = 2)
         Label("Sign in with Google to keep favourites, hidden items, languages, sorting, Live TV settings, remote buttons, " +
             "Continue watching and Fix match choices the same on your TV and phone. They are saved in your own Google Drive, " +
-            "in a place only TVstreamer can read.", body - 1, ADIM, maxLines = 20)
+            "in a place only TVstreamer can read.", Ts.SECONDARY, ADIM, maxLines = 20)
         if (note.isNotEmpty()) Label(note, body, Pal.GoldText, maxLines = 20)
         noteErr?.let { ErrorBox(it.message ?: "", it.hint, it.link, body) { u -> link(u) } }
 
         if (Cloud.signedIn) {
             Column(Modifier.fillMaxWidth().background(Pal.Field, RoundedCornerShape(Radii.field)).padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Label("Signed in as ${Cloud.email.ifEmpty { "(email not shared)" }}", body + 3, Pal.Text, maxLines = 3)
+                Label("Signed in as ${Cloud.email.ifEmpty { "(email not shared)" }}", Ts.TITLE, Pal.Text, maxLines = 3)
                 Label("Status: " + (if (Cloud.busy) "Syncing..." else Cloud.status.ifEmpty { "Signed in" }), body, ADIM, maxLines = 4)
                 Label("Last synced: " + if (Cloud.lastSync > 0) DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(Cloud.lastSync)) else "never", body, ADIM, maxLines = 2)
-                Label("Stored in: " + if (Cloud.space == DriveSpace.APPDATA) "hidden app folder in your Google Drive" else "the file ${Google.FILE_NAME} in your Google Drive", body - 1, ADIM, maxLines = 3)
+                Label("Stored in: " + if (Cloud.space == DriveSpace.APPDATA) "hidden app folder in your Google Drive" else "the file ${Google.FILE_NAME} in your Google Drive", Ts.SECONDARY, ADIM, maxLines = 3)
             }
             if (Cloud.error.isNotEmpty()) ErrorBox(Cloud.error, Cloud.errorHint, Cloud.errorLink, body) { u -> link(u) }
             Buttons(listOf("Sync now" to { Cloud.syncNow(); note = ""; noteErr = null },
@@ -119,7 +119,7 @@ fun AccountScreen(repo: Repo, onReady: () -> Unit) {
             })
             Label("Portal URL, MAC, serial, locked-section password and TMDB/OMDb keys are kept in your own Google Drive " +
                 "(private to your account), so a new device is ready right after sign-in. " +
-                "A Google client of your own (Advanced) is never synced.", body - 2, ADIM, maxLines = 20)
+                "A Google client of your own (Advanced) is never synced.", Ts.SECONDARY, ADIM, maxLines = 20)
             if (!confirmDelete) PillButton("Delete cloud data…", { confirmDelete = true })
             else Column(Modifier.fillMaxWidth().background(Pal.WarnBox, RoundedCornerShape(Radii.field)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Label("Delete the synced copy from your Google Drive and sign this device out? Data on this device stays. " +
@@ -140,17 +140,17 @@ fun AccountScreen(repo: Repo, onReady: () -> Unit) {
 
         Spacer(Modifier.height(6.dp))
         if (!Cloud.signedIn && GoogleClient.builtIn.usable) Label("Tip: on the Google page, choose your account, press Continue, and tick the " +
-            "Google Drive box (\"…its own configuration data…\") before pressing Continue again.", body - 2, ADIM, maxLines = 6)
+            "Google Drive box (\"…its own configuration data…\") before pressing Continue again.", Ts.SECONDARY, ADIM, maxLines = 6)
         if (!advanced) PillButton("Advanced: use my own Google client…", { advanced = true })
         else {
-            Label("Advanced: your own Google client", body + 3, maxLines = 2)
+            Label("Advanced: your own Google client", Ts.TITLE, maxLines = 2)
             Label(when {
                 Cloud.clientId.isNotEmpty() -> "Sign-in uses the client saved here instead of the built-in one. Leave it empty to use the built-in client."
                 GoogleClient.builtIn.usable -> "Not needed: the app has a built-in Google client. Only fill this in to use an \"OAuth client\" from " +
                     "your own Google Cloud project (type \"TVs and Limited Input devices\"). Steps are in the README."
                 else -> "This copy of the app was built without a Google client. Enter an \"OAuth client\" (type \"TVs and Limited " +
                     "Input devices\") from your own Google Cloud project, or install the official release. Steps are in the README."
-            }, body - 2, ADIM, maxLines = 20)
+            }, Ts.SECONDARY, ADIM, maxLines = 20)
             FieldWithLink({ SettingField("Google OAuth Client ID (…apps.googleusercontent.com)", cid, multiLine = true) { cid = it } },
                 "Open Google Cloud ↗") { link(Google.CONSOLE_URL) }
             SettingField("Google OAuth Client secret", secret, password = true) { secret = it }
@@ -166,7 +166,7 @@ fun AccountScreen(repo: Repo, onReady: () -> Unit) {
                 }))
             Troubleshooting(body) { u -> link(u) }
         }
-        if (!Cloud.encrypted) Label("Note: this device could not encrypt the sign-in data; it is still private to the app.", body - 2, AWARN, maxLines = 4)
+        if (!Cloud.encrypted) Label("Note: this device could not encrypt the sign-in data; it is still private to the app.", Ts.SECONDARY, AWARN, maxLines = 4)
         Spacer(Modifier.height(80.dp))
     }
 }
@@ -185,7 +185,7 @@ private fun ErrorBox(msg: String, hint: String, link: String, body: Int, open: (
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(msg, color = AWARN, fontSize = body.sp, lineHeight = (body + 5).sp)
                 if (hint.isNotEmpty()) Text("What to do: $hint", color = Pal.Text, fontSize = body.sp, lineHeight = (body + 5).sp)
-                if (link.isNotEmpty()) Text(link, color = Pal.GoldText, fontSize = (body - 1).sp)
+                if (link.isNotEmpty()) Text(link, color = Pal.GoldText, fontSize = Ts.SECONDARY.sp)
             }
         }
         if (link.isNotEmpty()) PillButton("Open this page ↗", { open(link) })
@@ -204,7 +204,7 @@ private fun Troubleshooting(body: Int, open: (String) -> Unit) {
         "6. Still stuck? Remove TVstreamer's access at myaccount.google.com/connections and sign in again. In Testing mode Google signs you out every 7 days; Publish the app to stop that." to GoogleErrors.PERMISSIONS_URL,
     )
     Column(Modifier.fillMaxWidth().background(Pal.Field, RoundedCornerShape(Radii.field)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Label("Troubleshooting checklist", body + 3, Pal.GoldText, maxLines = 2)
+        Label("Troubleshooting checklist", Ts.TITLE, Pal.GoldText, maxLines = 2)
         steps.forEach { (t, u) ->
             Text(t, color = Pal.Text, fontSize = body.sp, lineHeight = (body + 5).sp)
             if (u.isNotEmpty()) PillButton("Open ↗  ${u.removePrefix("https://")}", { open(u) })
@@ -217,9 +217,9 @@ private fun SignInCode(c: Google.DeviceCode, tv: Boolean, openLink: () -> Unit) 
     val qr = remember(c.url) { qrBitmap(c.url) }
     val text: @Composable (Modifier) -> Unit = { m ->
         Column(m, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Label("On your phone or computer go to", 16, ADIM)
+            Label("On your phone or computer go to", Ts.ROW, ADIM)
             Label(c.url.removePrefix("https://"), if (tv) 26 else 22, Pal.Text, maxLines = 2)
-            Label("and enter this code:", 16, ADIM)
+            Label("and enter this code:", Ts.ROW, ADIM)
             Text(c.userCode, color = Pal.GoldText, fontSize = if (tv) 40.sp else 32.sp, fontWeight = FontWeight.Bold, letterSpacing = 4.sp)
             Label("Choose your Google account, press Continue, and tick the Google Drive box before pressing Continue again. " +
                 "This page updates by itself.", if (tv) 16 else 14, ADIM, maxLines = 6)
