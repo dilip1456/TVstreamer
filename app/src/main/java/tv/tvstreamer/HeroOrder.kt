@@ -1,24 +1,51 @@
 package tv.tvstreamer
 
-/** What the hero banner rotates through, and how it steps. Plain functions (unit-tested). */
+/**
+ * What the hero banner rotates through, and how it steps. Plain functions (unit-tested).
+ * The slides are new / recently added movies and series — never Continue watching / last played.
+ */
 object HeroOrder {
     /** Seconds between slides, and how long a key press in the banner pauses the rotation. */
     const val ROTATE_MS = 7_000L
     const val PAUSE_MS = 12_000L
-    const val MAX = 12
+    const val MAX = 8
 
     /**
-     * Recently played first (newest first, so the last played item leads), then favourites; each title once
-     * (by [key], e.g. episodes of one series share the series key), at most [max].
+     * Newest / recently added titles for the hero. Items with a portal added date lead (newest first);
+     * those without a date come last. [excludeKeys] (watch history / continue watching) are skipped.
+     * Each [key] once, at most [max].
      */
-    fun <T> build(history: List<T>, favs: List<T>, key: (T) -> String, max: Int = MAX): List<T> {
+    fun <T> newest(
+        items: List<T>,
+        addedMs: (T) -> Long,
+        key: (T) -> String,
+        excludeKeys: Set<String> = emptySet(),
+        ok: (T) -> Boolean = { true },
+        max: Int = MAX
+    ): List<T> {
         val seen = HashSet<String>()
-        val out = ArrayList<T>()
-        for (x in history.asSequence() + favs.asSequence()) {
-            if (out.size >= max) break
-            if (seen.add(key(x))) out += x
+        return items.asSequence()
+            .filter { ok(it) && key(it) !in excludeKeys }
+            .sortedWith(compareBy<T> { if (addedMs(it) > 0) 0 else 1 }.thenByDescending { addedMs(it) })
+            .filter { seen.add(key(it)) }
+            .take(max)
+            .toList()
+    }
+
+    /** One key per title: episodes of a series collapse to the show. */
+    fun showKey(i: Item): String =
+        if (i.isEpisode() || i.isEpisodeLike()) "s:" + (i.pid.ifEmpty { i.parsed.title.lowercase() }) else i.key
+
+    /** History + continue-watching keys to keep off the hero (item key, series key, parent id). */
+    fun historyKeys(history: List<Item>): Set<String> = buildSet {
+        for (i in history) {
+            add(i.key)
+            add(showKey(i))
+            if (i.pid.isNotEmpty()) {
+                add("vod:${i.pid}")
+                add("s:${i.pid}")
+            }
         }
-        return out
     }
 
     /** The next slide, wrapping around. */

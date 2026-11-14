@@ -194,17 +194,23 @@ fun whenText(t: Long): String {
 }
 
 /**
- * A TV menu row: Left on its first item and Right on its last do nothing, instead of letting focus jump out to
- * whatever happens to be beside it (e.g. a floating button) with no way back. [index] is the focused item (-1: none).
+ * A TV menu row: Left / Right always stay inside the bar (moving to the neighbour via [onMove]),
+ * instead of letting Compose's 2D focus search drop down into the page. Down is not consumed.
+ * [index] is the focused item (-1: none).
  */
-fun Modifier.menuRow(index: () -> Int, count: () -> Int): Modifier = onPreviewKeyEvent {
+fun Modifier.menuRow(index: () -> Int, count: () -> Int, onMove: (Int) -> Unit = {}): Modifier = onPreviewKeyEvent {
     if (it.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
     val i = index()
-    when (it.key) {
-        Key.DirectionLeft -> i == 0
-        Key.DirectionRight -> i >= 0 && i == count() - 1
-        else -> false
+    if (i < 0) return@onPreviewKeyEvent false
+    val dir = when (it.key) {
+        Key.DirectionLeft -> TabNav.Dir.LEFT
+        Key.DirectionRight -> TabNav.Dir.RIGHT
+        Key.DirectionUp -> TabNav.Dir.UP
+        else -> return@onPreviewKeyEvent false
     }
+    val next = TabNav.move(i, count(), dir)
+    if (next != i && next != TabNav.CONTENT) onMove(next)
+    true
 }
 
 /**

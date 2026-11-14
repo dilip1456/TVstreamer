@@ -387,7 +387,7 @@ class Store(ctx: Context) {
 
     fun clearHistory(olderThanMs: Long? = null) {
         if (olderThanMs == null) {
-            p.edit().remove("recent").remove("resume").apply()
+            p.edit().remove("recent").remove("resume").remove("lastep").apply()
             return
         }
         val cutoff = System.currentTimeMillis() - olderThanMs

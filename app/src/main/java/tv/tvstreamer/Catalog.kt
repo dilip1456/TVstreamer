@@ -5,6 +5,7 @@ package tv.tvstreamer
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -30,6 +31,7 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
@@ -147,16 +149,17 @@ fun heroPickFor(repo: Repo, last: Item): HeroPick {
 }
 
 /**
- * Hero slides for a tab: the last played title first, then the other recently played titles, then My List (each once).
- * Empty when there is neither (the caller falls back to a featured title). Runs off the main thread.
+ * Hero slides for a tab: new / recently added movies and series (portal added dates), mixed on Home,
+ * skipping hidden / adult-locked titles and anything in watch history. Empty when none match
+ * (the caller falls back to a featured title that is not Continue watching). Runs off the main thread.
  */
 fun heroPicks(repo: Repo, mode: String): List<HeroPick> {
-    fun ok(i: Item) = i.kind == "vod" && repo.listOk(i.locked) && repo.lib.wantItem(i, mode)
-    val hist = repo.store.history().filter(::ok)
-    val favs = repo.favs.filter(::ok)
-    val keyOf = { i: Item -> if (i.isEpisode()) "s:" + (i.pid.ifEmpty { i.parsed.title.lowercase() }) else i.key }
-    return HeroOrder.build(hist, favs, keyOf).mapNotNull { runCatching { heroPickFor(repo, it) }.getOrNull() }
-        .distinctBy { it.show.key }
+    fun ok(i: Item) = i.kind == "vod" && !i.isEpisode() && !i.isEpisodeLike() &&
+        repo.listOk(i.locked) && repo.lib.wantItem(i, mode) &&
+        "vod:${i.cat}" !in repo.hidden && "title:${i.key}" !in repo.hidden
+    val exclude = HeroOrder.historyKeys(repo.store.history() + repo.store.continueList().map { it.first })
+    return HeroOrder.newest(repo.lib.everything(), { it.addedMs }, { HeroOrder.showKey(it) }, exclude, ::ok)
+        .map { HeroPick(it, it, 0L, 0L) }
 }
 
 /** Language rows for one tab, computed off the main thread. */
@@ -200,6 +203,7 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
     var menu by remember { mutableStateOf<Pair<Shelf, Item?>?>(null) }
     var fixItem by remember { mutableStateOf<Item?>(null) }
     var sortMenu by remember { mutableStateOf(false) }
+    var clearHist by remember { mutableStateOf(false) }
     var pageMenu by remember { mutableStateOf(false) }
     var updateMsg by remember { mutableStateOf("") }
     val tabbed = mode == "movies" || mode == "series"
@@ -293,18 +297,18 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
             addAll(coreShelves.filter { it.key !in skip && it.key !in headIds })
         }
     }
-    // Hero: the last thing watched leads, then it rotates through recently played and My List; featured only when neither exists
-    val picks by produceState(heroMemo[memoKey] ?: emptyList(), tick, contVer, mode, repo.favs, showAdult) {
+    // Hero: newest / recently added titles (not last watched). Featured (non-history rows) only when none match.
+    val picks by produceState(heroMemo[memoKey] ?: emptyList(), tick, contVer, mode, showAdult, lib.version, catalogHideSig) {
         value = withContext(Dispatchers.Default) { safely { heroPicks(repo, mode) } ?: emptyList() }
         heroMemo[memoKey] = value
     }
     val featured = remember(shelves) {
-        shelves.asSequence().filter { it.cat != null || it.pool != null }.flatMap { it.items.asSequence() }.firstOrNull { it.img.isNotEmpty() && repo.listOk(it.locked) }
-            ?: shelves.asSequence().flatMap { it.items.asSequence() }.firstOrNull { it.kind == "vod" && it.img.isNotEmpty() }
+        val skip = setOf("cont", "fav", "favc", "recent", "ai")
+        shelves.asSequence().filter { it.key !in skip && (it.cat != null || it.pool != null) }.flatMap { it.items.asSequence() }.firstOrNull { it.img.isNotEmpty() && repo.listOk(it.locked) }
+            ?: shelves.asSequence().filter { it.key !in skip }.flatMap { it.items.asSequence() }.firstOrNull { it.kind == "vod" && it.img.isNotEmpty() }
     }
     val slides = if (picks.isNotEmpty()) picks else listOfNotNull(featured?.let { HeroPick(it, it, 0L, 0L) })
     var heroIx by remember(mode) { mutableIntStateOf(0) }
-    // A new list (something was just played): start again at the last played
     LaunchedEffect(slides.firstOrNull()?.show?.key, slides.size) { heroIx = 0 }
     var heroTouched by remember { mutableLongStateOf(0L) }
     LaunchedEffect(slides.size) {
@@ -385,16 +389,22 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                 // TV / tablet menu (Netflix style): profile on the left, text tabs centred; the focused tab is a soft
                 // light pill, the current one bold. Left / Right stay inside the menu, Down goes to the page.
                 // Settings, Preferences and Update live in the profile menu.
-                if (!AppUi.phoneNav) Row(
-                    Modifier.fillMaxWidth().menuRow({ navIx }, { tabs.size + 1 })
+                if (!AppUi.phoneNav) {
+                    val tabCount = tabs.size + 1
+                    val tabFrs = remember(tabCount) { List(tabCount) { FocusRequester() } }
+                    Row(
+                    Modifier.fillMaxWidth().menuRow({ navIx }, { tabCount }) { n ->
+                            navIx = n
+                            runCatching { tabFrs.getOrNull(n)?.requestFocus() }
+                        }
                         .onFocusChanged { navFocused = it.hasFocus; if (!it.hasFocus) navIx = -1 }.focusRestorer(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Box(Modifier.onFocusChanged { if (it.hasFocus) navIx = 0 }) { AvatarButton { AppUi.accountMenu = true } }
+                    Box(Modifier.focusRequester(tabFrs[0]).onFocusChanged { if (it.hasFocus) navIx = 0 }) { AvatarButton { AppUi.accountMenu = true } }
                     Spacer(Modifier.weight(1f))
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                         tabs.forEachIndexed { ti, (t, k, a) ->
-                            val at = Modifier.onFocusChanged { if (it.isFocused) navIx = ti + 1 }
+                            val at = Modifier.focusRequester(tabFrs[ti + 1]).onFocusChanged { if (it.isFocused) navIx = ti + 1 }
                             val m = at then when (k) {
                                 mode -> Modifier.focusRequester(navFr).onFocusChanged { if (it.isFocused) repo.lastFocus[screenKey] = "nav" }
                                 "search" -> Modifier.focusRequester(searchFr).onFocusChanged { if (it.isFocused) repo.lastFocus[screenKey] = "search" }
@@ -405,6 +415,7 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                     }
                     Spacer(Modifier.weight(1f))
                     Text("TV", color = Pal.GoldText, fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold)
+                }
                 }
             }
         LazyColumn(state = state, modifier = Modifier.fillMaxWidth().weight(1f), contentPadding = PaddingValues(bottom = 48.dp)) {
@@ -453,10 +464,12 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
             }
             if (heroPick != null && hero != null) item(key = "hero") {
                 val h = heroPick
-                Hero(repo, hero, isTv, hPad, h.label,
+                Hero(repo, hero, isTv, hPad, "▶  Play",
                     onPlay = { if (h.play.isSeries) open(h.play) else playOrGate(h.play) },
                     onInfo = { open(hero) },
-                    playModifier = Modifier.focusRequester(heroFr).onFocusChanged { if (it.isFocused) repo.lastFocus[screenKey] = "hero" },
+                    playModifier = Modifier.onFocusChanged { if (it.isFocused) repo.lastFocus[screenKey] = "hero" },
+                    heroModifier = Modifier.focusRequester(heroFr).onFocusChanged { if (it.isFocused) repo.lastFocus[screenKey] = "hero" }
+                        .focusProperties { up = navFr },
                     slide = heroIx, slides = slides.size, onTouch = { heroTouched = System.currentTimeMillis() },
                     onStep = { d -> heroTouched = System.currentTimeMillis(); heroIx = (heroIx + d).mod(slides.size.coerceAtLeast(1)) })
             }
@@ -505,9 +518,10 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                     if (item.kind == "vod" && !item.isEpisode()) add("Fix match…" to { menu = null; fixItem = item })
                     if (item.kind == "vod" && (shelf.versions[item.key] ?: 0) > 1) add("Versions (${shelf.versions[item.key]})…" to { menu = null; open(item) })
                     if (item.kind == "vod" && !item.isEpisode() && shelf.key != "cont") add("Hide this title" to { repo.toggleHideTitle(item); menu = null })
-                    if (shelf.key == "cont") add("✕  Remove from Continue watching" to { repo.store.removeResume(item.key); menu = null; contVer++ })
+                    if (shelf.key == "cont") add("✕  Remove from history" to { repo.store.removeResume(item.key); menu = null; contVer++ })
                     if (item.kind == "itv") add("Hide channel" to { repo.toggleHideChannel(item); menu = null })
                 }
+                if (shelf.key == "cont") add("✕  Clear all history" to { menu = null; clearHist = true })
                 shelf.pool?.let { p -> add("See all: ${shelf.title}" to { menu = null; go(p) }) }
                 shelf.cat?.let { c ->
                     add("See all in ${shelf.title}" to { menu = null; go(Screen.Grid(c, Screen.Home)) })
@@ -541,6 +555,12 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
             ChoiceDialog(title, opts, focusKey = shelf.key + (item?.key ?: "")) { menu = null }
         }
         fixItem?.let { f -> FixMatchDialog(f) { fixItem = null } }
+        if (clearHist) {
+            ChoiceDialog("Clear all watch history?", listOf(
+                "Clear all history" to { repo.store.clearHistory(); clearHist = false; contVer++; toast(ctx, "Watch history cleared") },
+                "Cancel" to { clearHist = false }
+            ), focusKey = "clear-hist") { clearHist = false }
+        }
         if (pageMenu) {
             ChoiceDialog("Options", buildList {
                 add("🌐  Languages…" to { pageMenu = false; go(Screen.Languages(mode, Screen.Home)) })
@@ -558,56 +578,64 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
 
 @Composable
 private fun Hero(repo: Repo, raw: Item, isTv: Boolean, hPad: Dp, playLabel: String, onPlay: () -> Unit, onInfo: () -> Unit, playModifier: Modifier,
-                 slide: Int = 0, slides: Int = 1, onTouch: () -> Unit = {}, onStep: (Int) -> Unit = {}) {
+                 heroModifier: Modifier = Modifier, slide: Int = 0, slides: Int = 1, onTouch: () -> Unit = {}, onStep: (Int) -> Unit = {}) {
     val meta = rememberMeta(raw)
     val item = raw.withMeta(meta)
     var fav by remember(item.key) { mutableStateOf(repo.isFav(item)) }
-    val name = meta?.title?.ifEmpty { null } ?: Names.title(item.name)
-    // Any key press inside the banner pauses the rotation for a while; the buttons stay the same composables, so a
-    // slide change never moves D-pad focus
-    // A rounded hero card (Netflix TV style) inset from the screen edges; full-bleed on phones
-    val card = if (isTv) Modifier.padding(horizontal = hPad).clip(RoundedCornerShape(Radii.panel)) else Modifier
+    val name = HeroTitle.display(item.name, meta?.title?.ifEmpty { null }, episode = item.isEpisode() || item.isEpisodeLike())
+    val screenH = LocalConfiguration.current.screenHeightDp
+    val heroH = if (isTv) (screenH * 0.72f).dp.coerceIn(420.dp, 720.dp) else 280.dp
     val backdrop = BackdropArt.distinct(meta?.backdrop, item.img)
-    Box(Modifier.fillMaxWidth().then(card).height(if (isTv) 360.dp else 260.dp)
-        .onPreviewKeyEvent { if (it.type == KeyEventType.KeyDown) onTouch(); false }) {
+    // Full-bleed billboard on TV (most of the screen); slightly shorter on phones. Left / Right step the carousel
+    // when the billboard has focus; Down reaches Play / More info / My List; Up is wired to the tab bar.
+    Box(Modifier.fillMaxWidth().height(heroH)
+        .then(heroModifier)
+        .focusable()
+        .onPreviewKeyEvent { e ->
+            if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+            onTouch()
+            when (e.key) {
+                Key.DirectionLeft -> { if (slides > 1) { onStep(-1); true } else false }
+                Key.DirectionRight -> { if (slides > 1) { onStep(1); true } else false }
+                else -> false
+            }
+        }) {
         if (backdrop != null) {
-            androidx.compose.animation.Crossfade(backdrop, animationSpec = androidx.compose.animation.core.tween(450), label = "hero") { url ->
+            androidx.compose.animation.Crossfade(backdrop, animationSpec = androidx.compose.animation.core.tween(550), label = "hero") { url ->
                 Poster(url, name, Modifier.fillMaxSize(), ContentScale.Crop, initialsSize = 1)
             }
-            Box(Modifier.fillMaxSize().background(Color(0x66000000)))
-            Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Pal.Bg, Pal.Bg.copy(alpha = 0.55f), Color.Transparent))))
-            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.5f to Color.Transparent, 1f to Pal.Bg)))
         } else {
-            // No second copy of the poster: a muted cinematic gradient stands in for a backdrop
             Box(Modifier.fillMaxSize().background(
                 Brush.linearGradient(listOf(Color(0xFF141218), Color(0xFF2A2418), Color(0xFF0E0E12)))))
-            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.55f to Color.Transparent, 1f to Pal.Bg)))
         }
-        Row(Modifier.fillMaxSize().padding(horizontal = if (isTv) 32.dp else hPad, vertical = if (isTv) 26.dp else 16.dp), verticalAlignment = Alignment.Bottom) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(if (isTv) 10.dp else 8.dp)) {
-                Text(name, color = Pal.Text, fontSize = if (isTv) Ts.DISPLAY.sp else Ts.TITLE.sp, fontWeight = FontWeight.SemiBold,
-                    letterSpacing = (-0.3).sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                MetaLine(item)
-                if (item.desc.isNotEmpty()) Text(item.desc, color = Pal.Desc, fontSize = Ts.SECONDARY.sp, maxLines = 3,
-                    overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth(if (isTv) 0.8f else 1f))
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    PillButton(playLabel.ifEmpty { if (item.isSeries) "▶  Episodes" else "▶  Play" }, onPlay, playModifier.onFocusChanged { if (it.isFocused) Keys.focused = raw }, primary = true)
+        Box(Modifier.fillMaxSize().background(Color(0x4D000000)))
+        Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Pal.Bg.copy(alpha = 0.92f), Pal.Bg.copy(alpha = 0.45f), Color.Transparent))))
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.45f to Color.Transparent, 1f to Pal.Bg)))
+        Row(Modifier.fillMaxSize().padding(horizontal = if (isTv) 56.dp else hPad, vertical = if (isTv) 36.dp else 18.dp), verticalAlignment = Alignment.Bottom) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(if (isTv) 12.dp else 8.dp)) {
+                Text(name, color = Pal.Text, fontSize = if (isTv) 42.sp else Ts.TITLE.sp, fontWeight = FontWeight.Bold,
+                    letterSpacing = (-0.6).sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                MetaLine(item, meta)
+                if (item.desc.isNotEmpty()) Text(item.desc, color = Pal.Desc, fontSize = if (isTv) Ts.ROW.sp else Ts.SECONDARY.sp,
+                    maxLines = if (isTv) 3 else 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth(if (isTv) 0.58f else 1f))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    PillButton(playLabel.ifEmpty { "▶  Play" }, onPlay, playModifier.onFocusChanged { if (it.isFocused) Keys.focused = raw }, primary = true)
+                    PillButton("ⓘ  More info", onInfo)
                     PillButton(if (fav) "✓  In My List" else "+  My List", { repo.toggleFav(raw); fav = repo.isFav(raw) })
-                    PillButton("ⓘ  Info", onInfo)
                     if (slides > 1) {
-                        Spacer(Modifier.width(6.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                        Spacer(Modifier.width(8.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                             repeat(slides) { i ->
-                                Box(Modifier.size(if (i == slide) 9.dp else 6.dp).clip(RoundedCornerShape(50))
+                                Box(Modifier.size(if (i == slide) 10.dp else 7.dp).clip(RoundedCornerShape(50))
                                     .background(if (i == slide) Pal.Gold else Pal.Dim.copy(alpha = 0.6f)))
                             }
                         }
                     }
                 }
             }
-            if (item.img.isNotEmpty()) {
-                Spacer(Modifier.width(20.dp))
-                Poster(item.img, name, Modifier.width(if (isTv) 160.dp else 100.dp).aspectRatio(2f / 3f).clip(RoundedCornerShape(Radii.poster)))
+            if (!isTv && item.img.isNotEmpty()) {
+                Spacer(Modifier.width(16.dp))
+                Poster(item.img, name, Modifier.width(110.dp).aspectRatio(2f / 3f).clip(RoundedCornerShape(Radii.poster)))
             }
         }
     }
@@ -620,9 +648,9 @@ fun MetaLine(item: Item, meta: Meta? = null) {
         meta?.imdbRating?.ifEmpty { null }?.let { "IMDb $it" }
             ?: item.rating.ifEmpty { null }?.takeIf { it != "0" && it != "0.0" }?.let { "★ $it" },
         meta?.rating?.ifEmpty { null }?.takeIf { meta.imdbRating.isEmpty() && it != item.rating }?.let { "TMDB $it" },
-        item.length.ifEmpty { null },
+        meta?.runtime?.ifEmpty { null } ?: item.length.ifEmpty { null },
         if (item.isSeries) "Series" else null,
-        item.genre.ifEmpty { null }
+        meta?.genres?.ifEmpty { null } ?: item.genre.ifEmpty { null }
     )
     if (parts.isNotEmpty()) Text(parts.joinToString("   ·   "), color = Pal.Dim, fontSize = Ts.HEAD.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
 }
@@ -781,7 +809,7 @@ fun DetailScreen(repo: Repo, item: Item, play: (List<Item>, Int) -> Unit, onBack
     }
     val meta = rememberMeta(cur)
     val shownItem = cur.withMeta(meta)
-    val name = meta?.title?.ifEmpty { null } ?: Names.title(cur.name)
+    val name = HeroTitle.display(cur.name, meta?.title?.ifEmpty { null }, episode = cur.isEpisode() || cur.isEpisodeLike())
     // Seasons first (saved list = instant chips), then only the season being looked at (saved per season on disk)
     var refs by remember(cur.key) { mutableStateOf(if (cur.isSeries && !cur.id.startsWith("grp:")) repo.seasons.cached(cur).orEmpty() else emptyList()) }
     val loaded = remember(cur.key) { mutableStateMapOf<String, List<Item>>().also { m -> refs.forEach { r -> repo.seasons.cachedEpisodes(cur, r)?.let { m[r.id] = it } } } }
@@ -819,19 +847,12 @@ fun DetailScreen(repo: Repo, item: Item, play: (List<Item>, Int) -> Unit, onBack
     val target = focusEp?.let { k -> eps.indexOfFirst { it.key == k } } ?: -1
     // Where to open: the episode asked for, else the last one played (the next one if it was finished),
     // else one in Continue watching, else the first episode of the first season
-    val lastIdx = remember(eps, tick) {
-        val l = repo.store.lastEp(cur.key) ?: return@remember -1
-        val i = eps.indexOfFirst { it.key == l.first }
-        when {
-            i < 0 -> -1
-            l.second && eps[i].key !in cont && i + 1 < eps.size -> i + 1
-            else -> i
-        }
+    val lastIdx = remember(eps, tick, cont) {
+        ResumeEpisode.index(eps, repo.store.lastEp(cur.key), cont.keys)
     }
     val resumeEp = when {
         target >= 0 -> target
-        lastIdx >= 0 -> lastIdx
-        else -> eps.indexOfFirst { it.key in cont }
+        else -> lastIdx
     }
     val focusKey = focusEp ?: eps.getOrNull(resumeEp)?.key
     // The season chosen, else the last one played (remembered, so it loads first), else the first
@@ -899,21 +920,28 @@ fun DetailScreen(repo: Repo, item: Item, play: (List<Item>, Int) -> Unit, onBack
         if (e.type == KeyEventType.KeyUp && e.key == Key.Menu) { more = true; true } else false
     }) {
         BackdropArt.distinct(meta?.backdrop, shownItem.img)?.let { url ->
-            Poster(url, name, Modifier.fillMaxWidth().fillMaxHeight(0.7f), ContentScale.Crop, initialsSize = 1)
-        } ?: Box(Modifier.fillMaxWidth().fillMaxHeight(0.7f).background(
+            Poster(url, name, Modifier.fillMaxWidth().fillMaxHeight(if (isTv) 0.82f else 0.62f), ContentScale.Crop, initialsSize = 1)
+        } ?: Box(Modifier.fillMaxWidth().fillMaxHeight(if (isTv) 0.82f else 0.62f).background(
             Brush.verticalGradient(listOf(Color(0xFF1A1610), Pal.Bg))))
-        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Pal.Bg.copy(alpha = 0.55f), 0.55f to Pal.Bg)))
-        LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(horizontal = hPad, vertical = if (isTv) 32.dp else 14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Box(Modifier.fillMaxSize().background(Color(0x4D000000)))
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.15f to Pal.Bg.copy(alpha = 0.35f), 0.7f to Pal.Bg)))
+        val similar = remember(cur.key, cur.cat, repo.lib.version) {
+            if (!repo.lib.hasData || cur.cat.isEmpty()) emptyList()
+            else repo.lib.everything().asSequence()
+                .filter { it.kind == "vod" && !it.isEpisode() && it.key != cur.key && it.cat == cur.cat && repo.listOk(it.locked) }
+                .distinctBy { it.key }.take(12).toList()
+        }
+        LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(horizontal = hPad, vertical = if (isTv) 40.dp else 14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
-                Row(horizontalArrangement = Arrangement.spacedBy(if (isTv) 28.dp else 14.dp)) {
-                    Poster(shownItem.img, name, Modifier.width(if (isTv) 200.dp else 116.dp).aspectRatio(2f / 3f).clip(RoundedCornerShape(Radii.poster)))
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(name, color = Pal.Text, fontSize = if (isTv) Ts.DISPLAY.sp else Ts.TITLE.sp, fontWeight = FontWeight.SemiBold,
-                            letterSpacing = (-0.3).sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                Row(horizontalArrangement = Arrangement.spacedBy(if (isTv) 28.dp else 14.dp), verticalAlignment = Alignment.Bottom) {
+                    if (!isTv) Poster(shownItem.img, name, Modifier.width(116.dp).aspectRatio(2f / 3f).clip(RoundedCornerShape(Radii.poster)))
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(if (isTv) 12.dp else 8.dp)) {
+                        Text(name, color = Pal.Text, fontSize = if (isTv) 42.sp else Ts.TITLE.sp, fontWeight = FontWeight.Bold,
+                            letterSpacing = (-0.6).sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
                         MetaLine(shownItem, meta)
-                        if (shownItem.desc.isNotEmpty()) Text(shownItem.desc, color = Pal.Desc, fontSize = Ts.SECONDARY.sp,
-                            maxLines = if (isTv) 6 else 8, overflow = TextOverflow.Ellipsis)
+                        if (shownItem.desc.isNotEmpty()) Text(shownItem.desc, color = Pal.Desc, fontSize = if (isTv) Ts.ROW.sp else Ts.SECONDARY.sp,
+                            maxLines = if (isTv) 5 else 8, overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth(if (isTv) 0.7f else 1f))
                         meta?.cast?.takeIf { it.isNotEmpty() }?.let { Text("Cast: $it", color = Pal.Dim, fontSize = Ts.SECONDARY.sp, maxLines = 2, overflow = TextOverflow.Ellipsis) }
                         if (msg.isNotEmpty()) Text(msg, color = Pal.Warn, fontSize = Ts.HEAD.sp, maxLines = 4)
                         Spacer(Modifier.height(4.dp))
@@ -922,18 +950,23 @@ fun DetailScreen(repo: Repo, item: Item, play: (List<Item>, Int) -> Unit, onBack
                             when {
                                 cur.isSeries && eps.isNotEmpty() -> {
                                     val i = if (resumeEp >= 0) resumeEp else 0
-                                    val e = eps[i]
-                                    val label = listOf(if (seasons.size > 1) seasonName(e.season) else "", epMeta[e.key]?.name?.ifEmpty { null } ?: Names.episodeLabel(e.name, shows, episodeNo(e)))
-                                        .filter { it.isNotEmpty() }.joinToString(" · ")
-                                    PillButton((if (eps[i].key in cont) "▶  Resume " else "▶  Play ") + label, { start(eps, i) }, pm, primary = true, onMenu = { more = true })
+                                    PillButton("▶  " + ResumeEpisode.playLabel(eps, i), { start(eps, i) }, pm, primary = true, onMenu = { more = true })
+                                    PillButton("Episodes", {
+                                        scope.launch {
+                                            val header = 1 + (if (versions.size > 1) 1 else 0) + (if (seasons.size > 1) 1 else 0)
+                                            runCatching { listState.animateScrollToItem(header) }
+                                            delay(80)
+                                            runCatching { epFr.requestFocus() }
+                                        }
+                                    }, onMenu = { more = true })
                                 }
                                 cur.isSeries && loading -> PillButton("Loading episodes…", {}, pm)
                                 cur.isSeries -> PillButton("↻  Retry", { reload++ }, pm)
                                 canResume -> {
-                                    PillButton("▶  Resume from ${fmt(rp)}", { start(listOf(cur), 0) }, pm, primary = true, onMenu = { more = true })
+                                    PillButton("▶  " + ResumeEpisode.movieLabel(true) + " · ${fmt(rp)}", { start(listOf(cur), 0) }, pm, primary = true, onMenu = { more = true })
                                     PillButton("↺  Start over", { repo.store.removeResume(cur.key); start(listOf(cur), 0) })
                                 }
-                                else -> PillButton("▶  Play", { start(listOf(cur), 0) }, pm, primary = true, onMenu = { more = true })
+                                else -> PillButton("▶  " + ResumeEpisode.movieLabel(false), { start(listOf(cur), 0) }, pm, primary = true, onMenu = { more = true })
                             }
                             PillButton(if (fav) "✓  In My List" else "+  My List", { repo.toggleFav(cur); fav = repo.isFav(cur) }, onMenu = { more = true })
                         }
@@ -1014,6 +1047,17 @@ fun DetailScreen(repo: Repo, item: Item, play: (List<Item>, Int) -> Unit, onBack
                     }
                 }
             }
+        if (similar.isNotEmpty()) item {
+            Text("More like this", color = Pal.Text, fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 10.dp))
+        }
+        if (similar.isNotEmpty()) item {
+            val posterW = posterWidth(isTv)
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(if (isTv) 14.dp else 10.dp), contentPadding = PaddingValues(vertical = 8.dp), modifier = Modifier.focusRestorer()) {
+                itemsIndexed(similar, key = { _, it -> it.key }) { _, it ->
+                    PosterCard(it, posterW, null, Modifier, { go(Screen.Detail(it, Screen.Detail(item, Screen.Home))) }, { })
+                }
+            }
+        }
         }
         if (more) {
             ChoiceDialog(name, focusKey = "more", opts = buildList {

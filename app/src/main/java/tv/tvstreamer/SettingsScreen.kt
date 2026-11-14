@@ -122,6 +122,22 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
             }
             SettingsNav.Sec.CONTENT -> {
                 SettingRow("What to show", "Movies, series, Live TV", first) { go(Screen.Categories) }
+                var clearHist by remember { mutableStateOf(false) }
+                if (!clearHist) {
+                    SettingRow("Clear watch history", "Continue watching and resume points") { clearHist = true }
+                } else {
+                    SettingRow("Last 24 hours") {
+                        s.clearHistory(24 * 3600_000L)
+                        note = "Cleared last 24 hours"
+                        clearHist = false
+                    }
+                    SettingRow("All history") {
+                        s.clearHistory()
+                        note = "All history cleared"
+                        clearHist = false
+                    }
+                    SettingRow("Cancel") { clearHist = false }
+                }
                 SettingRow("Show adult sections", if (repo.showAdult) "On — locked portal categories are listed" else "Off — hidden from lists") {
                     repo.showAdult = !repo.showAdult
                     note = if (repo.showAdult) "Adult and locked sections are shown. Playing them still needs the lock password in Settings." else "Adult and locked sections are hidden from lists."
@@ -211,7 +227,7 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
                 SettingRow("Clear movie info cache") { Tmdb.clearCache(); note = "Cleared" }
                 var clearHist by remember { mutableStateOf(false) }
                 if (!clearHist) {
-                    SettingRow("Clear watch history") { clearHist = true }
+                    SettingRow("Clear watch history", "Also on Home: Continue watching → Options") { clearHist = true }
                 } else {
                     SettingRow("Last 24 hours") {
                         s.clearHistory(24 * 3600_000L)
