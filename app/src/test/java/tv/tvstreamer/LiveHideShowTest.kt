@@ -154,6 +154,10 @@ class LiveHideShowTest {
         assertTrue(LiveSwipe.shouldCommit(-reveal * LiveSwipe.COMMIT_FRAC, reveal))
         assertTrue(LiveSwipe.shouldCommit(-reveal, reveal))
         assertEquals(-reveal, LiveSwipe.clamp(-200f, reveal), 0.01f)
-        assertEquals(0f, LiveSwipe.clamp(40f, reveal), 0.01f)
+        // 1.68: a right swipe works the same way
+        assertTrue(LiveSwipe.shouldCommit(reveal * LiveSwipe.COMMIT_FRAC, reveal))
+        assertFalse(LiveSwipe.shouldCommit(20f, reveal))
+        assertEquals(reveal, LiveSwipe.clamp(200f, reveal), 0.01f)
+        assertEquals(40f, LiveSwipe.clamp(40f, reveal), 0.01f)
     }
 }

@@ -202,7 +202,9 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
     var focusSeekBar by remember { mutableStateOf(false) }
     var dialog by remember { mutableStateOf<String?>(null) } // audio | subs | aspect | menu
     var aspect by remember { mutableStateOf(repo.store.aspect) }
-    var barPos by remember { mutableStateOf(repo.store.barPos) }
+    var barPos by remember { mutableStateOf(BarFit.pos(repo.store.barPos)) }
+    // Options that did not fit on the one-line bar: listed first in the ⋮ menu (1.68)
+    var barOverflow by remember { mutableStateOf<List<BarAction>>(emptyList()) }
     var flash by remember { mutableStateOf("") }
     var flashTick by remember { mutableIntStateOf(0) }
     var zapTick by remember { mutableIntStateOf(0) }
@@ -646,23 +648,16 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
         else { delay(60); runCatching { if (dialog == null && !panel && !controls) rootFr.requestFocus() } }
     }
 
-    // TV: Back first hides the controls, then leaves the player
-    BackHandler(isTv && controls && dialog == null && !showUpNext && !Popups.any) { controls = false }
-    BackHandler(showUpNext) { upNextCancelled = item.key }
+    // 1.68: ONE Back leaves the player and lands on the list it was opened from (same channel focused). Only something the
+    // user opened on purpose (a menu / dialog, the Channels or Schedule side panel) closes first; those take Back
+    // themselves (PopupFrame). The info bar, the controls, the Up next card and phone fullscreen no longer eat a press
+    // (they used to: Back hid the info bar, then exited fullscreen, then left, so it took 2-3 presses and an extra
+    // press after that went past the list to Home).
     BackHandler(dialog != null) { dialog = null; touch() }
-    // Live: Back first hides the info bar (the side panels close themselves), then leaves the player
-    BackHandler(live && layer == LiveOverlay.Layer.INFO && dialog == null && !Popups.any) { layer = LiveOverlay.Layer.NONE }
-    // Phone: Back in landscape exits fullscreen first (back to portrait), then leaves the player
-    BackHandler(phone && landscape && dialog == null && !showUpNext && !Popups.any && !(live && layer != LiveOverlay.Layer.NONE)) {
-        landscape = false
-    }
-    // Visible portrait Back (and the system Back key) pop one layer, then leave the player
     fun goBack() {
         when {
             dialog != null -> { dialog = null; touch() }
-            showUpNext -> upNextCancelled = item.key
             panel -> layer = LiveOverlay.Layer.NONE
-            live && layer == LiveOverlay.Layer.INFO -> layer = LiveOverlay.Layer.NONE
             else -> onBack()
         }
     }
@@ -871,16 +866,18 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
             LiveInfoBar(repo, item, idx, list.size, isTv,
                 modifier = Modifier.onFocusChanged { infoFocused = it.hasFocus },
                 actions = {
+                    // 1.68: one line of Netflix-style buttons, the vertical ⋮ last (no "More"); Hide / Show is the eye
                     val shown = repo.isOn(item)
-                    PillButton(if (shown) "Hide" else "Show", {
-                        repo.toggleOn(item)
-                        toast(ctx, if (repo.isOn(item)) "Shown" else "Hidden")
-                        infoTick++
-                    }, Modifier.focusRequester(hideShowFr), size = Ts.SECONDARY, compact = true, selected = !shown)
-                    if (phone) PillButton(if (landscape) "Portrait" else "Fullscreen", { toggleLandscape() }, size = Ts.SECONDARY, compact = true)
-                    PillButton("Channels", { layer = LiveOverlay.Layer.CHANNELS }, size = Ts.SECONDARY, compact = true)
-                    PillButton("Schedule", { layer = LiveOverlay.Layer.GUIDE }, size = Ts.SECONDARY, compact = true)
-                    PillButton("More", { dialog = "menu" }, size = Ts.SECONDARY, compact = true)
+                    OptionsBar(buildList {
+                        add(BarAction("eye", if (shown) Ic.Eye else Ic.EyeOff, if (shown) "Hide" else "Show", {
+                            repo.toggleOn(item)
+                            toast(ctx, if (repo.isOn(item)) "Shown" else "Hidden")
+                            infoTick++
+                        }, hideShowFr, active = !shown))
+                        add(BarAction("channels", Ic.Channels, "Channels", { layer = LiveOverlay.Layer.CHANNELS }))
+                        add(BarAction("guide", Ic.Guide, "Schedule", { layer = LiveOverlay.Layer.GUIDE }))
+                        if (phone) add(BarAction("fs", if (landscape) Ic.FullscreenExit else Ic.Fullscreen, if (landscape) "Portrait" else "Fullscreen", { toggleLandscape() }))
+                    }, onMore = { dialog = "menu" }, onOverflow = { barOverflow = it }, large = isTv || landscape)
                 })
         }
         // Phone portrait: Back (and Fullscreen when the auto-hiding chrome is away) stay on screen.
@@ -910,7 +907,8 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
                     onFav = { repo.toggleFav(item); favTick++; touch() },
                     onDialog = { dialog = it },
                     onAspect = { setAspect(when (aspect) { "fit" -> "fill"; "fill" -> "zoom"; else -> "fit" }); touch() },
-                    onMove = { barPos = when (barPos) { "bottom" -> "left"; "left" -> "right"; else -> "bottom" }; repo.store.barPos = barPos; touch() },
+                    onMove = { barPos = BarFit.nextPos(barPos); repo.store.barPos = barPos; touch() },
+                    onOverflow = { barOverflow = it },
                     onTouch = { touch() },
                     landscape = landscape,
                     onFullscreen = if (phone) ({ toggleLandscape(); touch() }) else null,
@@ -1031,12 +1029,14 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
                     ((if (aspect == k) "✓ " else "    ") + t) to { setAspect(k); dialog = null }
                 }
                 else -> buildList {
+                    // Bar options that had no room on the one-line bar come first (Fullscreen is already listed below)
+                    barOverflow.filter { it.key != "fs" && it.key != "move" }.forEach { a -> add(a.label to { dialog = null; a.onClick() }) }
                     if (!live) add((if (repo.isFav(item)) "Remove favorite" else "Add favorite") to { repo.toggleFav(item); favTick++; dialog = null })
                     add("Audio track" to { dialog = "audio" })
                     add("Subtitles" to { dialog = "subs" })
                     add("Picture: Fit / Fill / Zoom" to { dialog = "aspect" })
                     if (phone) add((if (landscape) "Exit fullscreen" else "Fullscreen") to { toggleLandscape(); dialog = null })
-                    if (!isTv) add("Move control bar (now: $barPos)" to { barPos = when (barPos) { "bottom" -> "left"; "left" -> "right"; else -> "bottom" }; repo.store.barPos = barPos; dialog = null })
+                    if (!isTv && !live) add("Move options bar (now: $barPos)" to { barPos = BarFit.nextPos(barPos); repo.store.barPos = barPos; dialog = null })
                     add((if (live) "Not working? Retry link" else "Reload stream") to { autoRetries = 0; linkFrom = 0; attempt++; dialog = null })
                     if (err.isNotEmpty() || live) add("Stream details" to { dialog = "details" })
                 }
@@ -1173,12 +1173,12 @@ private fun Controls(
     onPlay: () -> Unit, onSeekBy: (Long) -> Unit, onSeekTo: (Long) -> Unit,
     onPrev: () -> Unit, onNext: () -> Unit, onFav: () -> Unit, onDialog: (String) -> Unit, onAspect: () -> Unit,
     onMove: () -> Unit, onTouch: () -> Unit, landscape: Boolean = false, onFullscreen: (() -> Unit)? = null,
-    compact: Boolean = false, startGuard: androidx.compose.ui.unit.Dp = 0.dp
+    compact: Boolean = false, startGuard: androidx.compose.ui.unit.Dp = 0.dp, onOverflow: (List<BarAction>) -> Unit = {}
 ) {
     val pad = if (isTv) 40.dp else 16.dp
     if (isTv) {
         TvControls(item, live, list, idx, playing, pos, dur, buffered, canSeek, aspect, hasNext, hasAudio, hasSubs, playFr, seekFr,
-            onPlay, onSeekBy, onSeekTo, onPrev, onNext, onDialog, onFullscreen, landscape)
+            onPlay, onSeekBy, onSeekTo, onPrev, onNext, onDialog, onFullscreen, landscape, onOverflow)
         return
     }
     Box(Modifier.fillMaxSize()) {
@@ -1202,7 +1202,6 @@ private fun Controls(
             CtrlButton(if (isFav) Ic.Star else Ic.StarOutline, "Favorite", onFav, compact = compact)
             if (onFullscreen != null) CtrlButton(if (landscape) Ic.FullscreenExit else Ic.Fullscreen,
                 if (landscape) "Exit fullscreen" else "Fullscreen", onFullscreen, compact = compact)
-            CtrlButton(Ic.More, "Options", { onDialog("menu") }, compact = compact)
         }
 
         // Centre: prev, -10, play/pause, +10, next — tighter in portrait so they are not squashed
@@ -1218,13 +1217,18 @@ private fun Controls(
             if (hasNext) CtrlButton(Ic.Next, if (live) "Next channel" else "Next", onNext, compact = compact)
         }
 
-        // Option buttons (movable: bottom / left / right, as before)
-        val opts: @Composable () -> Unit = {
-            if (hasAudio || !live) PillButton("Audio", { onDialog("audio") }, size = Ts.HEAD)
-            PillButton("Subtitles", { onDialog("subs") }, size = Ts.HEAD)
-            PillButton(when (aspect) { "fill" -> "Fill"; "zoom" -> "Zoom"; else -> "Fit" }, onAspect, size = Ts.HEAD)
+        // Option buttons (1.68): bottom by default, one line, the vertical ⋮ last (no "More"). Moved left / right they
+        // become one column there; the position is saved and comes back next time.
+        val actions = buildList {
+            if (hasAudio || !live) add(BarAction("audio", Ic.Audio, "Audio", { onDialog("audio") }))
+            add(BarAction("subs", Ic.Subtitles, "Subtitles", { onDialog("subs") }))
+            add(BarAction("aspect", Ic.Aspect, when (aspect) { "fill" -> "Fill"; "zoom" -> "Zoom"; else -> "Fit" }, onAspect))
+            add(BarAction("move", Ic.Move, "Move", onMove))
         }
-
+        val opts: @Composable (Boolean) -> Unit = { vertical ->
+            OptionsBar(actions, onMore = { onDialog("menu") }, onOverflow = onOverflow, large = landscape, vertical = vertical,
+                stacked = compact && !vertical)
+        }
         // Bottom: seek bar / live badge (+ options when bar is at the bottom)
         Column(
             Modifier.align(Alignment.BottomStart).fillMaxWidth()
@@ -1242,15 +1246,14 @@ private fun Controls(
                 Text("● LIVE", color = Pal.Accent, fontSize = Ts.HEAD.sp, fontWeight = FontWeight.Bold)
             }
             if (barPos == "bottom") {
-                ButtonFlow(gapDp = 8) { opts() }
+                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) { opts(false) }
             }
         }
         if (barPos != "bottom") {
-            Column(
+            Box(
                 Modifier.align(if (barPos == "left") Alignment.CenterStart else Alignment.CenterEnd)
-                    .padding(horizontal = 12.dp).background(Color(0xAA000000), RoundedCornerShape(14.dp)).padding(8.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) { opts() }
+                    .padding(horizontal = 12.dp).background(Color(0xAA000000), RoundedCornerShape(14.dp)).padding(8.dp)
+            ) { opts(true) }
         }
     }
 }
@@ -1270,7 +1273,7 @@ private suspend fun subtitleQuery(repo: Repo, item: Item, lang: String): OpenSub
 
 /**
  * TV / D-pad controls: a standard player bar under the video and nothing at the sides. Seek bar on top, then
- * previous · −10 s · play/pause · +10 s · next on the left and audio · subtitles · picture · more on the right.
+ * previous · −10 s · play/pause · +10 s · next on the left and audio · subtitles · picture · ⋮ on the right (1.68).
  * Play/pause has focus when the bar opens; Up reaches the seek bar (Left / Right seek there).
  */
 @Composable
@@ -1280,7 +1283,7 @@ private fun TvControls(
     playFr: FocusRequester, seekFr: FocusRequester,
     onPlay: () -> Unit, onSeekBy: (Long) -> Unit, onSeekTo: (Long) -> Unit,
     onPrev: () -> Unit, onNext: () -> Unit, onDialog: (String) -> Unit,
-    onFullscreen: (() -> Unit)? = null, landscape: Boolean = false
+    onFullscreen: (() -> Unit)? = null, landscape: Boolean = false, onOverflow: (List<BarAction>) -> Unit = {}
 ) {
     Box(Modifier.fillMaxSize()) {
         Column(
@@ -1311,13 +1314,16 @@ private fun TvControls(
                 CtrlButton(if (playing) Ic.Pause else Ic.Play, if (playing) "Pause" else "Play", onPlay, Modifier.focusRequester(playFr))
                 if (!live) CtrlButton(Ic.Forward, "Forward 10 seconds", { onSeekBy(SEEK_MS) }, enabled = canSeek)
                 if (hasNext) CtrlButton(Ic.Next, if (live) "Next channel" else "Next episode", onNext)
-                Spacer(Modifier.weight(1f))
-                if (hasAudio || !live) CtrlButton(Ic.Audio, "Audio", { onDialog("audio") })
-                CtrlButton(Ic.Subtitles, if (hasSubs) "Subtitles" else "Subtitles (none)", { onDialog("subs") })
-                CtrlButton(Ic.Aspect, "Picture: " + aspect, { onDialog("aspect") })
-                if (onFullscreen != null) CtrlButton(if (landscape) Ic.FullscreenExit else Ic.Fullscreen,
-                    if (landscape) "Exit fullscreen" else "Fullscreen", onFullscreen)
-                CtrlButton(Ic.More, "More", { onDialog("menu") })
+                // 1.68: Netflix-style labelled options on the same line, the vertical ⋮ last (no "More")
+                Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
+                    OptionsBar(buildList {
+                        if (hasAudio || !live) add(BarAction("audio", Ic.Audio, "Audio", { onDialog("audio") }))
+                        add(BarAction("subs", Ic.Subtitles, if (hasSubs) "Subtitles" else "Subtitles (none)", { onDialog("subs") }))
+                        add(BarAction("aspect", Ic.Aspect, "Picture: " + aspect.replaceFirstChar { it.uppercase() }, { onDialog("aspect") }))
+                        if (onFullscreen != null) add(BarAction("fs", if (landscape) Ic.FullscreenExit else Ic.Fullscreen,
+                            if (landscape) "Exit fullscreen" else "Fullscreen", onFullscreen))
+                    }, onMore = { onDialog("menu") }, onOverflow = onOverflow, large = true)
+                }
             }
         }
     }

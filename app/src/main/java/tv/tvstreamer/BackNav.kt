@@ -10,7 +10,7 @@ package tv.tvstreamer
 object BackNav {
     enum class Action {
         CLOSE_POPUP, CLOSE_SEARCH, EXIT_SELECT, CLOSE_PLAYER_DIALOG, CLOSE_PLAYER_PANEL,
-        CLOSE_PLAYER_INFO, HIDE_CONTROLS, EXIT_FULLSCREEN, SETTINGS_UP, LEAVE_SCREEN, NONE
+        SETTINGS_UP, LEAVE_SCREEN, NONE
     }
 
     fun action(
@@ -30,9 +30,9 @@ object BackNav {
         select -> Action.EXIT_SELECT
         playerDialog -> Action.CLOSE_PLAYER_DIALOG
         playerPanel -> Action.CLOSE_PLAYER_PANEL
-        playerInfo -> Action.CLOSE_PLAYER_INFO
-        playerControls -> Action.HIDE_CONTROLS
-        playerLandscape -> Action.EXIT_FULLSCREEN
+        // 1.68: the live info bar, the player controls and phone fullscreen are NOT layers any more: one Back leaves the
+        // player straight to the list it came from (they used to eat 1-3 presses first). [playerInfo], [playerControls]
+        // and [playerLandscape] are kept as inputs so callers / tests can state that they make no difference.
         settingsDetail -> Action.SETTINGS_UP
         canLeaveScreen -> Action.LEAVE_SCREEN
         else -> Action.NONE

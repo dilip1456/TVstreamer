@@ -174,6 +174,8 @@ fun App(repo: Repo) {
     val search = remember { SearchState() }
     // Detail screen opened from a search result: Back from it brings the search overlay back
     var fromSearch by remember { mutableStateOf<Screen?>(null) }
+    // Screen shown on the previous frame (to cut, not fade, when leaving the player)
+    val shownBefore = remember { arrayOf<Screen>(Screen.Home) }   // plain holder: no extra recomposition
     LaunchedEffect(Unit) {
         repo.load()
         val msg = Updater.onLaunch(ctx, repo.store)
@@ -272,8 +274,12 @@ fun App(repo: Repo) {
             }
             Box(Modifier.weight(1f).fillMaxWidth()) {
             Box(Modifier.fillMaxSize().padding(bottom = barSpace)) {
-                // Screens cross-fade (~180 ms); the player cuts in directly (no frame of two videos)
-                androidx.compose.animation.Crossfade(screen, animationSpec = if (screen is Screen.Play) androidx.compose.animation.core.snap<Float>() else Motion.spec<Float>(),
+                // Screens cross-fade (~180 ms); the player cuts in AND out directly (1.68): a fading-out player kept its
+                // key handling and focus requests alive for a moment, so the list behind lost its restored focus and a
+                // quick second Back went on to Home.
+                val cut = screen is Screen.Play || shownBefore[0] is Screen.Play
+                SideEffect { shownBefore[0] = screen }
+                androidx.compose.animation.Crossfade(screen, animationSpec = if (cut) androidx.compose.animation.core.snap<Float>() else Motion.spec<Float>(),
                     label = "screen") { shown ->
                 when (val s = shown) {
                     Screen.Home -> Catalog(repo, "home", go, open, play, tick)

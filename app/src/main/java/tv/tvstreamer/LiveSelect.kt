@@ -81,14 +81,14 @@ object DoublePress {
 }
 
 /**
- * Phone-only: swipe a channel row left to reveal Hide / Show and commit past a threshold.
- * Offset is 0 at rest and negative as the row follows a left swipe. TV / D-pad does not use this.
+ * Phone-only: swipe a channel row either way (1.68: left OR right) to reveal Hide / Show and commit past a threshold.
+ * Offset is 0 at rest, negative for a left swipe, positive for a right swipe. TV / D-pad does not use this.
  */
 object LiveSwipe {
     const val REVEAL_DP = 84f
     const val COMMIT_FRAC = 0.55f
 
-    fun clamp(offset: Float, reveal: Float): Float = offset.coerceIn(-reveal, 0f)
+    fun clamp(offset: Float, reveal: Float): Float = offset.coerceIn(-reveal, reveal)
 
-    fun shouldCommit(offset: Float, reveal: Float): Boolean = reveal > 0f && offset <= -reveal * COMMIT_FRAC
+    fun shouldCommit(offset: Float, reveal: Float): Boolean = reveal > 0f && kotlin.math.abs(offset) >= reveal * COMMIT_FRAC
 }

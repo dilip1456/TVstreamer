@@ -661,13 +661,18 @@ private fun ChannelRow(repo: Repo, ch: Item, on: Boolean, browseAll: Boolean, pl
         row()
         return
     }
-    // Phone: swipe the row left to reveal Hide / Show and commit past the threshold.
+    // Phone: swipe the row left or right (1.68) to reveal Hide / Show and commit past the threshold.
     // The reveal is only drawn while swiping, and the row has an opaque background, so the
     // affordance cannot show through and overlap the Hide / Show chip at rest.
     Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(Radii.row))) {
-        if (swipe < 0f) {
-            Box(Modifier.matchParentSize().background(if (on) Color(0x44C04545) else Pal.Soft2), contentAlignment = Alignment.CenterEnd) {
-                Label(if (on) "Hide" else "Show", Ts.SECONDARY, Color.White, Modifier.padding(end = 18.dp))
+        if (swipe != 0f) {
+            val left = swipe < 0f
+            Box(Modifier.matchParentSize().background(if (on) Color(0x44C04545) else Pal.Soft2),
+                contentAlignment = if (left) Alignment.CenterEnd else Alignment.CenterStart) {
+                Row(Modifier.padding(horizontal = 18.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    androidx.compose.material3.Icon(if (on) Ic.EyeOff else Ic.Eye, null, tint = Color.White, modifier = Modifier.size(18.dp))
+                    Label(if (on) "Hide" else "Show", Ts.SECONDARY, Color.White)
+                }
             }
         }
         Box(

@@ -25,7 +25,7 @@ class LiveOverlayTest {
     @Test fun backClosesTopOverlayThenLeaves() {
         assertEquals(Layer.NONE to Effect.None, LiveOverlay.press(Layer.GUIDE, Pad.BACK))
         assertEquals(Layer.NONE to Effect.None, LiveOverlay.press(Layer.CHANNELS, Pad.BACK))
-        assertEquals(Layer.NONE to Effect.None, LiveOverlay.press(Layer.INFO, Pad.BACK))
+        assertEquals(Layer.NONE to Effect.Exit, LiveOverlay.press(Layer.INFO, Pad.BACK))   // 1.68: one press leaves
         assertEquals(Layer.NONE to Effect.Exit, LiveOverlay.press(Layer.NONE, Pad.BACK))
     }
 

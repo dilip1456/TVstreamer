@@ -6,7 +6,7 @@ package tv.tvstreamer
  *  - [Layer.INFO]: a floating bar at the bottom with what is on now (progress) and next; hides by itself.
  *  - [Layer.CHANNELS]: Left. The channels of the playing channel's category.
  *  - [Layer.GUIDE]: Right. This channel's schedule as a list.
- * Up / Down change channel at once (also while the info bar shows). Back closes the top overlay, then leaves.
+ * Up / Down change channel at once (also while the info bar shows). Back closes a side panel, else leaves (1.68).
  */
 object LiveOverlay {
     enum class Layer { NONE, INFO, CHANNELS, GUIDE }
@@ -34,7 +34,7 @@ object LiveOverlay {
             Pad.RIGHT -> Layer.GUIDE to Effect.None
             Pad.OK -> if (hasError) layer to Effect.Retry else Layer.INFO to Effect.None   // only shows details; never pauses
             Pad.MENU -> Layer.NONE to Effect.Menu
-            Pad.BACK -> if (layer == Layer.INFO) Layer.NONE to Effect.None else Layer.NONE to Effect.Exit
+            Pad.BACK -> Layer.NONE to Effect.Exit   // 1.68: one Back leaves, also while the info bar shows
         }
     }
 

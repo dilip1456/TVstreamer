@@ -448,7 +448,7 @@ fun LiveInfoBar(repo: Repo, ch: Item, pos: Int, count: Int, isTv: Boolean, modif
             ProgressLine(now.progress(t), Modifier.weight(1f))
             Text(hhmm(now.stop), color = Pal.Dim, fontSize = Ts.CAPTION.sp)
         }
-        // Phone: wrap so Fullscreen / Channels / Schedule / more are not squashed into one tight row
-        if (actions != null) ButtonFlow(gapDp = 8) { actions() }
+        // 1.68: the options always sit on one line at the bottom (extra ones go under the ⋮ button, see OptionsBar)
+        if (actions != null) Box(Modifier.fillMaxWidth().padding(top = 4.dp)) { actions() }
     }
 }
