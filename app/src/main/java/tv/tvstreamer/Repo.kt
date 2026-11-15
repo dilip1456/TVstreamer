@@ -395,6 +395,9 @@ class Repo(private val ctx: Context) {
         favs = favs.filter { it.kind != "itv" } + folders.channels()
     }
 
+    /** A video is on screen (1.71: the title indexer pauses meanwhile). */
+    @Volatile var playing = false
+
     /** Key of the channel playing now (Live TV marks it). */
     var nowPlaying by mutableStateOf("")
     /** Sections of the Live TV list last handed to the player (Left panel mirrors them). */

@@ -152,14 +152,14 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
                 val lib = repo.lib
                 var confirm by remember { mutableStateOf(false) }
                 when {
-                    lib.loading -> SettingRow("Stop loading", libraryStatus(repo)) { lib.stop(); note = "Loading stopped" }
+                    lib.loading || lib.indexing -> SettingRow("Stop loading", libraryStatus(repo)) { lib.stop(); note = "Loading stopped" }
                     confirm -> SettingRow("Check for new titles now?", "OK to confirm") { confirm = false; note = lib.requestManual() }
                     else -> SettingRow("Refresh library", libraryStatus(repo)) {
                         val w = lib.manualWait()
                         if (w > 0) note = "Try again in ${(w + 59_999) / 60_000} min" else confirm = true
                     }
                 }
-                if (lib.stopped && !lib.loading) SettingRow("Resume loading") { lib.resume(); note = "Loading resumed" }
+                if (lib.stopped && !lib.loading && !lib.indexing) SettingRow("Resume loading") { lib.resume(); note = "Loading resumed" }
             }
             SettingsNav.Sec.PLAYER -> {
                 SettingRow("Autoplay next episode", if (autoNext) "On" else "Off", first) { autoNext = !autoNext; s.autoNext = autoNext }

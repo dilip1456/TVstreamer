@@ -165,6 +165,8 @@ private fun choices(tracks: Tracks, type: Int): List<TrackChoice> {
 fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit) {
     val ctx = LocalContext.current
     DisposableEffect(Unit) { Theme.forceDark = true; onDispose { Theme.forceDark = false } }
+    // 1.71: background title indexing pauses while a video is on screen and continues after
+    DisposableEffect(Unit) { repo.playing = true; onDispose { repo.playing = false; repo.lib.indexKick() } }
     val isTv = rememberIsTv()
     val phone = AppUi.phoneNav
     var landscape by remember { mutableStateOf(phone && PhonePlayer.startInLandscape(repo.store.phoneStartLandscape)) }

@@ -192,6 +192,7 @@ class Library(private val repo: Repo) {
     /** A language choice: fetch the newest page of the newly selected languages' categories (cached data is kept). */
     fun ensure(tab: String = "", langs: Set<String>? = null, @Suppress("UNUSED_PARAMETER") force: Boolean = false) {
         start()
+        indexKick()   // a language / category choice: newly selected categories get indexed, deselected ones stop
         // A fresh local catalog is shown as is; missing first pages are fetched only when a refresh is due
         if (!langs.isNullOrEmpty() && !isFresh()) job("first") { firstPages(langsAll()) }
     }
@@ -209,9 +210,10 @@ class Library(private val repo: Repo) {
             if (!diskLoaded) runCatching { readDisk() }.onFailure { android.util.Log.w("TVstreamer", "catalog cache read failed", it) }
             if (repo.vodCats.isEmpty()) return@job
             val now = System.currentTimeMillis()
-            if (hasData && isFresh(now)) return@job          // zero portal calls on open
+            if (hasData && isFresh(now)) { indexKick(); return@job }   // zero portal calls on open (the indexer starts later, gently)
             if (hasData) { policy.recordAuto(now); savePolicy(); newest() }
             firstPages(langsAll())
+            indexKick()
         }
     }
 
@@ -254,6 +256,83 @@ class Library(private val repo: Repo) {
         job("sweep") { morePages(l, "", SWEEP_PAGES) }   // categories never fetched come first (see morePages)
     }
 
+    // ---- Full title index (1.71, see CatalogIndexer) ----
+
+    private val indexer by lazy {
+        CatalogIndexer(catNext, catEnd, emptyPages).also { it.decodeDay(repo.store.sort("index_day", "")) }
+    }
+    @Volatile private var indexJob: Job? = null
+    /** The background indexer is fetching pages now. */
+    var indexing by mutableStateOf(false)
+        private set
+    /** Why the indexer last stopped ("" while running or never run). */
+    var indexState by mutableStateOf("")
+        private set
+    private var indexPages = 0
+
+    private fun indexWanted(): List<String> = wantedCats(langsAll()).map { it.id }
+
+    /** Wanted categories fully indexed / all wanted categories (selected languages and categories). */
+    fun indexProgress(): Pair<Int, Int> = indexer.progress(indexWanted())
+
+    /**
+     * Starts (or continues) indexing every page of the selected categories in the background. Gentle: one page at a
+     * time with a pause, the portal limiter, the session cap and [CatalogIndexer.DAY_PAGES] a day; pauses while a
+     * video plays or a stream link is being made, and on Stop. Resumes from the saved per-category cursor.
+     */
+    fun indexKick() {
+        if (stopped || repo.store.portal.isBlank() || indexJob?.isActive == true) return
+        indexJob = scope.launch {
+            delay(4_000)   // let start-up and the first screen settle
+            if (!diskLoaded || repo.vodCats.isEmpty() || langsAll().isEmpty()) return@launch
+            indexing = true; indexState = ""
+            val stop = try {
+                indexer.run(
+                    wanted = ::indexWanted,
+                    canRun = { !stopped && !repo.playing && !repo.api.limiter.paused },
+                    fetch = { c, p -> work.withLock { if (stopped || repo.playing) null else page(c, p) } },
+                    save = { _, items ->
+                        work.withLock {
+                            val (next, add) = CatalogDisk.merge(all, items, front = false)
+                            if (add.isNotEmpty()) { publish(next, add); appendDisk(add) }
+                            add.size
+                        }
+                    },
+                    persist = {
+                        repo.store.saveSort("index_day", indexer.encodeDay())
+                        if (++indexPages % 10 == 0) work.tryLock().let { ok -> if (ok) try { writeMeta() } finally { work.unlock() } }
+                    },
+                    gap = { delay(CatalogIndexer.GAP_MIN + kotlin.random.Random.nextLong(CatalogIndexer.GAP_MAX - CatalogIndexer.GAP_MIN)) }
+                )
+            } catch (e: CancellationException) { CatalogIndexer.Stop.PAUSED
+            } finally { indexing = false }
+            repo.store.saveSort("index_day", indexer.encodeDay())
+            indexState = when (stop) {
+                CatalogIndexer.Stop.DONE -> "done"
+                CatalogIndexer.Stop.DAY_LIMIT -> "day"
+                CatalogIndexer.Stop.PAUSED -> if (stopped) "stopped" else if (repo.playing) "playing" else "busy"
+                CatalogIndexer.Stop.FAILED -> "later"
+            }
+            work.withLock { complete = wantedCats(langsAll()).all { it.id in catEnd }; writeMeta() }
+        }
+    }
+
+    /** One line for Settings: how far the full title index is. */
+    fun indexText(): String {
+        val (doneCats, all) = indexProgress()
+        if (all == 0) return "Pick languages on Movies / Series to index their titles"
+        val base = "Title index: $doneCats of $all categories complete"
+        return base + when {
+            indexing -> " · indexing in the background"
+            doneCats == all -> " · full list saved"
+            indexState == "day" -> " · daily limit reached, continues tomorrow"
+            indexState == "playing" -> " · paused while playing"
+            indexState == "stopped" || stopped -> " · stopped"
+            indexState == "later" || indexState == "busy" -> " · continues later"
+            else -> ""
+        }
+    }
+
     /** A category grid / row ran out of saved titles: its next page. */
     fun moreInCat(id: String) { if (id !in catEnd) job("cat:$id") { fetchCat(id, front = false) } }
     fun catHasMore(id: String): Boolean = id !in catEnd
@@ -269,7 +348,7 @@ class Library(private val repo: Repo) {
 
     /** Stop button: cancels the running fetch; nothing more is fetched in the background until [resume]. */
     fun stop() {
-        stopped = true; current?.cancel(); loading = false
+        stopped = true; current?.cancel(); indexJob?.cancel(); loading = false
         note = "Loading stopped. Saved titles still work; Settings > Refresh library or Resume continues."
     }
     fun resume() { stopped = false; note = ""; sessionPages = 0; start() }
