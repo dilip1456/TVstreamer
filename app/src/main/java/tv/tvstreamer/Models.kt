@@ -25,7 +25,9 @@ data class Item(
     val pcmd: String = "",    // episodes: cmd of the parent series / season (fallback for create_link)
     val pid: String = "",     // episodes: id of the parent series (movie_id)
     val sid: String = "",     // episodes: season id
-    val added: String = ""    // portal "added" date text (e.g. "2024-05-01 12:30:00"); may be missing
+    val added: String = "",   // portal "added" date text (e.g. "2024-05-01 12:30:00"); may be missing
+    val cast: String = "",    // actors, when the portal lists them (1.69: searchable)
+    val director: String = "" // director, when the portal lists it (1.69: searchable)
 ) {
     val key: String get() = "$kind:$id"
     val isSeries: Boolean get() = kind == "vod" && num == -1
@@ -35,6 +37,7 @@ data class Item(
         .put("m", img).put("d", desc).put("y", year).put("r", rating)
         .put("ge", genre).put("s", series).put("se", season).put("t", length).put("ep", eps)
         .put("pc", pcmd).put("pi", pid).put("si", sid).put("ad", added)
+        .apply { if (cast.isNotEmpty()) put("ca", cast); if (director.isNotEmpty()) put("di", director) }
 
     companion object {
         fun from(o: JSONObject) = Item(
@@ -42,7 +45,8 @@ data class Item(
             o.optString("g"), o.optInt("u"), o.optBoolean("l"),
             o.optString("m"), o.optString("d"), o.optString("y"), o.optString("r"),
             o.optString("ge"), o.optInt("s"), o.optString("se"), o.optString("t"), o.optString("ep"),
-            o.optString("pc"), o.optString("pi"), o.optString("si"), o.optString("ad")
+            o.optString("pc"), o.optString("pi"), o.optString("si"), o.optString("ad"),
+            o.optString("ca"), o.optString("di")
         )
     }
 }

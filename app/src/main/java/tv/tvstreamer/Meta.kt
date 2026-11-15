@@ -258,6 +258,9 @@ object Tmdb {
 
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
 
+    /** A TMDB v3 GET with the user's own key (Settings); used by person search (People.kt). */
+    fun get(path: String): JSONObject = tmdb(path)
+
     private fun tmdb(path: String, k: String = key): JSONObject {
         val v4 = k.startsWith("eyJ")
         val sep = if (path.contains("?")) "&" else "?"

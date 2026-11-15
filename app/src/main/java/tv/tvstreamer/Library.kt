@@ -57,6 +57,9 @@ class Library(private val repo: Repo) {
         const val MORE_PAGES = 3             // each "load more"
         const val FEW = 40                   // fewer cards than this for the picked languages: fetch a little more
         const val FEW_BUDGET = 9             // ... at most this many extra pages per language choice, per session
+        const val SWEEP_PAGES = 4            // 1.69: each search sweep (search opened / few results): this many older pages
+        const val SWEEP_BUDGET = 40          // ... at most this many pages per app session for search
+        const val SWEEP_GAP = 2L * 60 * 1000 // ... and at most one sweep every 2 minutes
         const val SESSION_PAGES = 150        // hard cap of catalog pages per app session
         const val MAX_AGE = 6L * 3600 * 1000   // default; the user's setting wins (see refreshMs)
         const val FILE = "catalog.jsonl"       // v2 single-file format, still read on upgrade
@@ -229,6 +232,26 @@ class Library(private val repo: Repo) {
         if (spent >= FEW_BUDGET) return
         fewSpent[k] = spent + MORE_PAGES
         job("few") { if (wantedCats(langs, tab).any { !catNext.containsKey(it.id) }) firstPages(langs) else morePages(langs, tab, MORE_PAGES) }
+    }
+
+    @Volatile private var sweepSpent = 0
+    @Volatile private var sweepAt = 0L
+    /** Whether every category of the picked languages is fully saved (search then needs no portal at all). */
+    fun fullySaved(): Boolean { val l = langsAll(); return l.isNotEmpty() && wantedCats(l).all { it.id in catEnd } }
+
+    /**
+     * 1.69 search sweep: a few more pages of the picked-language categories in the background, so the saved catalog
+     * (what search looks in, offline) grows toward the whole catalog. Gentle: [SWEEP_PAGES] pages per sweep, one sweep
+     * every [SWEEP_GAP], [SWEEP_BUDGET] pages per session, the same limiter / gaps / pause / Stop as every other fetch,
+     * and nothing once those categories are complete. Resumes where it left off (catNext is saved).
+     */
+    fun searchSweep() {
+        val now = System.currentTimeMillis()
+        if (stopped || sweepSpent >= SWEEP_BUDGET || now - sweepAt < SWEEP_GAP || repo.api.limiter.paused) return
+        val l = langsAll()
+        if (l.isEmpty() || fullySaved()) return
+        sweepAt = now; sweepSpent += SWEEP_PAGES
+        job("sweep") { morePages(l, "", SWEEP_PAGES) }   // categories never fetched come first (see morePages)
     }
 
     /** A category grid / row ran out of saved titles: its next page. */

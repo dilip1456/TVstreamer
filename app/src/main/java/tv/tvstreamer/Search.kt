@@ -58,40 +58,135 @@ class SearchState {
     var aiMsg by mutableStateOf("")
 }
 
-data class SearchResult(val live: List<Item>, val movies: List<Group>, val series: List<Group>) {
-    val empty get() = live.isEmpty() && movies.isEmpty() && series.isEmpty()
+/** "Movies with Shah Rukh Khan": the saved titles of a person typed in the search box (1.69). */
+data class PersonRow(val title: String, val groups: List<Group>)
+
+data class SearchResult(val live: List<Item>, val movies: List<Group>, val series: List<Group>, val person: PersonRow? = null) {
+    val empty get() = live.isEmpty() && movies.isEmpty() && series.isEmpty() && (person?.groups?.isEmpty() != false)
+    val vodCount get() = movies.size + series.size + (person?.groups?.size ?: 0)
+}
+
+/** Fewer matching cards than this in the saved catalog: ask the portal's search too (gently, see Repo.portalSearch). */
+const val FEW_SEARCH = 20
+
+private fun Repo.searchable(i: Item) = listOk(i.locked) && "vod:${i.cat}" !in hidden
+
+/** One saved title, prepared for search: its cleaned title folded once, its year and language. */
+class SearchEntry(val item: Item, val title: SearchIndex.Folded, val year: String, val lang: String) {
+    /** Full portal name, language, cast and director words (folded on first use, then kept). */
+    @Volatile var extra: List<String>? = null
+    val titleKey: String by lazy { SearchIndex.titleKey(title.words) }
+}
+
+fun searchEntry(i: Item): SearchEntry {
+    val p = i.parsed
+    return SearchEntry(i, SearchIndex.Folded(SearchIndex.words(p.title.ifBlank { i.name })), i.year.ifEmpty { p.year }, p.lang)
 }
 
 /**
- * Searches the whole portal (every category, every language, including ones not picked on the tabs)
- * plus everything already loaded in the library. Movies vs series follows the per-item classification
- * (Item.seriesLike); loose "Show S01E02" entries are merged into one show card.
+ * The saved catalog prepared for search, built once (in the background when search opens) and updated by reusing
+ * the entries of titles already prepared, so every keystroke only compares folded words.
  */
-fun searchAll(repo: Repo, q: String, scope: Scope): SearchResult {
+object SearchSnapshot {
+    @Volatile private var src: List<Item>? = null
+    @Volatile private var entries: List<SearchEntry> = emptyList()
+    fun of(items: List<Item>): List<SearchEntry> = synchronized(this) {
+        if (src === items) return entries
+        val old = HashMap<String, SearchEntry>(entries.size * 2)
+        for (e in entries) old[e.item.key] = e
+        entries = items.mapNotNull { i -> if (i.kind != "vod") null else old[i.key]?.takeIf { it.item === i } ?: searchEntry(i) }
+        src = items
+        entries
+    }
+}
+
+/**
+ * Saved titles (every language, every category ever loaded, plus earlier portal search results) matching the query,
+ * best match first. Offline and instant: titles are matched on their cleaned names (see [SearchIndex]), with cast,
+ * director, category and language as extra words.
+ */
+fun localVod(repo: Repo, q: String): List<Item> {
+    val query = SearchIndex.query(q)
+    if (query.empty) return emptyList()
+    val catWords = repo.vodCats.associate { it.id to SearchIndex.words(it.title) }
+    return SearchSnapshot.of(repo.lib.everything()).asSequence()
+        .mapNotNull { e ->
+            val sc = SearchIndex.score(query, e.title, {
+                (e.extra ?: (SearchIndex.words(e.item.name) + SearchIndex.words(e.lang) + SearchIndex.words(e.item.cast) +
+                    SearchIndex.words(e.item.director)).distinct().also { e.extra = it }) + (catWords[e.item.cat] ?: emptyList())
+            }, e.year)
+            if (sc > 0) e.item to sc else null
+        }
+        .sortedByDescending { it.second }
+        .take(600).map { it.first }.toList()
+}
+
+/** Saved titles whose portal actors / director field names the query (every word). */
+private fun castHits(repo: Repo, q: SearchIndex.Query): List<Item> {
+    if (q.words.size < 1 || q.squashed.length < 4) return emptyList()
+    return repo.lib.everything().filter { i ->
+        (i.cast.isNotEmpty() || i.director.isNotEmpty()) && run {
+            val w = SearchIndex.cachedWords(i.cast + " " + i.director)
+            q.words.all { qw -> w.any { it == qw || (qw.length >= 3 && it.startsWith(qw)) } }
+        }
+    }
+}
+
+/** Saved titles in a person's credits (same cleaned title, years agree), in the credits' order. */
+fun creditHits(entries: List<SearchEntry>, credits: List<People.Credit>): List<Item> {
+    if (credits.isEmpty()) return emptyList()
+    val want = credits.withIndex().groupBy { SearchIndex.titleKey(it.value.title) }
+    return entries.mapNotNull { e ->
+        val hit = want[e.titleKey]?.firstOrNull { (_, c) -> SearchIndex.sameTitle(c.title, c.year, e.title.spaced, e.year) }
+        hit?.let { e.item to it.index }
+    }.sortedBy { it.second }.map { it.first }
+}
+
+/** Section title for a person row: "Movies with X", "TV Series with X", "With X", or "Directed by X". */
+fun personTitle(name: String, groups: List<Group>, series: (Group) -> Boolean, directed: Boolean): String = when {
+    directed -> "Directed by $name"
+    groups.isNotEmpty() && groups.all(series) -> "TV Series with $name"
+    groups.isNotEmpty() && groups.none(series) -> "Movies with $name"
+    else -> "With $name"
+}
+
+/**
+ * Search (1.69): everything saved on the device first (instant, offline), then, when that finds few titles,
+ * the portal's own search ([portal]); a person ([person], from TMDB / Cinemeta, or the portal's actors field)
+ * becomes a "Movies with X" row. Movies vs series follows the per-item classification (Item.seriesLike);
+ * loose "Show S01E02" entries are merged into one show card.
+ */
+fun searchAll(repo: Repo, q: String, scope: Scope, portal: Boolean = false, person: People.Person? = null): SearchResult {
     val wantLive = scope == Scope.ALL || scope == Scope.LIVE
     val wantVod = scope != Scope.LIVE
-    val (live0, vod0) = runCatching { repo.search(if (wantVod) q else "$q live") }.getOrDefault(emptyList<Item>() to emptyList())
-    val live = if (wantLive) live0 else emptyList()
+    val live = if (wantLive) runCatching { repo.searchLive(q) }.getOrDefault(emptyList()) else emptyList()
     if (!wantVod) return SearchResult(live, emptyList(), emptyList())
-    // Titles already loaded locally (any language) that match every word of the query
-    val words = Tags.norm(q).split(' ').filter { it.length > 1 || it.all(Char::isDigit) }
     val lib = repo.lib
-    val catTitle = repo.vodCats.associate { it.id to Tags.norm(it.title) }
-    val local = if (words.isEmpty()) emptyList() else {
-        // Title words first; when nothing matches the title, the category / language counts too ("hindi pathaan")
-        val inTitle = lib.everything().filter { i -> val h = Tags.norm(i.name); words.all { it in h } }
-        val wide = if (inTitle.size >= 20) inTitle else (inTitle + lib.everything().filter { i ->
-            val h = Tags.norm(i.name) + " " + (catTitle[i.cat] ?: "") + " " + Tags.norm(lib.itemLang(i))
-            words.all { it in h }
-        }).distinctBy { it.key }
-        wide.take(600)
+    val fromPortal = if (portal) runCatching { repo.portalSearch(q) }.getOrDefault(emptyList()) else emptyList()
+    val local = localVod(repo, q)
+    val all = (local + fromPortal).distinctBy { it.key }.filter { repo.searchable(it) }
+    // Person row: titles in their credits that are saved, plus titles whose actors / director field names them
+    val query = SearchIndex.query(q)
+    val cast = castHits(repo, query).filter { repo.searchable(it) }
+    val credits = person?.let { p -> creditHits(SearchSnapshot.of(lib.everything()), p.credits).filter { repo.searchable(it) } }.orEmpty()
+    val titleHits = all.count { i -> val w = SearchIndex.cachedWords(i.parsed.title); query.words.all { qw -> w.any { it.startsWith(qw) } } }
+    val trusted = person?.source == "TMDB"
+    val showPerson = cast.isNotEmpty() || (person != null && SearchIndex.personLikely(credits.size, titleHits, trusted))
+    val personItems = if (showPerson) (cast + if (person != null) credits else emptyList()).distinctBy { it.key } else emptyList()
+    val inPerson = personItems.mapTo(HashSet()) { it.key }
+    val groups = lib.cards(all.filter { it.key !in inPerson })
+    val pGroups = lib.cards(personItems).let { g ->
+        when (scope) { Scope.MOVIES -> g.filter { !lib.seriesItem(it.best) }; Scope.SERIES -> g.filter { lib.seriesItem(it.best) }; else -> g }
     }
-    val all = (vod0 + local).distinctBy { it.key }.filter { repo.listOk(it.locked) && "vod:${it.cat}" !in repo.hidden }
-    val groups = lib.cards(all)
+    val row = if (pGroups.isEmpty()) null else {
+        val name = person?.name ?: SearchIndex.titleCase(query.words.joinToString(" "))
+        PersonRow(personTitle(name, pGroups, { lib.seriesItem(it.best) }, person?.directed == true), pGroups)
+    }
     return SearchResult(
         live,
         if (scope == Scope.SERIES) emptyList() else groups.filter { !lib.seriesItem(it.best) },
-        if (scope == Scope.MOVIES) emptyList() else groups.filter { lib.seriesItem(it.best) }
+        if (scope == Scope.MOVIES) emptyList() else groups.filter { lib.seriesItem(it.best) },
+        row
     )
 }
 
@@ -119,6 +214,7 @@ fun SearchOverlay(repo: Repo, st: SearchState, open: (Item) -> Unit, play: (List
     val isTv = rememberIsTv()
     var result by remember { mutableStateOf<SearchResult?>(null) }
     var busy by remember { mutableStateOf(false) }
+    var more by remember { mutableStateOf(false) }   // portal search / person lookup still running
     val fieldFr = remember { FocusRequester() }
     val firstResFr = remember { FocusRequester() }
     val scope = rememberCoroutineScope()
@@ -158,14 +254,29 @@ fun SearchOverlay(repo: Repo, st: SearchState, open: (Item) -> Unit, play: (List
     LaunchedEffect(st.voiceReq) {
         if (st.voiceReq > st.voiceHandled) { st.voiceHandled = st.voiceReq; delay(250); voice.start() }
     }
-    // Debounced search: waits for typing to pause
+    // Search opened: a few more saved pages in the background (gentle, capped), so later searches find more offline
+    LaunchedEffect(Unit) {
+        repo.lib.searchSweep()
+        withContext(Dispatchers.Default) { SearchSnapshot.of(repo.lib.everything()) }   // prepare the saved catalog for search
+    }
+    // Debounced search: saved titles at once, then (only if needed) the portal's search and a person lookup
     LaunchedEffect(st.query, st.scope) {
         val q = st.query.trim()
+        more = false
         if (q.length < 2) { result = null; busy = false; return@LaunchedEffect }
-        delay(400)
+        delay(250)
         busy = true
-        result = withContext(Dispatchers.IO) { searchAll(repo, q, st.scope) }
-        busy = false
+        val local = withContext(Dispatchers.Default) { searchAll(repo, q, st.scope) }
+        result = local; busy = false
+        if (st.scope == Scope.LIVE) return@LaunchedEffect
+        val few = local.vodCount < FEW_SEARCH
+        more = true
+        // A person lookup (TMDB with the user's key, else Cinemeta; no portal requests) for names, or when little matched
+        val askPerson = few || SearchIndex.query(q).words.size >= 2
+        val person = if (!askPerson) null else withContext(Dispatchers.IO) { runCatching { People.lookup(q) }.getOrNull() }
+        if (few || person != null) result = withContext(Dispatchers.IO) { searchAll(repo, q, st.scope, portal = few, person = person) }
+        more = false
+        if (few) repo.lib.searchSweep()
     }
     val posterW = posterWidth(isTv)
     val hPad = if (isTv) 48.dp else 12.dp
@@ -243,8 +354,9 @@ fun SearchOverlay(repo: Repo, st: SearchState, open: (Item) -> Unit, play: (List
                     if (st.aiMsg.isNotEmpty()) Text(st.aiMsg, color = Pal.Dim, fontSize = Ts.SECONDARY.sp)
                     when {
                         st.aiItems.isNotEmpty() || aiBusy || voice.listening -> {}
-                        st.query.trim().length < 2 -> Text("Type at least 2 letters. Searches every category and language on the portal.", color = Pal.Dim, fontSize = Ts.SECONDARY.sp)
+                        st.query.trim().length < 2 -> Text("Type at least 2 letters. Searches every saved title in every language, then the portal.", color = Pal.Dim, fontSize = Ts.SECONDARY.sp)
                         busy -> Text("Searching…", color = Pal.Dim, fontSize = Ts.SECONDARY.sp)
+                        more && result?.empty != false -> Text("Searching the portal…", color = Pal.Dim, fontSize = Ts.SECONDARY.sp)
                         result?.empty == true -> Text("No results for \"${st.query.trim()}\"" + (if (st.scope != Scope.ALL) " in ${st.scope.label}. Try All." else "."), color = Pal.Warn, fontSize = Ts.ROW.sp)
                     }
                 }
@@ -274,6 +386,14 @@ fun SearchOverlay(repo: Repo, st: SearchState, open: (Item) -> Unit, play: (List
                                 ChannelCard(r.live[i], repo.isFav(r.live[i]), { st.open = false; play(r.live, i) }, { repo.toggleFav(r.live[i]) })
                             }
                         }
+                    }
+                }
+                r.person?.let { pr ->
+                    item(span = { GridItemSpan(maxLineSpan) }) { Section(pr.title, pr.groups.size) }
+                    val p0 = firstMod()
+                    gridItemsIndexed(pr.groups, key = { i, g -> "person|$i|${g.key}" }) { i, g ->
+                        PosterCard(g.best, posterW, null, if (i == 0) p0 else Modifier, { open(g.best) },
+                            { repo.toggleFav(g.best) }, fav = repo.isFav(g.best), versions = g.items.size) { Keys.focused = g.best }
                     }
                 }
                 for ((title, list) in listOf("Movies" to r.movies, "TV Series" to r.series)) {

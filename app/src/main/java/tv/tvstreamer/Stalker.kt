@@ -239,7 +239,9 @@ class Stalker(private val store: Store) {
             genre = firstOf(it, "genres_str", "genre"),
             length = time.toIntOrNull()?.let { m -> if (m > 0) "${m / 60}h ${m % 60}m".removePrefix("0h ") else "" } ?: time,
             eps = eps.joinToString(","),
-            added = firstOf(it, "added", "add_date", "date_add", "last_modified", "added_date"))
+            added = firstOf(it, "added", "add_date", "date_add", "last_modified", "added_date"),
+            cast = firstOf(it, "actors", "cast", "actor").take(300),
+            director = firstOf(it, "director", "directors").take(120))
     }
 
     /** One page of get_ordered_list: items, total_items and the page size the portal uses. */

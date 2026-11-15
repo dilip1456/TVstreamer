@@ -391,50 +391,53 @@ class Repo(private val ctx: Context) {
 
     private val searchCache = TtlCache<String, List<Item>>(40, 10 * 60_000)
 
-    fun search(q: String): Pair<List<Item>, List<Item>> {
+    /** Live channels matching the query, from the saved channel list (offline, instant). A number finds that channel. */
+    fun searchLive(q: String): List<Item> {
         val toks = q.lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.isNotEmpty() }
-        val wantMovie = toks.any { it in MOVIE_W }
-        val wantLive = toks.any { it in LIVE_W }
-        val core = toks.filter { it !in STOP }
-        if (core.isEmpty()) return emptyList<Item>() to emptyList()
+        val core = toks.filter { it !in STOP }.ifEmpty { toks.filter { it !in LIVE_W } }
+        if (core.isEmpty()) return emptyList()
         val hid = hidden
-
-        var live = emptyList<Item>()
-        if (!wantMovie || wantLive) {
-            val titles = liveCats.associate { it.id to it.title }
-            val first = squash(core[0])
-            live = channels.filter { "itv:${it.cat}" !in hid && listOk(it.locked) }
-                .filter { c ->
-                    if (core.size == 1 && core[0].all { ch -> ch.isDigit() }) c.num.toString() == core[0]
-                    else {
-                        val h = squash(c.name + " " + ChannelTitle.pretty(c.name) + " " + (if (c.key in chNames) portalName(c) + " " else "") + (titles[c.cat] ?: ""))
-                        core.all { t -> h.contains(squash(t)) }
-                    }
-                }
-                .sortedBy { if (squash(it.name).startsWith(first)) 0 else 1 }
-                .take(100)
-        }
-
-        var vod = emptyList<Item>()
-        if (!wantLive || wantMovie) {
-            val soft = core.filter { it in LANGS || it.matches(YEAR) }
-            val hard = core.filter { it !in soft }
-            val sq = (if (hard.isEmpty()) core else hard).joinToString(" ")
-            // With the whole catalog saved locally the search is local only (searchAll adds the local matches)
-            // One portal search request (only when the user searches); results are kept in the saved catalog
-            // Cached 10 min: re-typing, switching the scope chip or reopening search does not ask the portal again
-            val ck = sq.lowercase()
-            val res = searchCache[ck] ?: runCatching { api.vod("*", 1, sq).first }.getOrNull()
-                ?.also { searchCache[ck] = it; lib.merge(it) }.orEmpty()
-            val titles = vodCats.associate { it.id to it.title }
-            val f = res.filter { m ->
-                val h = squash(m.name + " " + (titles[m.cat] ?: ""))
-                soft.all { s -> h.contains(squash(s)) }
+        if (core.size == 1 && core[0].all { it.isDigit() })
+            return channels.filter { "itv:${it.cat}" !in hid && listOk(it.locked) && it.num.toString() == core[0] }
+        val query = SearchIndex.query(core.joinToString(" "))
+        val titles = liveCats.associate { it.id to it.title }
+        return channels.asSequence()
+            .filter { "itv:${it.cat}" !in hid && listOk(it.locked) }
+            .mapNotNull { c ->
+                val pretty = ChannelTitle.pretty(c.name)
+                val extra = listOf(c.name, if (c.key in chNames) portalName(c) else "", titles[c.cat] ?: "")
+                val sc = SearchIndex.score(query, pretty, extra)
+                if (sc > 0) c to sc else null
             }
-            vod = (if (f.isEmpty()) res else f)
-                .filter { "vod:${it.cat}" !in hid && listOk(it.locked) }
+            .sortedByDescending { it.second }
+            .map { it.first }.take(100).toList()
+    }
+
+    /**
+     * The portal's own search, used only when the saved catalog has few matches (1.69). Gentle: at most [pages] pages
+     * (one request at a time through the portal limiter), cached 10 min per query, nothing while the portal asked us
+     * to slow down. Results are kept in the saved catalog, so the next search finds them offline.
+     */
+    fun portalSearch(q: String, pages: Int = 3): List<Item> {
+        val toks = q.lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.isNotEmpty() }
+        val core = toks.filter { it !in STOP }
+        if (core.isEmpty()) return emptyList()
+        // Language / year words narrow the local match; the portal is asked for the title words
+        val hard = core.filter { it !in LANGS && !it.matches(YEAR) }
+        val sq = (hard.ifEmpty { core }).joinToString(" ")
+        val ck = sq.lowercase()
+        searchCache[ck]?.let { return it }
+        if (api.limiter.paused) return emptyList()
+        val out = mutableListOf<Item>()
+        for (p in 1..pages) {
+            val pg = runCatching { api.vodPage("*", p, sq) }.getOrNull() ?: break
+            out += pg.items
+            if (pg.items.isEmpty() || p >= pg.pages) break
         }
-        return live to vod
+        val res = out.distinctBy { it.key }
+        searchCache[ck] = res
+        if (res.isNotEmpty()) lib.merge(res)
+        return res
     }
 
     // ---- Live TV guide, modes, languages, reminders (v1.52) ----
