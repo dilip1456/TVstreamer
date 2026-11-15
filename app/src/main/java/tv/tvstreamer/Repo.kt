@@ -77,10 +77,11 @@ class Repo(private val ctx: Context) {
         applyNames()
         liveIndex.ensure(rawChannels, lc)   // sort channels by type / language in the background, ready for Live TV
         bg.launch { refreshLiveGroupKeys() }
+        prewarmLive()
     }
 
     /** Type and language of every channel (worked out off the main thread, saved on disk). */
-    val liveIndex = LiveIndex(store)
+    val liveIndex = LiveIndex(store).also { it.onReady = { prewarmLive() } }
 
     /** When channels and categories were last read from the portal (from live.json). */
     var listsAt by mutableStateOf(0L)
@@ -101,32 +102,22 @@ class Repo(private val ctx: Context) {
             status = "Open Settings and enter the portal URL and MAC"
             return@withContext
         }
-        if (channels.isEmpty()) {
-            runCatching {
-                store.cacheRead("live.json")?.let {
-                    val o = JSONObject(it)
-                    setLive(o.getJSONArray("cats").toCats(), o.getJSONArray("items").toItems())
-                    listsAt = o.optLong("t")
-                }
-                store.cacheRead("vod.json")?.let { vodCats = org.json.JSONArray(it).toCats() }
-            }
-        }
+        openLocal()
         lib.start()       // the saved catalog appears now; a stale one refreshes in the background
-        val fresh = channels.isNotEmpty() && vodCats.isNotEmpty() && System.currentTimeMillis() - listsAt < lib.refreshMs()
+        // 1.70: channels / categories are asked again only once a day (or first run / forced), silently in the background
+        val fresh = channels.isNotEmpty() && vodCats.isNotEmpty() && !live.due()
         if (fresh && !force) return@withContext
         // A second forced refresh right after one finished (e.g. start-up then sign-in sync) would just repeat it
         if (fresh && api.token.isNotEmpty() && System.currentTimeMillis() - fetchedAt < 60_000) return@withContext   // api.reset() (new login) clears the token
         if (channels.isEmpty()) status = "Loading channels and categories…"
         try {
-            val lc = api.liveCats()
-            val ch = api.channels()
+            val s = live.fetch()
             val vc = api.vodCats()
-            setLive(lc, ch)
+            setLive(s.cats, s.items)
             if (vc != vodCats) { clearRows(); lib.version++ }
             vodCats = vc
-            listsAt = System.currentTimeMillis()
+            listsAt = s.at
             fetchedAt = listsAt
-            store.cacheWrite("live.json", JSONObject().put("t", listsAt).put("cats", catsJson(lc)).put("items", itemsJson(ch)).toString())
             store.cacheWrite("vod.json", catsJson(vc).toString())
             status = ""
             lib.start()
@@ -135,6 +126,46 @@ class Repo(private val ctx: Context) {
             // Portal refresh failed but we have cached data; stay quiet instead of saying Offline
         }
     }
+
+    /** The channel list on the device (live.json): read once, kept in memory; get_genres / get_all_channels only via [fetch]. */
+    val live = LiveSource(
+        object : LivePortal {
+            override fun liveCats() = api.liveCats()
+            override fun channels() = api.channels()
+        },
+        object : LiveDisk {
+            override fun read() = store.cacheRead("live.json")
+            override fun write(text: String) = store.cacheWrite("live.json", text)
+        })
+    private val localLock = Any()
+    @Volatile private var localShown = false
+
+    /** Shows the saved channels, categories and movie / series categories (no portal). Runs once, off the main thread. */
+    fun openLocal() {
+        if (localShown) return
+        synchronized(localLock) {
+            if (localShown) return
+            val t0 = System.nanoTime()
+            runCatching {
+                live.local()?.let { setLive(it.cats, it.items); listsAt = it.at }
+                if (vodCats.isEmpty()) store.cacheRead("vod.json")?.let { vodCats = org.json.JSONArray(it).toCats() }
+            }
+            localShown = true
+            LiveTiming.loaded((System.nanoTime() - t0) / 1_000_000, channels.size)
+        }
+    }
+
+    // ---- Live TV list model (1.70): built off the main thread, last one kept ----
+    @Volatile var liveModelLast: LiveModel = LiveModel.EMPTY
+        private set
+    fun liveInputs(view: LiveModes.View) = LiveInputs(channels, liveCats, liveOrder, hidden, showAdult, liveLangs,
+        liveIndex.info, mode(), folders, view)
+    fun liveModelCached(i: LiveInputs): LiveModel? = liveModelLast.takeIf { i.same(it.inputs) }
+    suspend fun liveModel(i: LiveInputs): LiveModel = withContext(Dispatchers.Default) {
+        liveModelCached(i) ?: LiveModel.build(i, liveModelLast).also { liveModelLast = it }
+    }
+    /** Lays the Live TV list out in the background (start-up, refresh, sorting done), so opening it is instant. */
+    fun prewarmLive() { if (channels.isNotEmpty()) bg.launch { runCatching { liveModel(liveInputs(liveView.view)) } } }
 
     private val bg = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
 
@@ -636,4 +667,8 @@ class Repo(private val ctx: Context) {
             }
         }
     }
+
+    // 1.70: read the saved channel list as soon as the app starts (off the main thread), before any screen asks
+    init { bg.launch { if (store.portal.isNotBlank() && store.mac.isNotBlank()) openLocal() } }
+
 }

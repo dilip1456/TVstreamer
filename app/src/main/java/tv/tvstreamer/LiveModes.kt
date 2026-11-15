@@ -225,25 +225,30 @@ object LiveModes {
         }
         for ((k, v) in merged) {
             // Stable portal/number (or custom-mode) order — never active-first or hidden-to-bottom.
-            val sorted = if (modePos != null) v.first.sortedBy { modePos[it.ch.key] ?: Int.MAX_VALUE }
-            else v.first.sortedWith(compareBy({ if (it.ch.num > 0) it.ch.num else Int.MAX_VALUE }, { it.ch.name.lowercase() }))
+            val sorted = if (modePos != null) v.first.sortedBy { modePos[it.ch.key] ?: Int.MAX_VALUE } else byNumber(v.first)
             out += Section(k.first, k.second, sorted, v.third)
         }
         return out
     }
 
+    /** Channels by number, then name (1.70: the lower-case name is worked out once per row, not per comparison). */
+    private class ByNum(val num: Int, val name: String, val row: Row)
+    private val BY_NUM = compareBy<ByNum>({ it.num }, { it.name })
+    fun byNumber(l: List<Row>): List<Row> =
+        l.map { ByNum(if (it.ch.num > 0) it.ch.num else Int.MAX_VALUE, it.ch.name.lowercase(), it) }.sortedWith(BY_NUM).map { it.row }
+
     private fun subSections(rows: List<Row>, catTitle: Map<String, String>, catPos: Map<String, Int>, modePos: Map<String, Int>?): List<Section> {
         val typeRank = LiveKind.ORDER.withIndex().associate { it.value to it.index }
-        fun sorted(l: List<Row>) = if (modePos != null) l.sortedBy { modePos[it.ch.key] ?: Int.MAX_VALUE }
-            else l.sortedWith(compareBy({ if (it.ch.num > 0) it.ch.num else Int.MAX_VALUE }, { it.ch.name.lowercase() }))
+        fun sorted(l: List<Row>) = if (modePos != null) l.sortedBy { modePos[it.ch.key] ?: Int.MAX_VALUE } else byNumber(l)
         val out = ArrayList<Section>()
+        val labelOf = HashMap<String, String>()   // section label per category, worked out once (not per channel)
         for ((type, rs) in rows.groupBy { it.type }.entries.sortedBy { typeRank[it.key] ?: 99 }) {
             val order = Taxonomy.RULES[type].orEmpty().map { it.first }.withIndex().associate { it.value to it.index }
             for ((sub, l) in rs.groupBy { it.sub }.entries.sortedBy { order[it.key] ?: 999 }) {
                 val local = sub == "Local News"
                 if (l.size <= SPLIT_AT) { out += Section(type, sub, sorted(l), local); continue }
                 // Large: one section per region (Sports) or portal category (same label merged), in portal order
-                l.groupBy { r -> r.region.ifEmpty { catTitle[r.ch.cat].orEmpty().let { if (it.isBlank()) "" else LiveKind.sectionLabel(it) } } }.entries
+                l.groupBy { r -> r.region.ifEmpty { labelOf.getOrPut(r.ch.cat) { catTitle[r.ch.cat].orEmpty().let { if (it.isBlank()) "" else LiveKind.sectionLabel(it) } } } }.entries
                     .sortedBy { e -> e.value.minOf { catPos[it.ch.cat] ?: Int.MAX_VALUE } }
                     .forEach { (lab, part) -> out += Section(type, if (lab.isEmpty() || lab == sub) sub else "$sub · $lab", sorted(part), local) }
             }

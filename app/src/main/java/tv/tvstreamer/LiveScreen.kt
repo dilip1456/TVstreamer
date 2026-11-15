@@ -67,37 +67,33 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
     LaunchedEffect(repo.rawChannels, repo.liveCats) { repo.liveIndex.ensure(repo.rawChannels, repo.liveCats) }
     val ix = repo.liveIndex
     val info = ix.info
-    val showAdult = repo.showAdult
-    val cats = repo.visibleLive()
-    val catIds = remember(cats) { cats.map { it.id }.toSet() }
-    val catOrder = remember(cats) { cats.map { it.id } }
-    val catTitle = remember(repo.liveCats) { repo.liveCats.associate { it.id to it.title } }
-    val base = remember(repo.channels, catIds, showAdult) {
-        repo.channels.filter { it.cat in catIds && repo.listOk(it.locked) }
+    // 1.70: the list is worked out off the main thread from the saved channel list (no portal); the last result is
+    // kept in Repo, so opening Live TV again (or after the start-up pre-build) shows it in the first frame.
+    val inputs = repo.liveInputs(view)
+    val openedAt = remember { android.os.SystemClock.elapsedRealtime() }
+    val model by produceState(repo.liveModelCached(inputs) ?: repo.liveModelLast, inputs) {
+        value = repo.liveModel(inputs)
     }
-    val mode = repo.mode()
-    val langs = repo.liveLangs
-    val classified = remember(base, langs, info, catTitle) {
-        LiveModes.classify(base, langs, info, catTitle)
+    LaunchedEffect(model.inputs != null) {
+        if (model.inputs != null) LiveTiming.shown(android.os.SystemClock.elapsedRealtime() - openedAt, model.flat.size)
     }
-    val rows = remember(classified, mode, repo.folders, repo.hidden, view) {
-        LiveModes.rowsFrom(classified, mode, repo.folders, repo.hidden, view)
-    }
-    val tree = remember(rows, repo.hidden, view) { LiveModes.tree(rows, repo.hidden, view) }
-    val sections = remember(rows, info, catTitle, catOrder, mode) {
-        LiveModes.sections(rows, info, catTitle, catOrder, if (mode != LiveModes.DEFAULT) repo.folders.items(mode).map { it.key } else null)
-    }
-    val types = remember(sections) { sections.map { it.type }.distinct() }
+    val ready = model.inputs != null
+    val mode = inputs.mode
+    val langs = inputs.langs
+    val rows = model.rows
+    val tree = model.tree
+    val sections = model.sections
+    val types = model.types
     // List positions: type + section header index, flat channel list (what the player steps through)
     val collapsed = repo.liveCollapsed
     val collapseLayout = remember(sections, collapsed) { LiveCollapse.layout(sections, collapsed) }
-    val layout = remember(sections, collapseLayout) {
-        Triple(collapseLayout.sectionStart, collapseLayout.typeStart, sections.flatMap { s -> s.rows.map { it.ch } })
+    val layout = remember(model, collapseLayout) {
+        Triple(collapseLayout.sectionStart, collapseLayout.typeStart, model.flat)
     }
-    val flat = layout.third
-    val flatPos = remember(flat) { flat.withIndex().associate { it.value.key to it.index } }
-    val allLangs = remember(base, info) { LiveModes.languages(base, info) }
-    val modeCount = rows.count { it.on }
+    val flat = model.flat
+    val flatPos = model.flatPos
+    val allLangs = model.allLangs
+    val modeCount = model.modeCount
 
     val state = remember {
         repo.listStates.getOrPut("live152") { repo.liveView.let { androidx.compose.foundation.lazy.LazyListState(it.index, it.offset) } }
@@ -156,16 +152,7 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
     var lastOkKey by remember { mutableStateOf<String?>(null) }
     var lastOkAt by remember { mutableStateOf(0L) }
 
-    // Guide for the rows on screen only (debounced in EpgLoader)
-    LaunchedEffect(state, flat) {
-        // Visible rows plus a few ahead (scrolling down shows the guide at once); cached ones show instantly
-        snapshotFlow { state.layoutInfo.visibleItemsInfo.mapNotNull { (it.key as? String)?.substringAfter('|', "")?.takeIf { k -> k.startsWith("itv:") } } }
-            .collect { keys ->
-                val pos = keys.mapNotNull { flatPos[it] }
-                val ids = Epg.ahead(pos, flat.size).mapNotNull { flat.getOrNull(it)?.id }
-                repo.epg.want(ids.ifEmpty { keys.map { it.removePrefix("itv:") } })
-            }
-    }
+    // 1.70: no guide requests from the list (the guide loads in the player, for the channel playing)
     // Back from the player: land on the channel that was playing (else the first channel)
     var restored by remember { mutableStateOf(false) }
     LaunchedEffect(flat.isNotEmpty()) {
@@ -264,6 +251,7 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
             }
             when {
                 repo.channels.isEmpty() -> Label(repo.status.ifEmpty { "No channels loaded yet" }, Ts.ROW, Pal.Dim, Modifier.weight(1f), maxLines = 3)
+                !ready -> Spacer(Modifier.weight(1f))   // the saved list is being laid out (a moment, no spinner)
                 sections.isEmpty() -> Label(when {
                     view == LiveModes.View.HIDDEN -> "Nothing hidden."
                     mode != LiveModes.DEFAULT && !browseAll -> "\"$mode\" has no channels yet. Menu > All channels, then hold OK on a channel to add it."

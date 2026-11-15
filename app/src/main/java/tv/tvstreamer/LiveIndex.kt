@@ -29,6 +29,8 @@ class LiveIndex(private val store: Store?) {
     var error by mutableStateOf(""); private set
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    /** Called (off the main thread) when a sorted result is in [info]: Repo lays the Live TV list out again. */
+    @Volatile var onReady: (() -> Unit)? = null
     private var job: Job? = null
     private var key = ""
 
@@ -44,12 +46,14 @@ class LiveIndex(private val store: Store?) {
         job = scope.launch {
             try {
                 // Saved result for the same list: instant
-                if (!force) load(k)?.let { m -> info = m; done = channels.size; state = State.READY; return@launch }
+                if (!force) load(k)?.let { m -> info = m; done = channels.size; state = State.READY; onReady?.invoke(); return@launch }
                 val titles = cats.associate { it.id to it.title }
                 val m = withTimeout(TIMEOUT_MS) {
-                    build(channels, titles) { partial, n -> info = partial; done = n }
+                    // 1.70: the list keeps the previous result until this one is done (one swap, not a re-layout per chunk)
+                    build(channels, titles) { _, n -> done = n }
                 }
                 info = m; done = channels.size; state = State.READY
+                onReady?.invoke()
                 save(k, m)
             } catch (e: TimeoutCancellationException) {
                 state = State.FAILED; error = "Sorting took too long"

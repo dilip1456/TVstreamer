@@ -345,6 +345,9 @@ class Library(private val repo: Repo) {
         if (sessionPages >= SESSION_PAGES) { note = "Loaded enough for now ($SESSION_PAGES pages this session). More loads next time you open the app."; return null }
         if (repo.api.limiter.paused) { note = busyText(repo.api.limiter.pauseLeft()); return null }
         delay(pageGap())
+        // 1.70: a channel / title being started goes first (its create_link is not queued behind catalog pages)
+        var waited = 0
+        while (repo.api.linkBusy.get() > 0 && waited < 30) { delay(500); waited++ }
         repeat(2) { attempt ->
             try {
                 sessionPages++
