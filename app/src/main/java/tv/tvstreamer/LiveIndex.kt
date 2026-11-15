@@ -28,7 +28,8 @@ class LiveIndex(private val store: Store?) {
     var total by mutableStateOf(0); private set
     var error by mutableStateOf(""); private set
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    // 1.72: Live TV's own thread (not the shared pool that catalog shelf rebuilds keep busy)
+    private val scope = CoroutineScope(SupervisorJob() + LiveWork.dispatcher)
     /** Called (off the main thread) when a sorted result is in [info]: Repo lays the Live TV list out again. */
     @Volatile var onReady: (() -> Unit)? = null
     private var job: Job? = null
@@ -107,7 +108,7 @@ class LiveIndex(private val store: Store?) {
         }
 
         const val FILE = "live_index.json"
-        const val TIMEOUT_MS = 45_000L
+        const val TIMEOUT_MS = 90_000L
         /** Bump when LiveKind's rules change, so saved results are worked out again. */
         private const val RULES = 2
 

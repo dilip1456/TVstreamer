@@ -486,10 +486,30 @@ class Store(ctx: Context) {
     }
 
     fun cacheWrite(name: String, text: String) { runCatching { File(dir, name).writeText(text) } }
+    /**
+     * 1.72: save without ever leaving a half-written file: write [name].tmp, keep the current file as [name].bak,
+     * then rename the new one into place (a rename is all-or-nothing). See [cacheReadBackup].
+     */
+    fun cacheWriteSafe(name: String, text: String) { runCatching { SafeFile.write(File(dir, name), text) } }
+    /** The previous good copy kept by [cacheWriteSafe]. */
+    fun cacheReadBackup(name: String): String? = runCatching { SafeFile.readBackup(File(dir, name)) }.getOrNull()
     fun cacheFile(name: String): File = File(dir, name)
     /** A folder in the app's cache (Android may clear it; everything there can be fetched again). */
     fun cacheDir(name: String): File = File(appCtx.cacheDir, name)
     fun cacheDelete(name: String) { runCatching { File(dir, name).delete() } }
     fun cacheRead(name: String): String? =
         runCatching { File(dir, name).takeIf { it.exists() }?.readText() }.getOrNull()
+}
+
+/** All-or-nothing file saves (1.72): the old copy stays as name.bak until the new one is fully on disk. */
+object SafeFile {
+    fun write(f: File, text: String) {
+        f.parentFile?.mkdirs()
+        val tmp = File(f.path + ".tmp")
+        tmp.outputStream().use { o -> o.write(text.toByteArray(Charsets.UTF_8)); o.flush(); runCatching { o.fd.sync() } }
+        val bak = File(f.path + ".bak")
+        if (f.exists()) { bak.delete(); if (!f.renameTo(bak)) f.copyTo(bak, overwrite = true) }
+        if (!tmp.renameTo(f)) { tmp.copyTo(f, overwrite = true); tmp.delete() }
+    }
+    fun readBackup(f: File): String? = File(f.path + ".bak").takeIf { it.exists() }?.readText()
 }

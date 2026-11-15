@@ -8,11 +8,20 @@ interface LivePortal {
     fun channels(): List<Item>
 }
 
-/** Where the channel list is kept on the device (live.json). */
+/**
+ * Where the channel list is kept on the device (live.json, in the app's files folder, which Android never clears).
+ * 1.72: written safely (a temporary file renamed over the old one, the previous copy kept as a backup), so an app
+ * killed mid-save or an update never leaves a broken list behind.
+ */
 interface LiveDisk {
     fun read(): String?
     fun write(text: String)
+    /** The previous good copy (live.json.bak), used when the main file is missing or unreadable. */
+    fun readBackup(): String? = null
 }
+
+/** The portal answered, but with no channels: the saved list is kept (1.72). */
+class EmptyChannelListException : Exception("The portal sent an empty channel list; the saved list is kept")
 
 /**
  * The channel + genre list (1.70): read from the device once, then kept in memory. The portal is asked only:
@@ -20,6 +29,8 @@ interface LiveDisk {
  *  - by the daily refresh ([due]: a day old, or the first launch of a new day), or
  *  - when asked to ([fetch]: Settings > Refresh, a new login, links failing again and again).
  * Opening Live TV, modes, hide / show, renames, folding and categories never call the portal (see LiveModel).
+ * 1.72: a refresh never replaces the saved list with an empty answer, and an unchanged answer keeps the same list
+ * objects (nothing is laid out again). Older saved files (1.6x-1.71, same fields, no "v") still read.
  */
 class LiveSource(
     private val portal: LivePortal,
@@ -39,12 +50,18 @@ class LiveSource(
         if (diskRead) return snap
         synchronized(lock) {
             if (!diskRead) {
-                snap = runCatching { disk.read()?.let(::decode) }.getOrNull()
+                snap = readable(runCatching { disk.read() }.getOrNull()) ?: readable(runCatching { disk.readBackup() }.getOrNull())
                 diskRead = true
             }
             return snap
         }
     }
+
+    private fun readable(text: String?): Snapshot? =
+        text?.let { t -> runCatching { decode(t) }.getOrNull() }?.takeIf { it.items.isNotEmpty() }
+
+    /** True when a channel list is on the device (Live TV can open with no portal call). */
+    fun hasSaved(): Boolean = local()?.items?.isNotEmpty() == true
 
     /** True when the daily refresh may ask the portal (also when nothing is saved). */
     fun due(now: Long = clock()): Boolean {
@@ -55,9 +72,13 @@ class LiveSource(
 
     /** Reads the list from the portal (one get_genres + one get_all_channels) and saves it. */
     fun fetch(): Snapshot {
+        val old = local()
         val lc = portal.liveCats()
         val ch = portal.channels()
-        val s = Snapshot(lc, ch, clock())
+        if (ch.isEmpty()) throw EmptyChannelListException()
+        // Same answer as the saved one: keep the same lists (the screen keeps its layout), only the time moves on
+        val s = if (old != null && old.items == ch && old.cats == lc) Snapshot(old.cats, old.items, clock())
+            else Snapshot(lc, ch, clock())
         runCatching { disk.write(encode(s)) }
         synchronized(lock) { snap = s; diskRead = true }
         return s
@@ -65,12 +86,17 @@ class LiveSource(
 
     companion object {
         fun encode(s: Snapshot): String =
-            JSONObject().put("t", s.at).put("cats", catsJson(s.cats)).put("items", itemsJson(s.items)).toString()
+            JSONObject().put("v", FORMAT).put("t", s.at).put("cats", catsJson(s.cats)).put("items", itemsJson(s.items)).toString()
 
+        /** Reads this format and the older ones (no "v"); a missing category list is not fatal. */
         fun decode(text: String): Snapshot {
             val o = JSONObject(text)
-            return Snapshot(o.getJSONArray("cats").toCats(), o.getJSONArray("items").toItems(), o.optLong("t"))
+            val cats = o.optJSONArray("cats")?.let { a -> runCatching { a.toCats() }.getOrNull() } ?: emptyList()
+            return Snapshot(cats, o.getJSONArray("items").toItems(), o.optLong("t"))
         }
+
+        /** Saved-file format (1.72 adds the field; older files have none and read the same way). */
+        const val FORMAT = 2
     }
 }
 

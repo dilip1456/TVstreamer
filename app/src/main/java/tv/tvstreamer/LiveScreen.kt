@@ -64,6 +64,8 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
     var popup by remember { mutableStateOf<String?>(null) }    // modes | langs | sections
     var menuCh by remember { mutableStateOf<Item?>(null) }
 
+    // 1.72: the background title index waits while Live TV is on screen (nothing competes with the list)
+    DisposableEffect(Unit) { repo.liveOpen = true; onDispose { repo.liveOpen = false; repo.lib.indexKick() } }
     LaunchedEffect(repo.rawChannels, repo.liveCats) { repo.liveIndex.ensure(repo.rawChannels, repo.liveCats) }
     val ix = repo.liveIndex
     val info = ix.info
@@ -250,8 +252,8 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
                 PillButton("Try again", { ix.ensure(repo.channels, repo.liveCats, force = true) }, size = Ts.CAPTION)
             }
             when {
-                repo.channels.isEmpty() -> Label(repo.status.ifEmpty { "No channels loaded yet" }, Ts.ROW, Pal.Dim, Modifier.weight(1f), maxLines = 3)
-                !ready -> Spacer(Modifier.weight(1f))   // the saved list is being laid out (a moment, no spinner)
+                repo.channels.isEmpty() -> Label(LiveStatus.empty(repo.localReading, repo.status), Ts.ROW, Pal.Dim, Modifier.weight(1f), maxLines = 3)
+                !ready -> Label("Opening saved channels…", Ts.ROW, Pal.Dim, Modifier.weight(1f))   // laid out on Live TV's own thread (a moment)
                 sections.isEmpty() -> Label(when {
                     view == LiveModes.View.HIDDEN -> "Nothing hidden."
                     mode != LiveModes.DEFAULT && !browseAll -> "\"$mode\" has no channels yet. Menu > All channels, then hold OK on a channel to add it."

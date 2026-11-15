@@ -55,6 +55,7 @@ data class Group(val key: String, val items: List<Item>) {
 class Library(private val repo: Repo) {
     companion object {
         const val MORE_PAGES = 3             // each "load more"
+        const val INDEX_BUMP_MS = 60_000L    // 1.72: while indexing, screens re-read the catalog at most once a minute
         const val FEW = 40                   // fewer cards than this for the picked languages: fetch a little more
         const val FEW_BUDGET = 9             // ... at most this many extra pages per language choice, per session
         const val SWEEP_PAGES = 4            // 1.69: each search sweep (search opened / few results): this many older pages
@@ -270,6 +271,11 @@ class Library(private val repo: Repo) {
         private set
     private var indexPages = 0
 
+    private val indexBumps = BumpThrottle(INDEX_BUMP_MS)
+
+    private fun indexMayRun(): Boolean = IndexGate.canRun(stopped, repo.playing, repo.api.limiter.paused,
+        repo.live.hasSaved(), repo.liveFetching, repo.liveOpen)
+
     private fun indexWanted(): List<String> = wantedCats(langsAll()).map { it.id }
 
     /** Wanted categories fully indexed / all wanted categories (selected languages and categories). */
@@ -289,12 +295,16 @@ class Library(private val repo: Repo) {
             val stop = try {
                 indexer.run(
                     wanted = ::indexWanted,
-                    canRun = { !stopped && !repo.playing && !repo.api.limiter.paused },
+                    // 1.72: Live TV first: no index pages until the channel list is saved, while it is fetched, while
+                    // Live TV is on screen or a video plays
+                    canRun = ::indexMayRun,
                     fetch = { c, p -> work.withLock { if (stopped || repo.playing) null else page(c, p) } },
                     save = { _, items ->
                         work.withLock {
                             val (next, add) = CatalogDisk.merge(all, items, front = false)
-                            if (add.isNotEmpty()) { publish(next, add); appendDisk(add) }
+                            // 1.72: screens are told at most once a minute while indexing (each page used to rebuild
+                            // every Home / Movies / Series shelf over the whole catalog, starving Live TV)
+                            if (add.isNotEmpty()) { publish(next, add, bump = indexBumps.changed()); appendDisk(add) }
                             add.size
                         }
                     },
@@ -305,12 +315,13 @@ class Library(private val repo: Repo) {
                     gap = { delay(CatalogIndexer.GAP_MIN + kotlin.random.Random.nextLong(CatalogIndexer.GAP_MAX - CatalogIndexer.GAP_MIN)) }
                 )
             } catch (e: CancellationException) { CatalogIndexer.Stop.PAUSED
-            } finally { indexing = false }
+            } finally { indexing = false; if (indexBumps.flush()) version++ }
             repo.store.saveSort("index_day", indexer.encodeDay())
             indexState = when (stop) {
                 CatalogIndexer.Stop.DONE -> "done"
                 CatalogIndexer.Stop.DAY_LIMIT -> "day"
-                CatalogIndexer.Stop.PAUSED -> if (stopped) "stopped" else if (repo.playing) "playing" else "busy"
+                CatalogIndexer.Stop.PAUSED -> if (stopped) "stopped" else if (repo.playing) "playing"
+                    else if (repo.liveOpen || repo.liveFetching || !repo.live.hasSaved()) "live" else "busy"
                 CatalogIndexer.Stop.FAILED -> "later"
             }
             work.withLock { complete = wantedCats(langsAll()).all { it.id in catEnd }; writeMeta() }
@@ -327,6 +338,7 @@ class Library(private val repo: Repo) {
             doneCats == all -> " · full list saved"
             indexState == "day" -> " · daily limit reached, continues tomorrow"
             indexState == "playing" -> " · paused while playing"
+            indexState == "live" -> " · paused while Live TV is open or loading"
             indexState == "stopped" || stopped -> " · stopped"
             indexState == "later" || indexState == "busy" -> " · continues later"
             else -> ""
@@ -388,7 +400,7 @@ class Library(private val repo: Repo) {
         }
     }
 
-    private fun publish(items: List<Item>, added: List<Item>? = null) {
+    private fun publish(items: List<Item>, added: List<Item>? = null, bump: Boolean = true) {
         val l = items.distinctBy { it.key }
         all = l
         knownKeys.clear(); knownKeys.addAll(l.map { it.key })
@@ -415,7 +427,7 @@ class Library(private val repo: Repo) {
             catMix = bc.mapValues { (_, v) -> v.asSequence().filter { it.parsed.lang.isNotEmpty() }.map { it.parsed.lang }.toSet() }
         }
         poolMemo.clear(); cardMemo.clear()
-        version++
+        if (bump) version++
     }
 
     /** One page, gently: a random gap first, at most one calm retry; null = stop (busy, not answering, cap, stopped). */
