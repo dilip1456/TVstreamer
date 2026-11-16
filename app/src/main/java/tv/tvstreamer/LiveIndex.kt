@@ -66,6 +66,22 @@ class LiveIndex(private val store: Store?) {
         }
     }
 
+    /**
+     * 1.73: the saved sort for exactly this list, read now on the calling (background) thread, before the channels are
+     * published, so the first Live TV layout already has types and languages (no unsorted layout, then a second one).
+     * False when nothing matching is saved ([ensure] then sorts in the background).
+     */
+    @Synchronized
+    fun loadSavedNow(channels: List<Item>, cats: List<Cat>): Boolean {
+        if (channels.isEmpty()) return false
+        val k = keyOf(channels, cats)
+        if (k == key && state == State.READY) return true
+        val m = load(k) ?: return false
+        job?.cancel(); job = null
+        key = k; info = m; done = channels.size; total = channels.size; error = ""; state = State.READY
+        return true
+    }
+
     /** Stop sorting; what is sorted so far stays on screen. */
     @Synchronized
     fun cancel() {

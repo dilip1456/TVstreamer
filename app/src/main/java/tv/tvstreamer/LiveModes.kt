@@ -126,11 +126,41 @@ object LiveModes {
         return chOn && (!hiddenByGroup || isForced(c.ch, hidden))
     }
 
+    /**
+     * [rowOn] for a whole list at once (1.73). [rowOn] re-reads the custom mode's whole item list (map / filter / toSet,
+     * up to five times) for every channel, so a mode switch over thousands of channels did millions of string
+     * operations: seconds on a Fire TV, and several such builds in a row at start-up (~30 s). Here the mode's channel
+     * keys become one HashSet, and the type / sub-category / region rule is worked out once per distinct group (a few
+     * dozen), so each channel costs two set look-ups. Same answers as [rowOn] (see LiveFastTest).
+     */
+    class OnRule(private val mode: String, private val folders: FolderSet, private val hidden: Set<String>) {
+        private val keys: Set<String>? =
+            if (mode == DEFAULT || mode !in folders.folders) null
+            else folders.items(mode).let { l -> if (l.any { it.kind == "itv" }) l.mapTo(HashSet(l.size * 2)) { it.key } else null }
+        private val groupMemo = HashMap<String, Boolean>()
+
+        fun on(c: Classified): Boolean {
+            val k = c.ch.key
+            val chOn = if (keys != null) k in keys else "ch:$k" !in hidden
+            if (!chOn) return false
+            val g = groupMemo.getOrPut(c.type + '\u0000' + c.sub + '\u0000' + c.region) {
+                CatalogGroups.liveChannelOn(c.type, c.sub, c.region, mode, folders, hidden)
+            }
+            return g || "$SHOW$k" in hidden
+        }
+    }
+
     /** Apply enablement + the current [view] to already-classified channels. Does not re-sort. */
     fun rowsFrom(classified: List<Classified>, mode: String, folders: FolderSet, hidden: Set<String>,
-                 view: View): List<Row> =
-        classified.map { c -> Row(c.ch, rowOn(c, mode, folders, hidden), c.type, c.sub, c.region) }
-            .filter { view.shows(it.on) }
+                 view: View): List<Row> {
+        val rule = OnRule(mode, folders, hidden)
+        val out = ArrayList<Row>(classified.size)
+        for (c in classified) {
+            val on = rule.on(c)
+            if (view.shows(on)) out += Row(c.ch, on, c.type, c.sub, c.region)
+        }
+        return out
+    }
 
     /**
      * Rows for a [view] of the selected languages, each with its type, sub-category and (Sports) region. A channel is

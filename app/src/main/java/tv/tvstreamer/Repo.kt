@@ -68,15 +68,29 @@ class Repo(private val ctx: Context) {
     fun focusItem(screen: String, key: String) { lastFocus[screen] = key; lastFocus[SearchReturn.itemKey(screen)] = key }
     var catFilter by mutableStateOf("")
 
+    /** 1.73: display names / saved-sort time of the last [setLive] (start-up log). */
+    private var lastNamesMs = 0L
+    private var lastIndexMs = 0L
+    private var lastSortedFromDisk = false
+
     private fun setLive(lc: List<Cat>, ch: List<Item>) {
+        val t0 = System.nanoTime()
         val lockedIds = lc.filter { it.locked }.map { it.id }.toSet()
-        liveCats = LiveCatalog.withMissingCats(lc, ch)
-        val groups = liveCats.associate { it.id to it.title }
+        val cats = LiveCatalog.withMissingCats(lc, ch)
+        val groups = cats.associate { it.id to it.title }
         // Readable names (also for channels cached by older versions); number-only names become "Channel N · Group"
-        rawChannels = ch.map { it.copy(locked = it.locked || it.cat in lockedIds, name = ChannelTitle.display(it.name, it.num, groups[it.cat].orEmpty())) }
-        rawByKey = rawChannels.associateBy { it.key }
+        val raw = ch.map { it.copy(locked = it.locked || it.cat in lockedIds, name = ChannelTitle.display(it.name, it.num, groups[it.cat].orEmpty())) }
+        val t1 = System.nanoTime()
+        // 1.73: the saved sort is read before the channels are published (the first layout is the final one), and
+        // with the same category list Live TV uses (1.72 sorted with the portal's list here and the completed list on
+        // the Live TV screen: two keys, so the saved sort missed and channels were sorted again and again).
+        lastSortedFromDisk = liveIndex.loadSavedNow(raw, cats)
+        lastNamesMs = (t1 - t0) / 1_000_000; lastIndexMs = (System.nanoTime() - t1) / 1_000_000
+        liveCats = cats
+        rawChannels = raw
+        rawByKey = raw.associateBy { it.key }
         applyNames()
-        liveIndex.ensure(rawChannels, lc)   // sort channels by type / language in the background, ready for Live TV
+        liveIndex.ensure(raw, cats)   // no-op when the saved sort matched; else sorts in the background
         bg.launch { refreshLiveGroupKeys() }
         prewarmLive()
     }
@@ -115,14 +129,16 @@ class Repo(private val ctx: Context) {
         // A second forced refresh right after one finished (e.g. start-up then sign-in sync) would just repeat it
         if (!due && channels.isNotEmpty() && vodCats.isNotEmpty() && api.token.isNotEmpty() &&
             System.currentTimeMillis() - fetchedAt < 60_000) return@withContext   // api.reset() (new login) clears the token
-        if (channels.isEmpty()) status = "Loading channels and categories…"
+        if (channels.isEmpty()) status = "Downloading channel list…"
         if (needLive) try {
             // 1.72: the channel list first (the title indexer waits meanwhile), shown and saved before anything else;
             // a refresh swaps in silently (the list on screen stays until the new one is ready, an unchanged answer
             // changes nothing, an empty answer keeps the saved list)
             val before = rawSource
             liveFetching = true
-            val s = try { live.fetch() } finally { liveFetching = false }
+            val tf = System.nanoTime()
+            val s = try { fetchLive() } finally { liveFetching = false }
+            LiveTiming.fetched((System.nanoTime() - tf) / 1_000_000, s.items.size)
             if (s.items !== before) { rawSource = s.items; setLive(s.cats, s.items) }
             listsAt = s.at
             fetchedAt = s.at
@@ -131,7 +147,7 @@ class Repo(private val ctx: Context) {
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e
             // Portal refresh failed but the saved list is on screen; stay quiet instead of saying Offline
-            status = if (channels.isEmpty()) "Portal error: ${e.message}" else ""
+            status = if (channels.isEmpty()) LiveStatus.FAILED + (e.message ?: e.javaClass.simpleName) else ""
         }
         if (needVod) try {
             val vc = api.vodCats()
@@ -144,6 +160,15 @@ class Repo(private val ctx: Context) {
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e
         }
+    }
+
+    /**
+     * get_genres + get_all_channels with hard time limits (1.73): the portal login and categories may take
+     * [LiveFetch.STEP_MS], the channel list [LiveFetch.LIST_MS]; then the request is abandoned with an error (and, when
+     * nothing is saved, a Retry button) instead of an endless wait. Each step is named on screen while nothing is saved.
+     */
+    private suspend fun fetchLive(): LiveSource.Snapshot = LiveFetch.run(live) { step ->
+        if (channels.isEmpty()) status = "Downloading channel list… (${step.label})"
     }
 
     /** The channel list on the device (live.json): read once, kept in memory; get_genres / get_all_channels only via [fetch]. */
@@ -178,25 +203,57 @@ class Repo(private val ctx: Context) {
             val t0 = System.nanoTime()
             runCatching {
                 live.local()?.let { rawSource = it.items; setLive(it.cats, it.items); listsAt = it.at }
-                if (vodCats.isEmpty()) store.cacheRead("vod.json")?.let { vodCats = org.json.JSONArray(it).toCats() }
             }
             localShown = true
             localReading = false
-            LiveTiming.loaded((System.nanoTime() - t0) / 1_000_000, channels.size)
+            LiveTiming.startup(live.readMs, live.parseMs, lastNamesMs, lastIndexMs, (System.nanoTime() - t0) / 1_000_000,
+                channels.size, lastSortedFromDisk)
+            // Movie / series categories after the channels are on screen (not in Live TV's way)
+            runCatching { if (vodCats.isEmpty()) store.cacheRead("vod.json")?.let { vodCats = org.json.JSONArray(it).toCats() } }
         }
     }
 
     // ---- Live TV list model (1.70): built off the main thread, last one kept ----
     @Volatile var liveModelLast: LiveModel = LiveModel.EMPTY
         private set
-    fun liveInputs(view: LiveModes.View) = LiveInputs(channels, liveCats, liveOrder, hidden, showAdult, liveLangs,
-        liveIndex.info, mode(), folders, view)
-    fun liveModelCached(i: LiveInputs): LiveModel? = liveModelLast.takeIf { i.same(it.inputs) }
-    suspend fun liveModel(i: LiveInputs): LiveModel = withContext(LiveWork.dispatcher) {   // 1.72: Live TV's own thread
-        liveModelCached(i) ?: LiveModel.build(i, liveModelLast).also { liveModelLast = it }
+    /** 1.73: every mode / view laid out for the current channel list, so switching modes is a look-up. */
+    private val liveModels = LiveModelCache()
+    fun liveInputs(view: LiveModes.View, mode: String = mode()) = LiveInputs(channels, liveCats, liveOrder, hidden, showAdult, liveLangs,
+        liveIndex.info, mode, folders, view)
+    fun liveModelCached(i: LiveInputs): LiveModel? = liveModelLast.takeIf { i.same(it.inputs) } ?: liveModels.get(i)
+    suspend fun liveModel(i: LiveInputs, why: String = "open"): LiveModel = withContext(LiveWork.dispatcher) {   // 1.72: Live TV's own thread
+        liveModelCached(i) ?: run {
+            val t0 = System.nanoTime()
+            LiveModel.build(i, liveModels.base(i) ?: liveModelLast).also {
+                LiveTiming.layout((System.nanoTime() - t0) / 1_000_000, i.mode, i.view.name, it.flat.size, why)
+            }
+        }.also { liveModelLast = it; liveModels.put(it) }
     }
-    /** Lays the Live TV list out in the background (start-up, refresh, sorting done), so opening it is instant. */
-    fun prewarmLive() { if (channels.isNotEmpty()) bg.launch { runCatching { liveModel(liveInputs(liveView.view)) } } }
+    /**
+     * Lays the Live TV list out in the background (start-up, refresh, sorting done), so opening it is instant; then
+     * (1.73) every other mode and view, one at a time, so a mode switch shows its list in the same frame.
+     */
+    fun prewarmLive() {
+        if (channels.isEmpty()) return
+        bg.launch {
+            runCatching {
+                val view = liveView.view
+                liveModel(liveInputs(view), "start-up")
+                for (m in listOf(LiveModes.DEFAULT) + folders.names) for (v in LiveModes.View.values()) {
+                    val i = liveInputs(v, m)
+                    if (liveModelCached(i) == null) withContext(LiveWork.dispatcher) {
+                        if (liveModelCached(i) == null) {
+                            val t0 = System.nanoTime()
+                            val built = LiveModel.build(i, liveModels.base(i) ?: liveModelLast)
+                            LiveTiming.layout((System.nanoTime() - t0) / 1_000_000, m, v.name, built.flat.size, "pre-built")
+                            liveModels.put(built)
+                        }
+                    }
+                    kotlinx.coroutines.yield()   // a list the user asks for meanwhile goes first
+                }
+            }
+        }
+    }
 
     private val bg = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
 

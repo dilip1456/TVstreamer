@@ -71,11 +71,18 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
     val info = ix.info
     // 1.70: the list is worked out off the main thread from the saved channel list (no portal); the last result is
     // kept in Repo, so opening Live TV again (or after the start-up pre-build) shows it in the first frame.
-    val inputs = repo.liveInputs(view)
+    // 1.73: one inputs object per real change (a fresh one every recomposition restarted the layout each time), and a
+    // layout already worked out for this mode / view (all are pre-built) is used in this very frame.
+    val curMode = repo.mode()
+    val inputs = remember(repo.channels, repo.liveCats, repo.liveOrder, repo.hidden, repo.showAdult, repo.liveLangs, info,
+        curMode, repo.folders, view) { repo.liveInputs(view) }
     val openedAt = remember { android.os.SystemClock.elapsedRealtime() }
-    val model by produceState(repo.liveModelCached(inputs) ?: repo.liveModelLast, inputs) {
+    val produced by produceState(repo.liveModelCached(inputs) ?: repo.liveModelLast, inputs) {
         value = repo.liveModel(inputs)
     }
+    val model = repo.liveModelCached(inputs) ?: produced
+    // After a hide / show, language or mode edit, lay the other modes / views out again in the background
+    LaunchedEffect(repo.hidden, repo.folders, repo.liveLangs, repo.liveOrder, repo.showAdult, info) { repo.prewarmLive() }
     LaunchedEffect(model.inputs != null) {
         if (model.inputs != null) LiveTiming.shown(android.os.SystemClock.elapsedRealtime() - openedAt, model.flat.size)
     }
@@ -252,8 +259,12 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
                 PillButton("Try again", { ix.ensure(repo.channels, repo.liveCats, force = true) }, size = Ts.CAPTION)
             }
             when {
-                repo.channels.isEmpty() -> Label(LiveStatus.empty(repo.localReading, repo.status), Ts.ROW, Pal.Dim, Modifier.weight(1f), maxLines = 3)
-                !ready -> Label("Opening saved channels…", Ts.ROW, Pal.Dim, Modifier.weight(1f))   // laid out on Live TV's own thread (a moment)
+                repo.channels.isEmpty() -> Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Label(LiveStatus.empty(repo.localReading, repo.status), Ts.ROW, Pal.Dim, maxLines = 3)
+                    // 1.73: the download failed or timed out and nothing is saved: try again on request
+                    if (LiveStatus.failed(repo.status)) PillButton("Retry", { repo.status = "Downloading channel list…"; repo.refreshAll() }, size = Ts.SECONDARY)
+                }
+                !ready -> Label("Arranging channels…", Ts.ROW, Pal.Dim, Modifier.weight(1f))   // laid out on Live TV's own thread (a moment)
                 sections.isEmpty() -> Label(when {
                     view == LiveModes.View.HIDDEN -> "Nothing hidden."
                     mode != LiveModes.DEFAULT && !browseAll -> "\"$mode\" has no channels yet. Menu > All channels, then hold OK on a channel to add it."

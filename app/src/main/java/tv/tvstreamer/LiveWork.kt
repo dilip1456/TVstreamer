@@ -1,6 +1,7 @@
 package tv.tvstreamer
 
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.async
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -47,9 +48,72 @@ class BumpThrottle(private val minGapMs: Long, private val clock: () -> Long = S
 
 /** What Live TV says while it has no channels to list (1.72). */
 object LiveStatus {
+    /** 1.73: the download failed or timed out while nothing is saved (Live TV then offers Retry). */
+    const val FAILED = "Could not download the channel list: "
+    fun failed(status: String) = status.startsWith(FAILED)
     fun empty(readingSaved: Boolean, status: String): String = when {
         readingSaved -> "Opening saved channels…"
         status.isNotEmpty() -> status
         else -> "No channels loaded yet"
+    }
+}
+
+/**
+ * Every Live TV list layout (mode x view) for the current channel list (1.73), so a mode or view switch is a map
+ * look-up published in the same frame instead of a re-layout of the whole list. Entries for an older channel list,
+ * sort or language choice are dropped as soon as a layout for the new one arrives.
+ */
+class LiveModelCache(private val max: Int = 30) {
+    private val map = LinkedHashMap<String, LiveModel>(16, 0.75f, true)
+    private fun k(i: LiveInputs) = i.mode + '\u0000' + i.view.name
+
+    @Synchronized fun get(i: LiveInputs): LiveModel? = map[k(i)]?.takeIf { i.same(it.inputs) }
+
+    @Synchronized fun put(m: LiveModel) {
+        val i = m.inputs ?: return
+        map.values.removeAll { !LiveModel.sameBase(it.inputs, i) }
+        map[k(i)] = m
+        while (map.size > max) map.remove(map.keys.first())
+    }
+
+    /** A layout of the same channels, sort and languages (its sorted channel list is reused). */
+    @Synchronized fun base(i: LiveInputs): LiveModel? = map.values.lastOrNull { LiveModel.sameBase(it.inputs, i) }
+
+    @Synchronized fun size() = map.size
+}
+
+/** The portal did not answer a channel-list request in time (1.73). */
+class LiveTimeoutException(val step: LiveSource.Step, val limitMs: Long) :
+    Exception("the portal did not answer within ${limitMs / 1000} s (${step.label})")
+
+/**
+ * get_genres + get_all_channels with a hard time limit per request (1.73). The download runs on its own thread; when a
+ * request is over its limit it is abandoned (interrupted) and [LiveTimeoutException] is thrown at once, so the screen
+ * shows an error and Retry instead of waiting forever. [onStep] names each request as it starts.
+ */
+object LiveFetch {
+    const val STEP_MS = 30_000L    // portal login + categories
+    const val LIST_MS = 60_000L    // the whole channel list (large portals send several MB)
+    private val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
+
+    suspend fun run(live: LiveSource, stepMs: Long = STEP_MS, listMs: Long = LIST_MS,
+                    onStep: (LiveSource.Step) -> Unit = {}): LiveSource.Snapshot {
+        val cur = java.util.concurrent.atomic.AtomicReference<Pair<LiveSource.Step, Long>?>(null)
+        val job = scope.async {
+            kotlinx.coroutines.runInterruptible { live.fetch { s -> cur.set(s to System.nanoTime()); runCatching { onStep(s) } } }
+        }
+        try {
+            while (!job.isCompleted) {
+                val c = cur.get()
+                if (c != null) {
+                    val limit = if (c.first == LiveSource.Step.CHANNELS) listMs else stepMs
+                    if ((System.nanoTime() - c.second) / 1_000_000 > limit) { job.cancel(); throw LiveTimeoutException(c.first, limit) }
+                }
+                kotlinx.coroutines.delay(25)
+            }
+            return job.await()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            job.cancel(); throw e
+        }
     }
 }

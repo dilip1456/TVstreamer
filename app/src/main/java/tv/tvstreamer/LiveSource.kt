@@ -39,9 +39,14 @@ class LiveSource(
     private val tzOffset: (Long) -> Long = { java.util.TimeZone.getDefault().getOffset(it).toLong() }
 ) {
     class Snapshot(val cats: List<Cat>, val items: List<Item>, val at: Long)
+    /** The two downloads behind the channel list (the portal login happens with the first one). */
+    enum class Step(val label: String) { CATEGORIES("signing in and reading categories"), CHANNELS("reading the channel list") }
 
     @Volatile var snap: Snapshot? = null
         private set
+    /** 1.73: how long the first read of the saved file took (file read / JSON parse), for the start-up log. */
+    @Volatile var readMs = 0L; private set
+    @Volatile var parseMs = 0L; private set
     @Volatile private var diskRead = false
     private val lock = Any()
 
@@ -50,7 +55,11 @@ class LiveSource(
         if (diskRead) return snap
         synchronized(lock) {
             if (!diskRead) {
-                snap = readable(runCatching { disk.read() }.getOrNull()) ?: readable(runCatching { disk.readBackup() }.getOrNull())
+                val t0 = System.nanoTime()
+                val text = runCatching { disk.read() }.getOrNull()
+                val t1 = System.nanoTime()
+                snap = readable(text) ?: readable(runCatching { disk.readBackup() }.getOrNull())
+                readMs = (t1 - t0) / 1_000_000; parseMs = (System.nanoTime() - t1) / 1_000_000
                 diskRead = true
             }
             return snap
@@ -70,10 +79,16 @@ class LiveSource(
         return CatalogStale.due(now, s.at, CatalogStale.DAY_MS, tzOffset(now))
     }
 
-    /** Reads the list from the portal (one get_genres + one get_all_channels) and saves it. */
-    fun fetch(): Snapshot {
+    /**
+     * Reads the list from the portal (one get_genres + one get_all_channels) and saves it. [step] names the request
+     * about to run (1.73: shown while there is no saved list). Never holds [lock] while the portal is asked, so the
+     * saved list stays readable while a refresh hangs.
+     */
+    fun fetch(step: (Step) -> Unit = {}): Snapshot {
         val old = local()
+        step(Step.CATEGORIES)
         val lc = portal.liveCats()
+        step(Step.CHANNELS)
         val ch = portal.channels()
         if (ch.isEmpty()) throw EmptyChannelListException()
         // Same answer as the saved one: keep the same lists (the screen keeps its layout), only the time moves on
@@ -146,6 +161,11 @@ class LiveModel(
 
         private fun hiddenCats(h: Set<String>): Set<String> = h.filterTo(HashSet()) { it.startsWith("itv:") }
 
+        /** Same channels, categories, sort, languages and hidden categories: the sorted channel list can be reused. */
+        fun sameBase(p: LiveInputs?, i: LiveInputs): Boolean = p != null && p.channels === i.channels && p.cats === i.cats &&
+            p.showAdult == i.showAdult && p.langs == i.langs && p.info === i.info &&
+            (p.hidden === i.hidden || hiddenCats(p.hidden) == hiddenCats(i.hidden))
+
         fun build(i: LiveInputs, previous: LiveModel? = null): LiveModel {
             val cats = visibleCats(i.cats, i.catOrder, i.hidden)
             val catIds = cats.mapTo(HashSet()) { it.id }
@@ -153,8 +173,7 @@ class LiveModel(
             val p = previous?.inputs
             val catTitle = if (p?.cats === i.cats) previous!!.catTitle else i.cats.associate { it.id to it.title }
             // Hiding / showing channels, modes and views reuse the classified list: only the cheap steps run again
-            val sameBase = p != null && p.channels === i.channels && p.cats === i.cats && p.showAdult == i.showAdult &&
-                p.langs == i.langs && p.info === i.info && hiddenCats(p.hidden) == hiddenCats(i.hidden)
+            val sameBase = sameBase(p, i)
             val base = if (sameBase) previous!!.base else i.channels.filter { it.cat in catIds && AdultContent.listOk(it.locked, i.showAdult) }
             val classified = if (sameBase) previous!!.classified else LiveModes.classify(base, i.langs, i.info, catTitle)
             val rows = LiveModes.rowsFrom(classified, i.mode, i.folders, i.hidden, i.view)
