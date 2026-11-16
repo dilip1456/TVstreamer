@@ -216,6 +216,10 @@ fun needsNewToken(e: Throwable): Boolean = when (e) {
     else -> false
 }
 
+/** The request was cancelled on purpose (thread interrupted), not a timeout or a portal error (1.74). */
+fun isCancellation(e: Throwable): Boolean =
+    e is InterruptedException || (e is java.io.InterruptedIOException && e !is java.net.SocketTimeoutException)
+
 /** Stop trying other link strategies: the app must wait, or the request was cancelled (channel zapped on). */
 fun stopsLinkTries(e: Throwable): Boolean =
     e is PortalBusyException || e is InterruptedException || (e is java.io.InterruptedIOException && e !is java.net.SocketTimeoutException)

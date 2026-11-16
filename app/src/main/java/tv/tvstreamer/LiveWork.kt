@@ -88,8 +88,11 @@ class LiveTimeoutException(val step: LiveSource.Step, val limitMs: Long) :
 
 /**
  * get_genres + get_all_channels with a hard time limit per request (1.73). The download runs on its own thread; when a
- * request is over its limit it is abandoned (interrupted) and [LiveTimeoutException] is thrown at once, so the screen
+ * request is over its limit the app stops waiting for it and [LiveTimeoutException] is thrown at once, so the screen
  * shows an error and Retry instead of waiting forever. [onStep] names each request as it starts.
+ * 1.74: the request itself is never interrupted (it ends by itself within the HTTP timeouts and its list is still saved):
+ * interrupting it in the middle of the portal sign-in left the session on a wrong address, so channels did not play
+ * until the app was restarted.
  */
 object LiveFetch {
     const val STEP_MS = 30_000L    // portal login + categories
@@ -99,21 +102,15 @@ object LiveFetch {
     suspend fun run(live: LiveSource, stepMs: Long = STEP_MS, listMs: Long = LIST_MS,
                     onStep: (LiveSource.Step) -> Unit = {}): LiveSource.Snapshot {
         val cur = java.util.concurrent.atomic.AtomicReference<Pair<LiveSource.Step, Long>?>(null)
-        val job = scope.async {
-            kotlinx.coroutines.runInterruptible { live.fetch { s -> cur.set(s to System.nanoTime()); runCatching { onStep(s) } } }
-        }
-        try {
-            while (!job.isCompleted) {
-                val c = cur.get()
-                if (c != null) {
-                    val limit = if (c.first == LiveSource.Step.CHANNELS) listMs else stepMs
-                    if ((System.nanoTime() - c.second) / 1_000_000 > limit) { job.cancel(); throw LiveTimeoutException(c.first, limit) }
-                }
-                kotlinx.coroutines.delay(25)
+        val job = scope.async { live.fetch { s -> cur.set(s to System.nanoTime()); runCatching { onStep(s) } } }
+        while (!job.isCompleted) {
+            val c = cur.get()
+            if (c != null) {
+                val limit = if (c.first == LiveSource.Step.CHANNELS) listMs else stepMs
+                if ((System.nanoTime() - c.second) / 1_000_000 > limit) throw LiveTimeoutException(c.first, limit)
             }
-            return job.await()
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            job.cancel(); throw e
+            kotlinx.coroutines.delay(25)
         }
+        return job.await()
     }
 }

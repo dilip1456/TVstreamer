@@ -147,6 +147,36 @@ class LiveFastTest {
         hang.release.countDown()
     }
 
+    /** 1.74: giving up on a slow refresh must not interrupt the portal request (a sign-in cut in half broke playback). */
+    @Test fun abandonedDownloadIsNotInterruptedAndStillSaves() = runBlocking {
+        val release = CountDownLatch(1); val done = CountDownLatch(1)
+        var interrupted: Boolean? = null
+        val portal = object : LivePortal {
+            override fun liveCats(): List<Cat> {
+                val ok = runCatching { release.await(5, TimeUnit.SECONDS) }.getOrDefault(false)
+                interrupted = !ok || Thread.currentThread().isInterrupted
+                return cats(3)
+            }
+            override fun channels(): List<Item> = chans(30, 3).also { done.countDown() }
+        }
+        val f = File(Files.createTempDirectory("live").toFile(), "live.json")
+        val e = runCatching { LiveFetch.run(LiveSource(portal, FileDisk(f)), stepMs = 200, listMs = 400) }.exceptionOrNull()
+        assertTrue("got $e", e is LiveTimeoutException)
+        release.countDown()
+        assertTrue(done.await(5, TimeUnit.SECONDS))
+        assertEquals(false, interrupted)
+        Thread.sleep(200)
+        assertEquals(30, LiveSource(portal, FileDisk(f)).local()!!.items.size)   // the late answer is kept for next time
+    }
+
+    @Test fun cancelledRequestsAreToldApartFromTimeouts() {
+        assertTrue(isCancellation(InterruptedException()))
+        assertTrue(isCancellation(java.io.InterruptedIOException("interrupted")))
+        assertFalse(isCancellation(java.net.SocketTimeoutException("timeout")))
+        assertFalse(isCancellation(java.io.IOException("reset")))
+        assertFalse(isCancellation(PortalHttpException(404, "x")))
+    }
+
     @Test fun downloadReturnsTheListWhenThePortalAnswers() = runBlocking {
         val portal = object : LivePortal {
             override fun liveCats() = cats(3)

@@ -126,10 +126,15 @@ class Stalker(private val store: Store) {
                 if (e.verdict == PortalVerdict.AUTH || e.verdict == PortalVerdict.SERVER) throw e
                 err = e
             } catch (e: Exception) {
-                err = e
                 token = ""
+                // 1.74: a cancelled request (zapping on, an abandoned refresh) is not a wrong address: stop here and keep
+                // the address that worked. Going on used to send handshakes to the other paths and leave [api] on one of
+                // them, so every later request (create_link too) failed until the app was restarted.
+                if (isCancellation(e)) { api = known; if (e is InterruptedException) Thread.currentThread().interrupt(); throw e }
+                err = e
             }
         }
+        if (known.isNotEmpty()) api = known   // 1.74: no path answered: keep the one that worked before
         throw err ?: IllegalStateException("No portal URL")
     }
 
