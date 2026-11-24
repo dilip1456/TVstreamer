@@ -177,6 +177,11 @@ class Library(private val repo: Repo) {
     /** A category's titles from the local catalog (portal order). */
     fun inCat(id: String): List<Item> = byCat[id] ?: emptyList()
 
+    /** Titles marked password-required (censored) for a tab. */
+    fun lockedFor(tab: String): List<Item> =
+        all.filter { it.locked && wantItem(it, tab) }
+
+
     // ---- Loading (gentle, selected languages only) ----
 
     private fun langsAll(): Set<String> = (selected("movies") ?: emptySet()) + (selected("series") ?: emptySet())
