@@ -177,11 +177,6 @@ class Library(private val repo: Repo) {
     /** A category's titles from the local catalog (portal order). */
     fun inCat(id: String): List<Item> = byCat[id] ?: emptyList()
 
-    /** Titles marked password-required (censored) for a tab. */
-    fun lockedFor(tab: String): List<Item> =
-        all.filter { it.locked && wantItem(it, tab) }
-
-
     // ---- Loading (gentle, selected languages only) ----
 
     private fun langsAll(): Set<String> = (selected("movies") ?: emptySet()) + (selected("series") ?: emptySet())
@@ -198,8 +193,9 @@ class Library(private val repo: Repo) {
     /** A language choice: fetch the newest page of the newly selected languages' categories (cached data is kept). */
     fun ensure(tab: String = "", langs: Set<String>? = null, @Suppress("UNUSED_PARAMETER") force: Boolean = false) {
         start()
-        indexKick()   // a language / category choice: newly selected categories get indexed, deselected ones stop
-        // A fresh local catalog is shown as is; missing first pages are fetched only when a refresh is due
+        indexKick()
+        // Don't bulk-request if we already have content for this tab
+        if (all.isNotEmpty() && !force) return
         if (!langs.isNullOrEmpty() && !isFresh()) job("first") { firstPages(langsAll()) }
     }
 
