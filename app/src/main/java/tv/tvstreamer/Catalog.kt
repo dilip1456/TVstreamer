@@ -154,6 +154,8 @@ fun heroPickFor(repo: Repo, last: Item): HeroPick {
  * (the caller falls back to a featured title that is not Continue watching). Runs off the main thread.
  */
 fun heroPicks(repo: Repo, mode: String): List<HeroPick> {
+    // No history → no hero recommendations
+    if (repo.store.history().isEmpty() && repo.store.continueList().isEmpty()) return emptyList()
     fun ok(i: Item) = i.kind == "vod" && !i.isEpisode() && !i.isEpisodeLike() &&
         repo.listOk(i.locked) && repo.lib.wantItem(i, mode) &&
         "vod:${i.cat}" !in repo.hidden && "title:${i.key}" !in repo.hidden
@@ -308,7 +310,7 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
         shelves.asSequence().filter { it.key !in skip && (it.cat != null || it.pool != null) }.flatMap { it.items.asSequence() }.firstOrNull { it.img.isNotEmpty() && repo.listOk(it.locked) }
             ?: shelves.asSequence().filter { it.key !in skip }.flatMap { it.items.asSequence() }.firstOrNull { it.kind == "vod" && it.img.isNotEmpty() }
     }
-    val slides = if (picks.isNotEmpty()) picks else listOfNotNull(featured?.let { HeroPick(it, it, 0L, 0L) })
+    val slides = picks  // no featured fallback after history is cleared
     var heroIx by remember(mode) { mutableIntStateOf(0) }
     LaunchedEffect(slides.firstOrNull()?.show?.key, slides.size) { heroIx = 0 }
     var heroTouched by remember { mutableLongStateOf(0L) }
@@ -555,7 +557,7 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
         fixItem?.let { f -> FixMatchDialog(f) { fixItem = null } }
         if (clearHist) {
             ChoiceDialog("Clear all watch history?", listOf(
-                "Clear all history" to { repo.store.clearHistory(); clearHist = false; contVer++; toast(ctx, "Watch history cleared") },
+                "Clear all history" to { repo.store.clearHistory(); heroMemo.clear(); clearHist = false; contVer++; toast(ctx, "Watch history cleared") },
                 "Cancel" to { clearHist = false }
             ), focusKey = "clear-hist") { clearHist = false }
         }
