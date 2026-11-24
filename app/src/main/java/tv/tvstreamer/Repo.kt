@@ -491,7 +491,7 @@ class Repo(private val ctx: Context) {
     /** Sections of the Live TV list last handed to the player (Left panel mirrors them). */
     var liveSpans: List<LiveOverlay.Span> = emptyList()
     var liveSpanKeys = 0
-    fun markPlayed(i: Item) { if (i.kind == "itv") { store.addRecent(i); nowPlaying = i.key } }
+    fun markPlayed(i: Item) { if (showAdult) return; if (i.kind == "itv") { store.addRecent(i); nowPlaying = i.key } }
 
     /** Returns an error message, or null when access is allowed. Playing locked items still requires this. */
     fun gate(locked: Boolean): String? {
@@ -573,7 +573,7 @@ class Repo(private val ctx: Context) {
     var liveMode by mutableStateOf(store.sort("live_mode", LiveModes.DEFAULT))
         private set
     fun selectMode(name: String) {
-        liveMode = if (name == LiveModes.PASSWORD || name in folders.folders) name else LiveModes.DEFAULT
+        liveMode = if (name in folders.folders) name else LiveModes.DEFAULT
         store.saveSort("live_mode", liveMode)
     }
     /** Live TV list view (All channels, scroll, focused channel), kept across the player and restarts (1.53). */
@@ -581,7 +581,7 @@ class Repo(private val ctx: Context) {
         private set
     fun saveLiveView(v: LiveView) { if (v != liveView) { liveView = v; store.saveSort("live_view", v.encode()) } }
     /** The mode actually used ("" when the saved one was deleted, e.g. on another device). */
-    fun mode(): String = liveMode.takeIf { it == LiveModes.PASSWORD || it in folders.folders } ?: LiveModes.DEFAULT
+    fun mode(): String = liveMode.takeIf { it in folders.folders } ?: LiveModes.DEFAULT
     val modes: List<String> get() = folders.names
 
     fun createMode(name: String, current: List<Item>?): String? {
