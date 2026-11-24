@@ -18,6 +18,8 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.darkColorScheme
@@ -267,7 +269,13 @@ fun App(repo: Repo) {
     val barSpace = if (showBar) 84.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() else 0.dp
     val bannerKind = if (cur is Screen.Play) UpdateLogic.Banner.HIDDEN
         else UpdateLogic.banner(Updater.progress, Updater.busy, Updater.pending != null, Updater.status)
+    var splash by remember { mutableStateOf(true) }
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(2200)
+        splash = false
+    }
     Surface(Modifier.fillMaxSize().background(Pal.Bg), color = Pal.Bg) {
+        Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
             if (bannerKind != UpdateLogic.Banner.HIDDEN) {
                 UpdateBanner(repo.store, ctx, Modifier.fillMaxWidth())
@@ -329,6 +337,42 @@ fun App(repo: Repo) {
             }, Modifier.align(Alignment.BottomCenter))
             if (AppUi.accountMenu && cur !is Screen.Play) AccountMenu(repo.store, go) { AppUi.accountMenu = false }
             }
+        }
+        if (splash) LaunchLogo { splash = false }
+        }
+    }
+}
+
+@Composable
+private fun LaunchLogo(onDone: () -> Unit) {
+    val scale = remember { androidx.compose.animation.core.Animatable(0.6f) }
+    val alpha = remember { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.launch {
+            scale.animateTo(1f, androidx.compose.animation.core.tween(900, easing = androidx.compose.animation.core.EaseOutBack))
+        }
+        alpha.animateTo(1f, androidx.compose.animation.core.tween(600))
+        kotlinx.coroutines.delay(1200)
+        alpha.animateTo(0f, androidx.compose.animation.core.tween(400))
+        onDone()
+    }
+    Box(Modifier.fillMaxSize().background(Color.Black).graphicsLayer { this.alpha = alpha.value },
+        contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            androidx.compose.material3.Text(
+                "TV",
+                color = Color(0xFFFFD700), // gold/yellow
+                fontSize = 96.sp,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.Black,
+                modifier = Modifier.graphicsLayer { scaleX = scale.value; scaleY = scale.value }
+            )
+            androidx.compose.material3.Text(
+                "STREAMER",
+                color = Color(0xFFE50914), // Netflix red
+                fontSize = 42.sp,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                letterSpacing = 8.sp
+            )
         }
     }
 }
