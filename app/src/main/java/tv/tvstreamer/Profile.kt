@@ -201,14 +201,14 @@ fun ProfileScreen(repo: Repo, go: (Screen) -> Unit) {
     val firstFr = remember { FocusRequester() }
     val tv = rememberIsTv()
     LaunchedEffect(Unit) { if (tv) { delay(150); runCatching { firstFr.requestFocus() } } }
-    LazyColumn(Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    LazyColumn(Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.padding(vertical = 8.dp)) {
                 Avatar(64.dp)
                 Column(Modifier.weight(1f)) {
                     Label(if (Cloud.signedIn) Cloud.name.ifEmpty { "Google account" } else "Profile", Ts.TITLE, Pal.Text)
                     Label(if (Cloud.signedIn) Cloud.email else "Not signed in", Ts.SECONDARY, Pal.Dim)
-                    if (Cloud.signedIn) Label((if (Cloud.busy) "Syncing..." else Cloud.status.ifEmpty { "Signed in" }) + syncAgo(), Ts.SECONDARY, Pal.Dim)
+                    if (Cloud.signedIn) Label((if (Cloud.busy) "Syncing…" else Cloud.status.ifEmpty { "Signed in" }) + syncAgo(), Ts.SECONDARY, Pal.Dim)
                     if (Cloud.error.isNotEmpty()) Label(Cloud.error, Ts.SECONDARY, Pal.Warn, maxLines = 3)
                 }
             }
@@ -216,33 +216,39 @@ fun ProfileScreen(repo: Repo, go: (Screen) -> Unit) {
         if (Cloud.signedIn) item {
             ButtonFlow {
                 PillButton("Sync now", { Cloud.syncNow() }, Modifier.focusRequester(firstFr), primary = true)
-                PillButton("Account & sync", { go(Screen.Account) })
+                PillButton("Account", { go(Screen.Account) })
                 PillButton("Sign out", { Cloud.signOut() })
             }
-        } else item { PillButton("Sign in with Google (sync TV and phone)", { go(Screen.Account) }, Modifier.focusRequester(firstFr), primary = true) }
-        item { Label("Preferences", Ts.TITLE, Pal.Text, Modifier.padding(top = 8.dp)) }
+        } else item { PillButton("Sign in with Google (sync across devices)", { go(Screen.Account) }, Modifier.focusRequester(firstFr), primary = true) }
+
+        item { Label("Appearance", Ts.TITLE, Pal.Text, Modifier.padding(top = 12.dp)) }
         item { Row1("Theme: ${Theme.label}", { Theme.mode = Theme.next(Theme.mode); repo.store.theme = Theme.mode }) }
-        item { Row1("Languages for Movies", { go(Screen.Languages("movies", Screen.Profile)) }) }
-        item { Row1("Languages for Series", { go(Screen.Languages("series", Screen.Profile)) }) }
-        item { Row1("Languages for Live TV", { go(Screen.Languages("live", Screen.Profile)) }) }
-        item { Row1("What to show (movies, series, Live TV)", { go(Screen.Categories) }) }
-        item { Row1("Remote buttons", { go(Screen.Remote) }) }
         item {
             Row1("Video picture: " + when (aspect) { "fill" -> "Fill"; "zoom" -> "Zoom"; else -> "Fit" }, {
                 aspect = when (aspect) { "fit" -> "fill"; "fill" -> "zoom"; else -> "fit" }; repo.store.aspect = aspect
             })
         }
-        item { Row1("Movie & series info (TMDB / OMDb keys)", { go(Screen.Settings) }) }
-        item { Row1("Settings (portal, MAC, more)", { go(Screen.Settings) }) }
+
+        item { Label("Content", Ts.TITLE, Pal.Text, Modifier.padding(top = 12.dp)) }
+        item { Row1("Languages for Movies", { go(Screen.Languages("movies", Screen.Profile)) }) }
+        item { Row1("Languages for Series", { go(Screen.Languages("series", Screen.Profile)) }) }
+        item { Row1("Languages for Live TV", { go(Screen.Languages("live", Screen.Profile)) }) }
+        item { Row1("What to show (categories & groups)", { go(Screen.Categories) }) }
+
+        item { Label("Device", Ts.TITLE, Pal.Text, Modifier.padding(top = 12.dp)) }
+        item { Row1("Remote buttons", { go(Screen.Remote) }) }
+        item { Row1("Movie & series info (TMDB / OMDb)", { go(Screen.Settings) }) }
+        item { Row1("Settings (portal, MAC, keys)", { go(Screen.Settings) }) }
+
         item {
             PillButton("Check for update", {
                 msg = "Checking for updates…"
                 scope.launch { msg = Updater.check(ctx, repo.store, manual = true).ifEmpty { Updater.statusLine() } }
-            })
+            }, Modifier.padding(top = 8.dp))
         }
         if (msg.isNotEmpty()) item { Label(msg, Ts.HEAD, Pal.Warn, maxLines = 4) }
-        item { Label("About", Ts.TITLE, Pal.Text, Modifier.padding(top = 8.dp)) }
+        item { Label("About", Ts.TITLE, Pal.Text, Modifier.padding(top = 12.dp)) }
         item { Label("TVstreamer v$ver · Stalker portal player for Fire TV and Android phones", Ts.HEAD, Pal.Dim, maxLines = 2) }
-        item { Spacer(Modifier.height(24.dp)) }
+        item { Spacer(Modifier.height(32.dp)) }
     }
 }
