@@ -491,7 +491,7 @@ class Repo(private val ctx: Context) {
     /** Sections of the Live TV list last handed to the player (Left panel mirrors them). */
     var liveSpans: List<LiveOverlay.Span> = emptyList()
     var liveSpanKeys = 0
-    fun markPlayed(i: Item) { if (showAdult) return; if (i.kind == "itv") { store.addRecent(i); nowPlaying = i.key } }
+    fun markPlayed(i: Item) { if (i.kind == "itv") { store.addRecent(i); nowPlaying = i.key } }
 
     /** Returns an error message, or null when access is allowed. Playing locked items still requires this. */
     fun gate(locked: Boolean): String? {
@@ -507,7 +507,13 @@ class Repo(private val ctx: Context) {
     private var showAdultState by mutableStateOf(store.showAdult)
     var showAdult: Boolean
         get() = showAdultState
-        set(v) { showAdultState = v; store.showAdult = v; lib.version++ }
+        set(v) {
+        showAdultState = v
+        store.showAdult = v
+        lib.version++
+        liveModels.clear()
+        liveModelLast = LiveModel.EMPTY
+    }
     /** Whether a locked title or category is listed (play still goes through [gate]). */
     fun listOk(locked: Boolean): Boolean = AdultContent.listOk(locked, showAdult)
 
