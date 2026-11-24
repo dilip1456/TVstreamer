@@ -42,8 +42,8 @@ import kotlinx.coroutines.launch
 
 /**
  * Live TV (v1.52): one clean list, grouped by portal type and category only (News incl. "Local News", Sports, …).
- *  - TV: a Netflix-style left menu (icons; labels open while it has focus, it collapses when focus moves right) with
- *    Search, Mode and the sections. Left on a channel goes to its section in the menu.
+ *  - TV: a short left menu (icons; labels open while it has focus) with
+ *    Search, Mode, Languages, Sections and Options. Sections open a jump list.
  *  - Rows: number badge, logo, clean name, small language tag; the channel playing is marked. The schedule is in the player.
  *  - Sections fold: OK on a header (or a sub-category in the left tree) hides / shows its channels; saved.
  *  - Modes: Default (every channel not hidden) or a custom mode (only its channels). "All channels" / "Only hidden"
@@ -383,29 +383,10 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
             ) {
                 val toList = Modifier
                 NavEntry("🔍", "Search", navOpen, toList, onClick = onSearch)
-                NavEntry("◉", if (mode == LiveModes.DEFAULT) "Mode: Default" else "Mode: $mode", navOpen, toList, onClick = { popup = "modes" })
-                NavEntry("🌐", langs?.sorted()?.joinToString(", ")?.let { if (it.length > 22) "Languages (${langs.size})" else "Languages: $it" } ?: "Languages: All", navOpen, toList, onClick = { popup = "langs" })
-                Spacer(Modifier.height(10.dp))
-                // A plain column (all entries composed) so Left from any channel always finds its section entry
-                Column(Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState()), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    // Tree: type -> sub-categories (and Sports regions) with counts. Focus opens a type; hold OK hides.
-                    tree.forEach { n ->
-                        val open = expanded == n.type
-                        NavEntry(LiveGroups.icon(n.type), n.label, navOpen, Modifier.focusRequester(navReq("t:${n.type}")).then(toList),
-                            count = n.count, dim = n.hidden,
-                            arrow = if (n.children.isEmpty()) (if (LiveCollapse.isTypeCollapsed(n.type, collapsed)) "▸" else "▾")
-                                    else if (open) "▾" else "▸",
-                            onFocus = { openNav(n.type); jumpNode(n) }, onLongClick = { groupMenu = n },
-                            onClick = { openNav(n.type); repo.toggleCollapsed(listOf(LiveCollapse.typeKey(n.type))); jumpNode(n) })
-                        if (open && navOpen) n.children.forEachIndexed { ci, c ->
-                            if (c.region && (ci == 0 || !n.children[ci - 1].region)) Label("Regions", Ts.CAPTION, Pal.Dim, Modifier.padding(start = 44.dp, top = 6.dp))
-                            NavEntry(if (c.region) "◦" else "·", c.label, navOpen, Modifier.padding(start = 22.dp), count = c.count, dim = c.hidden, small = true,
-                                onFocus = { jumpNode(c) }, onLongClick = { groupMenu = c },
-                                // 1.56: OK on a sub-category folds its channels in the list (or shows them again)
-                                onClick = { repo.toggleCollapsed(nodeSections(c).map { it.key }); jumpNode(c) })
-                        }
-                    }
-                }
+                NavEntry("◉", if (mode == LiveModes.DEFAULT) "Mode" else "Mode: $mode", navOpen, toList, onClick = { popup = "modes" })
+                NavEntry("🌐", "Languages", navOpen, toList, onClick = { popup = "langs" })
+                NavEntry("☰", "Sections", navOpen, toList, onClick = { popup = "sections" })
+                NavEntry("⋮", "Options", navOpen, toList, onClick = { popup = "more" })
             }
             Column(Modifier.weight(1f).fillMaxHeight().padding(start = 12.dp, end = 32.dp, top = 18.dp)
                 .onFocusChanged { if (it.hasFocus) navOpen = false }) {
@@ -447,13 +428,11 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
         "sections" -> ChoiceDialog("Jump to", sections.map { s -> "${LiveGroups.icon(s.type)}  ${sectionTitle(s)}  (${s.rows.size})" to {
             layout.first[s.key]?.let { scope.launch { runCatching { state.scrollToItem(it) } } }; popup = null
         } }, focusKey = "sections", onClose = { popup = null })
-        "more" -> ChoiceDialog("Live TV", listOf(
-            "Languages…" to { popup = "langs" }) + viewOpts { popup = null } + listOf(
+        "more" -> ChoiceDialog("Options", listOf(
             "Expand all" to { expandAll(); popup = null },
             "Collapse all" to { collapseAll(); popup = null },
-            "What to show…" to { popup = null; go(Screen.Categories) },
-            "Search" to { popup = null; onSearch() }
-        ), focusKey = "more", onClose = { popup = null })
+            "What to show…" to { popup = null; go(Screen.Categories) }
+        ) + viewOpts { popup = null }, focusKey = "more", onClose = { popup = null })
     }
     menuCh?.let { ch ->
         val row = rows.firstOrNull { it.ch.key == ch.key }
@@ -783,3 +762,4 @@ fun LiveTile(ch: Item, fav: Boolean, playing: Boolean, checked: Boolean, tv: Boo
         Label(name, Ts.SECONDARY, if (playing) Pal.GoldText else Pal.Text2, maxLines = if (tv) 1 else 2)
     }
 }
+
