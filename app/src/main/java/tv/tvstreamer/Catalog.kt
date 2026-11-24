@@ -245,6 +245,11 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
         if (mode == "home") {
             if (recent.isNotEmpty()) add(Shelf("recent", "Recent channels", recent, "itv"))
         }
+        if (tabbed) {
+            val locked = lib.lockedFor(mode).take(ROW_LIMIT)
+            if (locked.isNotEmpty() && repo.listOk(true))
+                add(Shelf("locked", "Password required", locked, "vod"))
+        }
         if (tabbed && !langs.isNullOrEmpty()) {
             addAll(langShelves)
         } else {
