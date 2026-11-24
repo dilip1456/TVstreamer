@@ -217,7 +217,7 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
     var sort by remember(mode) { mutableStateOf(repo.store.sort("tab:$mode", Sorts.ADDED)) }
 
     // Movies / Series with languages picked: load those categories in the background
-    LaunchedEffect(mode, langs, repo.vodCats.size) { if (tabbed && !langs.isNullOrEmpty()) lib.ensure(mode, langs) }
+    LaunchedEffect(mode, langs, repo.vodCats.size) { if (tabbed) lib.ensure(mode, langs ?: emptySet()) }
     val langShelves by produceState(emptyList<Shelf>(), mode, langs, sort, lib.version, Tmdb.version, repo.vodCats.size) {
         value = if (tabbed && !langs.isNullOrEmpty()) languageShelves(repo, mode, langs, sort) else emptyList()
     }
