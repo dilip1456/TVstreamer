@@ -10,6 +10,8 @@ package tv.tvstreamer
  */
 object LiveModes {
     const val DEFAULT = ""
+    /** Built-in mode: only password-controlled (locked) channels, shows and movies. */
+    const val PASSWORD = "Password"
 
     /** One list row: the channel and whether it is enabled (shown) in the current mode. */
     data class Row(val ch: Item, val on: Boolean, val type: String = "", val sub: String = "", val region: String = "")
