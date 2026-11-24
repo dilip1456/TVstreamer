@@ -26,6 +26,7 @@ class Stalker(private val store: Store) {
         return "mac=$mac; stb_lang=en; timezone=Europe/London"
     }
     var parentPassword: String? = null
+    private val lockedCatIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
     fun reset() { token = ""; api = ""; parentPassword = null }
 
@@ -168,7 +169,12 @@ class Stalker(private val store: Store) {
         }
     }
     fun liveCats(): List<Cat> = parseCats(jsArray(call("type=itv&action=get_genres", skipLimiter = true)))
-    fun vodCats(): List<Cat> = parseCats(jsArray(call("type=vod&action=get_categories")))
+    fun vodCats(): List<Cat> {
+        val cats = parseCats(jsArray(call("type=vod&action=get_categories")))
+        lockedCatIds.clear()
+        cats.filter { it.locked }.forEach { lockedCatIds.add(it.id) }
+        return cats
+    }
 
     /** Turns a portal image path (absolute, protocol-relative or relative) into a full URL. */
     fun absUrl(path: String?, logoDir: Boolean = false): String {
@@ -233,10 +239,12 @@ class Stalker(private val store: Store) {
         val isSeries = it.optInt("is_series") == 1
         val eps = intList(it.optJSONArray("series"))
         val time = firstOf(it, "time", "length")
+        val catId = it.optString("category_id").ifEmpty { catFallback }
+        val locked = it.optInt("censored") == 1 || catId in lockedCatIds
         return Item("vod", id, it.optString("name").ifEmpty { it.optString("o_name") },
             it.optString("cmd").ifEmpty { "/media/$id.mpg" },
-            it.optString("category_id").ifEmpty { catFallback },
-            if (isSeries || eps.isNotEmpty()) -1 else 0, it.optInt("censored") == 1,
+            catId,
+            if (isSeries || eps.isNotEmpty()) -1 else 0, locked,
             img = absUrl(firstOf(it, "screenshot_uri", "cover_big", "cover", "poster", "pic", "logo")),
             desc = firstOf(it, "description", "plot"),
             year = firstOf(it, "year", "release_date").take(4).filter { c -> c.isDigit() },
@@ -595,15 +603,17 @@ class Stalker(private val store: Store) {
                     if ((c.startsWith("http://") || c.startsWith("https://")) && !c.contains("://localhost") && !c.contains("://127.0.0.1"))
                         usable(cmd).takeIf { it.isNotEmpty() }?.let { note("${t.label} (direct)", it); return it to idx }
                 }
-                val q = t.query ?: ("type=${t.type}&action=create_link&cmd=${enc(cmd)}&series=${enc(t.series)}" +
+                var q = t.query ?: ("type=${t.type}&action=create_link&cmd=${enc(cmd)}&series=${enc(t.series)}" +
                     "&forced_storage=${t.storage}&disable_ad=0&download=0")
+                // Password-controlled titles: send the parent password so the portal will return a link
+                if (i.locked && parentPassword != null && "password=" !in q)
+                    q += "&password=${enc(parentPassword!!)}"
                 val resp = call(q)
                 lastRaw = resp.toString()
                 note(t.label, lastRaw)
                 val js = resp.opt("js")
                 val got = when (js) {
                     is JSONObject -> js.optString("cmd").ifEmpty { js.optString("url") }.ifEmpty { js.optString("link") }
-                        .ifEmpty { js.optString("stream_url") }.ifEmpty { js.optString("output") }
                     is String -> js
                     else -> ""
                 }
@@ -649,9 +659,9 @@ class Stalker(private val store: Store) {
             list.getOrNull(list.size - 1)?.label ?: "none", (list.size - 1).coerceAtLeast(0), list.size, resigned = resigned,
             result = "no playable link: " + fails.distinct().takeLast(2).joinToString("; ") { mask(it).take(80) }))
         throw NoLinkException(
-            "No playable link for this channel.\n" +
-            fails.distinct().takeLast(3).joinToString("\n") { it.take(100) } +
-            (if (lastRaw.isNotEmpty()) "\nPortal: ${mask(lastRaw).take(180)}" else "")
+            "The portal gave no playable link (${fails.size} tries).\n" +
+            fails.distinct().takeLast(4).joinToString("\n") +
+            (if (lastRaw.isNotEmpty()) "\nLast reply: ${mask(lastRaw).take(300)}" else "")
         )
     }
 }
