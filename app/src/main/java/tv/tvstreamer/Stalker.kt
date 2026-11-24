@@ -603,6 +603,7 @@ class Stalker(private val store: Store) {
                 val js = resp.opt("js")
                 val got = when (js) {
                     is JSONObject -> js.optString("cmd").ifEmpty { js.optString("url") }.ifEmpty { js.optString("link") }
+                        .ifEmpty { js.optString("stream_url") }.ifEmpty { js.optString("output") }
                     is String -> js
                     else -> ""
                 }
@@ -648,9 +649,9 @@ class Stalker(private val store: Store) {
             list.getOrNull(list.size - 1)?.label ?: "none", (list.size - 1).coerceAtLeast(0), list.size, resigned = resigned,
             result = "no playable link: " + fails.distinct().takeLast(2).joinToString("; ") { mask(it).take(80) }))
         throw NoLinkException(
-            "The portal gave no playable link (${fails.size} tries).\n" +
-            fails.distinct().takeLast(4).joinToString("\n") +
-            (if (lastRaw.isNotEmpty()) "\nLast reply: ${mask(lastRaw).take(300)}" else "")
+            "No playable link for this channel.\n" +
+            fails.distinct().takeLast(3).joinToString("\n") { it.take(100) } +
+            (if (lastRaw.isNotEmpty()) "\nPortal: ${mask(lastRaw).take(180)}" else "")
         )
     }
 }
