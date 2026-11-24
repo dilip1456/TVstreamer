@@ -217,7 +217,7 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
     var sort by remember(mode) { mutableStateOf(repo.store.sort("tab:$mode", Sorts.ADDED)) }
 
     // Movies / Series with languages picked: load those categories in the background
-    LaunchedEffect(mode, langs, repo.vodCats.size) { if (tabbed) lib.ensure(mode, langs ?: emptySet()) }
+    LaunchedEffect(mode, langs, repo.vodCats.size, repo.showAdult) { if (tabbed) lib.ensure(mode, if (repo.showAdult) (langs ?: emptySet()) else (langs ?: emptySet())) }
     val langShelves by produceState(emptyList<Shelf>(), mode, langs, sort, lib.version, Tmdb.version, repo.vodCats.size) {
         value = if (tabbed && !langs.isNullOrEmpty()) languageShelves(repo, mode, langs, sort) else emptyList()
     }
@@ -231,6 +231,22 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
 
     fun wantItem(i: Item): Boolean = lib.wantItem(i, mode)
     fun buildShelves(): List<Shelf> = buildList {
+        val sensitive = repo.showAdult
+        if (sensitive && tabbed) {
+            // Sensitive-only: locked titles only, grouped by language (selected languages still apply)
+            val locked = lib.lockedFor(mode)
+            val byLang = locked.groupBy { lib.itemLang(it) }
+            val sel = langs
+            val order = byLang.keys.filter { sel == null || it in sel }
+                .sortedWith(compareBy<String> { it == Tags.OTHER }.thenByDescending { byLang[it]?.size ?: 0 })
+            for (lang in order) {
+                val items = (byLang[lang] ?: continue).sortedByDescending { it.addedMs }.take(ROW_LIMIT)
+                if (items.isNotEmpty())
+                    add(Shelf("sens:$mode:$lang", if (order.size > 1) "$lang · Password required" else "Password required", items, "vod"))
+            }
+            if (isEmpty()) add(Shelf("sens-empty", "No password-controlled titles yet", emptyList(), "vod"))
+            return@buildList
+        }
         val c = cont.filter { wantItem(it.first) }
         if (c.isNotEmpty()) {
             val prog = c.associate { (i, p) ->
