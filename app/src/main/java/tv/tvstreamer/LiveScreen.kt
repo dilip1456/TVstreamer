@@ -149,12 +149,15 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
     fun setChannelOn(ch: Item, on: Boolean? = null, row: LiveModes.Row? = null) {
         val nowOn = row?.on ?: repo.isOn(ch)
         val want = on ?: !nowOn
-        if (view.shows(nowOn) && !view.shows(want)) {
-            LiveModes.neighborKey(rows, ch.key)?.let { focusKey = it }
+        val leaving = view.shows(nowOn) && !view.shows(want)
+        if (leaving) {
+            val next = LiveModes.neighborKey(rows, ch.key)
+            if (next != null) focusKey = next
         } else {
             focusKey = ch.key
         }
         if (row != null && on != null) repo.setOnRows(listOf(row), on) else repo.toggleOn(ch)
+        if (leaving) scope.launch { delay(80); runCatching { restoreFr.requestFocus() } }
     }
     // OK twice quickly on a row hides / unhides it; a single OK plays after the double-press window
     var pendingPlay by remember { mutableStateOf<Job?>(null) }
@@ -452,12 +455,11 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
                 undo = n.key to !repo.groupOn(n.key)
             },
             onShowAll = {
-                // Channels in this section only — never toggle the category group key
                 val rs = rowsOf(n)
                 if (rs.isNotEmpty()) repo.setOnRows(rs, true)
+                if (!repo.groupOn(n.key)) repo.toggleGroupKey(n.key, n.label)
             },
             onHideAll = {
-                // Channels in this section only — never hide the whole category
                 val rs = rowsOf(n)
                 if (rs.isNotEmpty()) {
                     if (!view.shows(false)) {
