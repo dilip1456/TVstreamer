@@ -348,10 +348,12 @@ private fun LaunchLogo(onDone: () -> Unit) {
     val scale = remember { androidx.compose.animation.core.Animatable(0.6f) }
     val alpha = remember { androidx.compose.animation.core.Animatable(0f) }
     LaunchedEffect(Unit) {
-        kotlinx.coroutines.launch {
-            scale.animateTo(1f, androidx.compose.animation.core.tween(900, easing = androidx.compose.animation.core.EaseOutBack))
+        kotlinx.coroutines.coroutineScope {
+            kotlinx.coroutines.launch {
+                scale.animateTo(1f, androidx.compose.animation.core.tween(900, easing = androidx.compose.animation.core.EaseOutBack))
+            }
+            alpha.animateTo(1f, androidx.compose.animation.core.tween(600))
         }
-        alpha.animateTo(1f, androidx.compose.animation.core.tween(600))
         kotlinx.coroutines.delay(1200)
         alpha.animateTo(0f, androidx.compose.animation.core.tween(400))
         onDone()
@@ -361,14 +363,14 @@ private fun LaunchLogo(onDone: () -> Unit) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             androidx.compose.material3.Text(
                 "TV",
-                color = Color(0xFFFFD700), // gold/yellow
+                color = Color(0xFFFFD700),
                 fontSize = 96.sp,
                 fontWeight = androidx.compose.ui.text.font.FontWeight.Black,
                 modifier = Modifier.graphicsLayer { scaleX = scale.value; scaleY = scale.value }
             )
             androidx.compose.material3.Text(
                 "STREAMER",
-                color = Color(0xFFE50914), // Netflix red
+                color = Color(0xFFE50914),
                 fontSize = 42.sp,
                 fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
                 letterSpacing = 8.sp
