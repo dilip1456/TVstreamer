@@ -10,6 +10,9 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.coroutineScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -348,8 +351,8 @@ private fun LaunchLogo(onDone: () -> Unit) {
     val scale = remember { androidx.compose.animation.core.Animatable(0.55f) }
     val alpha = remember { androidx.compose.animation.core.Animatable(0f) }
     LaunchedEffect(Unit) {
-        kotlinx.coroutines.coroutineScope {
-            kotlinx.coroutines.launch {
+        coroutineScope {
+            launch {
                 scale.animateTo(1f, androidx.compose.animation.core.tween(1000, easing = androidx.compose.animation.core.EaseOutBack))
             }
             alpha.animateTo(1f, androidx.compose.animation.core.tween(700))
@@ -358,8 +361,10 @@ private fun LaunchLogo(onDone: () -> Unit) {
         alpha.animateTo(0f, androidx.compose.animation.core.tween(450))
         onDone()
     }
-    BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black).graphicsLayer { this.alpha = alpha.value },
-        contentAlignment = Alignment.Center) {
+    BoxWithConstraints(
+        Modifier.fillMaxSize().background(Color.Black).graphicsLayer { this.alpha = alpha.value },
+        contentAlignment = Alignment.Center
+    ) {
         val isTv = maxWidth > 600.dp
         val tvSize = if (isTv) 140.sp else 88.sp
         val streamerSize = if (isTv) 56.sp else 36.sp
