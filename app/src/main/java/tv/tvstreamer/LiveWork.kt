@@ -93,10 +93,11 @@ class LiveTimeoutException(val step: LiveSource.Step, val limitMs: Long) :
  * 1.74: the request itself is never interrupted (it ends by itself within the HTTP timeouts and its list is still saved):
  * interrupting it in the middle of the portal sign-in left the session on a wrong address, so channels did not play
  * until the app was restarted.
+ * Rate limiter is skipped for the channel list fetch so there is no artificial delay; local filtering is instantaneous.
  */
 object LiveFetch {
-    const val STEP_MS = 30_000L    // portal login + categories
-    const val LIST_MS = 60_000L    // the whole channel list (large portals send several MB)
+    const val STEP_MS = 45_000L    // portal login + categories (slightly more room)
+    const val LIST_MS = 120_000L   // the whole channel list (large portals send several MB; no client delay)
     private val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
 
     suspend fun run(live: LiveSource, stepMs: Long = STEP_MS, listMs: Long = LIST_MS,
