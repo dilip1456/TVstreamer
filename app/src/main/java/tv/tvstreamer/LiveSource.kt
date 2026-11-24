@@ -174,7 +174,10 @@ class LiveModel(
             val catTitle = if (p?.cats === i.cats) previous!!.catTitle else i.cats.associate { it.id to it.title }
             // Hiding / showing channels, modes and views reuse the classified list: only the cheap steps run again
             val sameBase = sameBase(p, i)
-            val base = if (sameBase) previous!!.base else i.channels.filter { it.cat in catIds && AdultContent.listOk(it.locked, i.showAdult) }
+            val base = if (sameBase) previous!!.base else i.channels.filter { 
+                it.cat in catIds && AdultContent.listOk(it.locked, i.showAdult) &&
+                (i.mode != LiveModes.PASSWORD || it.locked)
+            }
             val classified = if (sameBase) previous!!.classified else LiveModes.classify(base, i.langs, i.info, catTitle)
             val rows = LiveModes.rowsFrom(classified, i.mode, i.folders, i.hidden, i.view)
             val tree = LiveModes.tree(rows, i.hidden, i.view)
