@@ -4,20 +4,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeout
-import kotlinx.coroutines.yield
 import org.json.JSONObject
-import kotlin.coroutines.coroutineContext
 
 /**
  * Type and language of every live channel, worked out once per channel list (off the main thread), published in
- * chunks so channels appear while sorting runs, and saved to disk so the next start shows them at once.
+ * one shot so the list appears instantly after the (now undelayed) portal fetch, and saved to disk so the next start shows them at once.
  */
 class LiveIndex(private val store: Store?) {
     enum class State { IDLE, RUNNING, READY, CANCELLED, FAILED }
@@ -49,15 +43,11 @@ class LiveIndex(private val store: Store?) {
                 // Saved result for the same list: instant
                 if (!force) load(k)?.let { m -> info = m; done = channels.size; state = State.READY; onReady?.invoke(); return@launch }
                 val titles = cats.associate { it.id to it.title }
-                val m = withTimeout(TIMEOUT_MS) {
-                    // 1.70: the list keeps the previous result until this one is done (one swap, not a re-layout per chunk)
-                    build(channels, titles) { _, n -> done = n }
-                }
+                // One-shot local classification: no chunks, no yields — filtering is pure local and instantaneous once data is in
+                val m = build(channels, titles)
                 info = m; done = channels.size; state = State.READY
                 onReady?.invoke()
                 save(k, m)
-            } catch (e: TimeoutCancellationException) {
-                state = State.FAILED; error = "Sorting took too long"
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Throwable) {
@@ -137,22 +127,15 @@ class LiveIndex(private val store: Store?) {
         }
 
         /**
-         * Classify [channels]; each category name is looked at once. [onChunk] gets a snapshot of the result so far
-         * every few hundred channels (so the screen can fill in progressively).
+         * Classify [channels] in one shot (pure local string work — instantaneous for typical lists).
+         * No progressive chunks or yields; the full result is returned at once for immediate UI publication.
          */
-        suspend fun build(channels: List<Item>, catTitle: Map<String, String>, chunk: Int = 0,
-                          onChunk: (Map<String, ChInfo>, Int) -> Unit = { _, _ -> }): Map<String, ChInfo> {
-            val step = if (chunk > 0) chunk else maxOf(400, channels.size / 12)
+        fun build(channels: List<Item>, catTitle: Map<String, String>): Map<String, ChInfo> {
             val facts = HashMap<String, LiveKind.CatFacts>()
             val out = HashMap<String, ChInfo>(channels.size * 2)
-            channels.forEachIndexed { i, c ->
+            for (c in channels) {
                 val f = facts.getOrPut(c.cat) { LiveKind.facts(catTitle[c.cat] ?: "") }
                 out[c.key] = LiveKind.classify(f, c.name)
-                if ((i + 1) % step == 0 && i + 1 < channels.size) {
-                    coroutineContext.ensureActive()
-                    onChunk(HashMap(out), i + 1)
-                    yield()
-                }
             }
             return out
         }
