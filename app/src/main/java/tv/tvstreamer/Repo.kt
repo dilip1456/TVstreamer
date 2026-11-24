@@ -401,7 +401,7 @@ class Repo(private val ctx: Context) {
         if (syncedMode != liveMode && (syncedMode == LiveModes.DEFAULT || syncedMode in folders.folders)) {
             liveMode = syncedMode
         }
-        liveView = LiveView.parse(store.sort("live_view", liveView.encode()))
+        liveView = LiveView.decode(store.sort("live_view", liveView.encode()))
         syncTick++
     }
     /** Bumped after a cloud sync changed local data. */
