@@ -243,15 +243,11 @@ fun LiveGroupContextMenu(
     onToggleFold: () -> Unit, onExpandAll: () -> Unit, onCollapseAll: () -> Unit,
     onSelect: () -> Unit, onClose: () -> Unit
 ) {
-    val labels = ItemContext.liveGroupItems(groupOn, folded).map { 
-        if (it == ItemContext.SHOW) "Show this category" 
-        else if (it == ItemContext.HIDE) "Hide this category" 
-        else it 
-    }
+    val labels = ItemContext.liveGroupItems(groupOn, folded)
     ChoiceDialog(title, labels.map { label ->
         label to {
             when (label) {
-                "Show this category", "Hide this category", ItemContext.SHOW, ItemContext.HIDE -> onShowHide()
+                ItemContext.SHOW, ItemContext.HIDE -> onShowHide()
                 ItemContext.SHOW_ALL_CHANNELS -> onShowAll()
                 ItemContext.HIDE_ALL_CHANNELS -> onHideAll()
                 ItemContext.COLLAPSE, ItemContext.EXPAND -> onToggleFold()
@@ -322,6 +318,7 @@ fun ModeMenu(repo: Repo, current: List<Item>, onClose: () -> Unit) {
     val cur = repo.mode()
     ChoiceDialog("Mode", buildList {
         add((if (cur == LiveModes.DEFAULT) "✓  " else "     ") + "Default (everything not hidden)" to { repo.selectMode(LiveModes.DEFAULT); onClose() })
+        add((if (cur == LiveModes.PASSWORD) "✓  " else "     ") + "Password (locked only)" to { repo.selectMode(LiveModes.PASSWORD); onClose() })
         repo.modes.forEach { m ->
             add((if (cur == m) "✓  " else "     ") + "$m  (${repo.folders.channelItems(m).size})" to { repo.selectMode(m); onClose() })
         }
