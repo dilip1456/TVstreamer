@@ -582,6 +582,25 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
         }
     }
 
+    // Live channels that stay buffering / resolving without ever reaching READY (no error fired)
+    // used to circle forever. After a short timeout, try the next link strategy or surface the error
+    // so the existing auto-skip can move on.
+    LaunchedEffect(idx, attempt, resolving, buffering, err) {
+        if (item.kind != "itv" || err.isNotEmpty()) return@LaunchedEffect
+        if (!resolving && !buffering) return@LaunchedEffect
+        delay(12_000)
+        if (cur.key != item.key || err.isNotEmpty()) return@LaunchedEffect
+        if (exo.playbackState == Player.STATE_READY && exo.isPlaying) return@LaunchedEffect
+        // Still not playing: force a failure path
+        if (strategyTries < 3 && linkUsed + 1 < repo.api.linkTries(item)) {
+            strategyTries++
+            linkFrom = linkUsed + 1
+            attempt++
+        } else {
+            err = "Channel did not start (timed out while loading)."
+        }
+    }
+
     // Live guide while watching: this channel and its neighbours first (zapping shows now / next at once), and this
     // channel's day schedule for the schedule list (Right)
     LaunchedEffect(idx) {
