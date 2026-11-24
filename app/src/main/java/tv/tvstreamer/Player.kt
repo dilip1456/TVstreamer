@@ -257,7 +257,7 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
     }
     fun saveNow() {
         val i = cur
-        if (i.kind == "vod" && exo.duration > 0 && exo.duration != C.TIME_UNSET) repo.store.saveResume(i, exo.currentPosition, exo.duration)
+        if (i.kind == "vod" && exo.duration > 0 && exo.duration != C.TIME_UNSET) if (!repo.showAdult) repo.store.saveResume(i, exo.currentPosition, exo.duration)
     }
     // Remember the last episode played for each show (opens the show there next time)
     LaunchedEffect(cur.key) {
@@ -571,7 +571,7 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
                 if (p > 5000 && (d <= 0 || p < d * 0.95)) exo.seekTo(p)
             }
             exo.playWhenReady = true
-            repo.markPlayed(item)
+            if (!repo.showAdult) repo.markPlayed(item)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -872,12 +872,9 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
                     val shown = repo.isOn(item)
                     OptionsBar(buildList {
                         add(BarAction("eye", if (shown) Ic.Eye else Ic.EyeOff, if (shown) "Hide" else "Show", {
-                            val wasOn = repo.isOn(item)
                             repo.toggleOn(item)
                             toast(ctx, if (repo.isOn(item)) "Shown" else "Hidden")
                             infoTick++
-                            // Hiding the channel that is playing: move to the next one
-                            if (wasOn && live && list.size > 1) go(idx + 1)
                         }, hideShowFr, active = !shown))
                         add(BarAction("channels", Ic.Channels, "Channels", { layer = LiveOverlay.Layer.CHANNELS }))
                         add(BarAction("guide", Ic.Guide, "Schedule", { layer = LiveOverlay.Layer.GUIDE }))
