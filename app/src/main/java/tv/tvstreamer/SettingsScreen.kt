@@ -138,9 +138,9 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
                     }
                     SettingRow("Cancel") { clearHist = false }
                 }
-                SettingRow("Show adult sections", if (repo.showAdult) "On — locked portal categories are listed" else "Off — hidden from lists") {
+                SettingRow("Show only sensitive content", if (repo.showAdult) "On — only password-controlled titles and channels" else "Off — sensitive content is hidden") {
                     repo.showAdult = !repo.showAdult
-                    note = if (repo.showAdult) "Adult and locked sections are shown. Playing them still needs the lock password in Settings." else "Adult and locked sections are hidden from lists."
+                    note = if (repo.showAdult) "Only password-controlled movies, series and channels are shown. History is not saved in this mode." else "Sensitive content is hidden. Normal catalog is shown."
                 }
                 SettingRow("Remote buttons") { go(Screen.Remote) }
                 var hours by remember { mutableStateOf(s.catalogRefreshHours) }
