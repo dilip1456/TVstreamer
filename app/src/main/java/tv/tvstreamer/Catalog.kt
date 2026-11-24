@@ -232,22 +232,15 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
     fun wantItem(i: Item): Boolean = lib.wantItem(i, mode)
     fun buildShelves(): List<Shelf> = buildList {
         val sensitive = repo.showAdult
-        if (sensitive && tabbed) {
-            // Sensitive-only: locked titles only, grouped by language (selected languages still apply)
-            val locked = lib.lockedFor(mode)
-            val byLang = locked.groupBy { lib.itemLang(it) }
-            val sel = langs
-            val order = byLang.keys.filter { sel == null || it in sel }
-                .sortedWith(compareBy<String> { it == Tags.OTHER }.thenByDescending { byLang[it]?.size ?: 0 })
-            for (lang in order) {
-                val items = (byLang[lang] ?: continue).sortedByDescending { it.addedMs }.take(ROW_LIMIT)
-                if (items.isNotEmpty())
-                    add(Shelf("sens:$mode:$lang", if (order.size > 1) "$lang · Password required" else "Password required", items, "vod"))
-            }
-            if (isEmpty()) add(Shelf("sens-empty", "No password-controlled titles yet", emptyList(), "vod"))
-            return@buildList
+        // Always show category rows so series/movies can be clicked and loaded on demand
+        val cats = repo.visibleVod().filter { 
+            repo.listOk(it.locked) && lib.catForTab(it, mode) &&
+            (langs.isNullOrEmpty() || lib.catLang(it) in langs || sensitive)
         }
-        val c = cont.filter { wantItem(it.first) }
+        if (cats.isEmpty() && tabbed) {
+            add(Shelf("empty", if (sensitive) "No password-controlled categories" else "No categories for this tab", emptyList(), "vod"))
+        }
+        val c = cont.filter { !sensitive && wantItem(it.first) }
         if (c.isNotEmpty()) {
             val prog = c.associate { (i, p) ->
                 val d = repo.store.resumeInfo(i).second
@@ -262,27 +255,12 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
             if (recent.isNotEmpty()) add(Shelf("recent", "Recent channels", recent, "itv"))
         }
         if (tabbed) {
-            val locked = lib.lockedFor(mode)
-            if (repo.mode() == LiveModes.PASSWORD) {
-                if (locked.isNotEmpty()) add(Shelf("locked", "Password required", locked.take(ROW_LIMIT * 2), "vod"))
-                return@buildList
-            }
-            if (locked.isNotEmpty() && repo.listOk(true))
-                add(Shelf("locked", "Password required", locked.take(ROW_LIMIT), "vod"))
-        }
-        if (tabbed && !langs.isNullOrEmpty()) {
-            addAll(langShelves)
-        } else {
-            val catLangs = if (tabbed) null else homeLangs
-            repo.visibleVod().filter { repo.listOk(it.locked) && lib.catForTab(it, mode) && (catLangs == null || lib.catLang(it) in catLangs) }.forEach { cat ->
-                val raw = lib.inCat(cat.id).takeIf { it.isNotEmpty() || !lib.catHasMore(cat.id) }?.take(ROW_LIMIT * 2)
-                // Each item is classified on its own, so categories that mix movies and series work
-                val items = raw?.filter { wantItem(it) }
-                if (items == null || items.isNotEmpty() || repo.rowErrors[cat.id] != null) {
-                    add(Shelf("vod:${cat.id}", GroupTitle.display(cat.title, if (mode == "series") "Series" else "Movies"), items ?: emptyList(), "vod", cat,
-                        loading = raw == null && repo.rowErrors[cat.id] == null, error = repo.rowErrors[cat.id] ?: ""))
-                }
-            }
+
+        cats.forEach { cat ->
+            val raw = lib.inCat(cat.id).takeIf { it.isNotEmpty() }?.take(ROW_LIMIT * 2)
+            val items = raw?.filter { wantItem(it) }
+            add(Shelf("vod:${cat.id}", GroupTitle.display(cat.title, if (mode == "series") "Series" else "Movies"), items ?: emptyList(), "vod", cat,
+                loading = raw == null, error = repo.rowErrors[cat.id] ?: ""))
         }
     }
 
@@ -1218,6 +1196,11 @@ fun GridScreen(repo: Repo, cat: Cat, open: (Item) -> Unit, play: (List<Item>, In
                 Column {
                     Text(GroupTitle.display(cat.title), color = Pal.Text, fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold)
                     Text(if (more) "${items.size}+ titles" else "${items.size} titles", color = Pal.Dim, fontSize = Ts.SECONDARY.sp)
+                    if (more) {
+                        androidx.compose.material3.TextButton(onClick = { next() }, enabled = !busy) {
+                            Text(if (busy) "Loading…" else "Load more", color = Pal.Accent)
+                        }
+                    }
                     Spacer(Modifier.height(6.dp))
                     PillButton("⇅  Sort: " + Sorts.label(sort), { sortMenu = true }, size = Ts.HEAD)
                     if (msg.isNotEmpty()) Row(verticalAlignment = Alignment.CenterVertically) {
