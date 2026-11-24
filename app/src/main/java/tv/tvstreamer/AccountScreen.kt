@@ -96,30 +96,26 @@ fun AccountScreen(repo: Repo, onReady: () -> Unit) {
             .padding(horizontal = if (AppUi.phoneNav) 16.dp else 40.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Label("Google account & sync", if (tv) 32 else 26, maxLines = 2)
-        Label("Sign in with Google to keep favourites, hidden items, languages, sorting, Live TV settings, remote buttons, " +
-            "Continue watching and Fix match choices the same on your TV and phone. They are saved in your own Google Drive, " +
-            "in a place only TVstreamer can read.", Ts.SECONDARY, ADIM, maxLines = 20)
+        Label("Google account & sync", if (tv) 26 else 22, maxLines = 2)
+        Label("Keeps favourites, hidden items, languages, remote buttons and Continue watching the same on your TV and phone. " +
+            "Saved privately in your own Google Drive.", Ts.SECONDARY, ADIM, maxLines = 4)
         if (note.isNotEmpty()) Label(note, body, Pal.GoldText, maxLines = 20)
         noteErr?.let { ErrorBox(it.message ?: "", it.hint, it.link, body) { u -> link(u) } }
 
         if (Cloud.signedIn) {
             Column(Modifier.fillMaxWidth().background(Pal.Field, RoundedCornerShape(Radii.field)).padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Label("Signed in as ${Cloud.email.ifEmpty { "(email not shared)" }}", Ts.TITLE, Pal.Text, maxLines = 3)
-                Label("Status: " + (if (Cloud.busy) "Syncing..." else Cloud.status.ifEmpty { "Signed in" }), body, ADIM, maxLines = 4)
-                Label("Last synced: " + if (Cloud.lastSync > 0) DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(Cloud.lastSync)) else "never", body, ADIM, maxLines = 2)
-                Label("Stored in: " + if (Cloud.space == DriveSpace.APPDATA) "hidden app folder in your Google Drive" else "the file ${Google.FILE_NAME} in your Google Drive", Ts.SECONDARY, ADIM, maxLines = 3)
+                Label("Signed in as ${Cloud.email.ifEmpty { "(email not shared)" }}", Ts.ROW, Pal.Text, maxLines = 2)
+                Label((if (Cloud.busy) "Syncing..." else Cloud.status.ifEmpty { "Signed in" }) + " · last synced " +
+                    (if (Cloud.lastSync > 0) DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(Cloud.lastSync)) else "never"), Ts.SECONDARY, ADIM, maxLines = 3)
             }
             if (Cloud.error.isNotEmpty()) ErrorBox(Cloud.error, Cloud.errorHint, Cloud.errorLink, body) { u -> link(u) }
             Buttons(listOf("Sync now" to { Cloud.syncNow(); note = ""; noteErr = null },
                 "Sign out" to { Cloud.signOut(); note = "Signed out. Data on this device is kept." }), Modifier.focusRequester(firstFr))
-            Row1((if (secrets) "☑" else "☐") + "  Also sync portal login and API keys", {
+            Row1((if (secrets) "✓  " else "") + "Also sync portal login and API keys", {
                 secrets = !secrets; Cloud.changeSyncSecrets(secrets)
                 note = if (secrets) "Portal login and API keys will sync." else "Portal login and API keys will be removed from the cloud copy."
             })
-            Label("Portal URL, MAC, serial, locked-section password and TMDB/OMDb keys are kept in your own Google Drive " +
-                "(private to your account), so a new device is ready right after sign-in. " +
-                "A Google client of your own (Advanced) is never synced.", Ts.SECONDARY, ADIM, maxLines = 20)
+            Label("Portal login and API keys are kept in your private Drive copy too, so a new device is ready after sign-in.", Ts.SECONDARY, ADIM, maxLines = 3)
             if (!confirmDelete) PillButton("Delete cloud data…", { confirmDelete = true })
             else Column(Modifier.fillMaxWidth().background(Pal.WarnBox, RoundedCornerShape(Radii.field)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Label("Delete the synced copy from your Google Drive and sign this device out? Data on this device stays. " +

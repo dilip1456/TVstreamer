@@ -292,7 +292,7 @@ fun App(repo: Repo) {
                     Screen.Categories -> CategoriesScreen(repo, go)
                     Screen.Remote -> RemoteScreen { back() }
                     Screen.Account -> AccountScreen(repo) { screen = Screen.Home; tick++ }
-                    Screen.Profile -> ProfileScreen(repo, go)
+                    Screen.Profile -> SettingsScreen(repo, go)
                     is Screen.Languages -> LanguagesScreen(repo, s.tab) { back() }
                     is Screen.Detail -> DetailScreen(repo, s.item, play, { back() }, tick, s.focusEp, go)
                     is Screen.Grid -> GridScreen(repo, s.cat, open, play)

@@ -146,43 +146,32 @@ fun AvatarButton(onClick: () -> Unit) {
     ) { Avatar(34.dp) }
 }
 
-/** Account menu: header, theme, Settings, Preferences, Sync now, Check for update, Sign in / Sign out. */
+/** Account menu: who is signed in, Settings, Sync now, Sign in / Sign out. (Theme, updates and the rest are in Settings.) */
 @Composable
 fun AccountMenu(store: Store, go: (Screen) -> Unit, onClose: () -> Unit) {
-    val ctx = LocalContext.current
-    val scope = rememberCoroutineScope()
     var msg by remember { mutableStateOf("") }
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { delay(80); runCatching { first.requestFocus() } }
     PopupFrame(onClose, alignment = if (AppUi.phoneNav) Alignment.BottomCenter else Alignment.TopEnd, scrim = Color(0x99000000)) {
         Column(
-            Modifier.then(if (AppUi.phoneNav) Modifier.fillMaxWidth().navigationBarsPadding() else Modifier.padding(24.dp).width(420.dp))
+            Modifier.then(if (AppUi.phoneNav) Modifier.fillMaxWidth().navigationBarsPadding() else Modifier.padding(24.dp).width(340.dp))
                 .clip(if (AppUi.phoneNav) RoundedCornerShape(topStart = Radii.panel, topEnd = Radii.panel) else RoundedCornerShape(Radii.panel))
-                .background(Pal.Surface).clickable(enabled = false) {}.padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+                .background(Pal.Surface).clickable(enabled = false) {}.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                Avatar(52.dp)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(bottom = 6.dp)) {
+                Avatar(44.dp)
                 Column(Modifier.weight(1f)) {
-                    Label(if (Cloud.signedIn) Cloud.name.ifEmpty { "Google account" } else "Not signed in", Ts.TITLE, Pal.Text)
-                    Label(if (Cloud.signedIn) Cloud.email else "Sign in to sync your TV and phone", Ts.SECONDARY, Pal.Dim)
+                    Label(if (Cloud.signedIn) Cloud.name.ifEmpty { "Google account" } else "Not signed in", Ts.ROW, Pal.Text)
+                    Label(if (Cloud.signedIn) Cloud.email else "Sign in to sync TV and phone", Ts.CAPTION, Pal.Dim)
                 }
             }
-            Spacer(Modifier.height(4.dp))
-            Row1("Theme: ${Theme.label}  (tap to change)", {
-                Theme.mode = Theme.next(Theme.mode); store.theme = Theme.mode
-            }, Modifier.focusRequester(first))
-            Row1("Settings", { onClose(); go(Screen.Settings) })
-            Row1("Preferences (languages, remote, playback, sync)", { onClose(); go(Screen.Profile) })
+            Row1("Settings", { onClose(); go(Screen.Settings) }, Modifier.focusRequester(first))
             if (Cloud.signedIn) Row1(if (Cloud.busy) "Syncing..." else "Sync now" + syncAgo(), { Cloud.syncNow() })
-            Row1("Check for update", {
-                msg = "Checking for updates…"
-                scope.launch { msg = Updater.check(ctx, store, manual = true).ifEmpty { Updater.statusLine() } }
-            })
             if (Cloud.signedIn) Row1("Sign out", { Cloud.signOut(); msg = "Signed out. Data on this device is kept." })
             else Row1("Sign in with Google", { onClose(); go(Screen.Account) })
-            if (msg.isNotEmpty()) Label(msg, Ts.HEAD, Pal.Warn, maxLines = 3)
-            Row1("Close", onClose)
+            if (msg.isNotEmpty()) Label(msg, Ts.SECONDARY, Pal.Warn, maxLines = 3)
+            if (AppUi.phoneNav) Row1("Close", onClose)
         }
     }
 }
@@ -192,61 +181,4 @@ fun syncAgo(): String {
     if (t <= 0) return ""
     val m = (System.currentTimeMillis() - t) / 60000
     return "  ·  last " + when { m < 1 -> "just now"; m < 60 -> "$m min ago"; m < 1440 -> "${m / 60} h ago"; else -> "${m / 1440} d ago" }
-}
-
-/** Profile / Preferences: account, languages, remote buttons, playback, sync, update, about. */
-@Composable
-fun ProfileScreen(repo: Repo, go: (Screen) -> Unit) {
-    val ctx = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var msg by remember { mutableStateOf("") }
-    val ver = remember { try { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName } catch (e: Exception) { "?" } }
-    var aspect by remember { mutableStateOf(repo.store.aspect) }
-    val firstFr = remember { FocusRequester() }
-    val tv = rememberIsTv()
-    LaunchedEffect(Unit) { if (tv) { delay(150); runCatching { firstFr.requestFocus() } } }
-    LazyColumn(Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        item {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.padding(vertical = 8.dp)) {
-                Avatar(64.dp)
-                Column(Modifier.weight(1f)) {
-                    Label(if (Cloud.signedIn) Cloud.name.ifEmpty { "Google account" } else "Profile", Ts.TITLE, Pal.Text)
-                    Label(if (Cloud.signedIn) Cloud.email else "Not signed in", Ts.SECONDARY, Pal.Dim)
-                    if (Cloud.signedIn) Label((if (Cloud.busy) "Syncing..." else Cloud.status.ifEmpty { "Signed in" }) + syncAgo(), Ts.SECONDARY, Pal.Dim)
-                    if (Cloud.error.isNotEmpty()) Label(Cloud.error, Ts.SECONDARY, Pal.Warn, maxLines = 3)
-                }
-            }
-        }
-        if (Cloud.signedIn) item {
-            ButtonFlow {
-                PillButton("Sync now", { Cloud.syncNow() }, Modifier.focusRequester(firstFr), primary = true)
-                PillButton("Account & sync", { go(Screen.Account) })
-                PillButton("Sign out", { Cloud.signOut() })
-            }
-        } else item { PillButton("Sign in with Google (sync TV and phone)", { go(Screen.Account) }, Modifier.focusRequester(firstFr), primary = true) }
-        item { Label("Preferences", Ts.TITLE, Pal.Text, Modifier.padding(top = 8.dp)) }
-        item { Row1("Theme: ${Theme.label}", { Theme.mode = Theme.next(Theme.mode); repo.store.theme = Theme.mode }) }
-        item { Row1("Languages for Movies", { go(Screen.Languages("movies", Screen.Profile)) }) }
-        item { Row1("Languages for Series", { go(Screen.Languages("series", Screen.Profile)) }) }
-        item { Row1("Languages for Live TV", { go(Screen.Languages("live", Screen.Profile)) }) }
-        item { Row1("What to show (movies, series, Live TV)", { go(Screen.Categories) }) }
-        item { Row1("Remote buttons", { go(Screen.Remote) }) }
-        item {
-            Row1("Video picture: " + when (aspect) { "fill" -> "Fill"; "zoom" -> "Zoom"; else -> "Fit" }, {
-                aspect = when (aspect) { "fit" -> "fill"; "fill" -> "zoom"; else -> "fit" }; repo.store.aspect = aspect
-            })
-        }
-        item { Row1("Movie & series info (TMDB / OMDb keys)", { go(Screen.Settings) }) }
-        item { Row1("Settings (portal, MAC, more)", { go(Screen.Settings) }) }
-        item {
-            PillButton("Check for update", {
-                msg = "Checking for updates…"
-                scope.launch { msg = Updater.check(ctx, repo.store, manual = true).ifEmpty { Updater.statusLine() } }
-            })
-        }
-        if (msg.isNotEmpty()) item { Label(msg, Ts.HEAD, Pal.Warn, maxLines = 4) }
-        item { Label("About", Ts.TITLE, Pal.Text, Modifier.padding(top = 8.dp)) }
-        item { Label("TVstreamer v$ver · Stalker portal player for Fire TV and Android phones", Ts.HEAD, Pal.Dim, maxLines = 2) }
-        item { Spacer(Modifier.height(24.dp)) }
-    }
 }

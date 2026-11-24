@@ -5,7 +5,7 @@ import org.junit.Test
 
 class SettingsNavTest {
     @Test fun shortSectionTitlesInOrder() {
-        assertEquals(listOf("Account", "Portal", "Content", "Player", "Languages", "API keys", "Hidden", "Troubleshooting"),
+        assertEquals(listOf("Account", "Portal", "Content", "Playback", "API keys", "Hidden", "About & help"),
             SettingsNav.ALL.map { it.title })
         assertTrue(SettingsNav.ALL.all { it.title.length <= 15 })
     }

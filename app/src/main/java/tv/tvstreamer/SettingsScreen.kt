@@ -31,8 +31,8 @@ import kotlinx.coroutines.withContext
 /** Settings sections (1.53, Netflix style): a short list on the left (TV / tablet), the section's rows on the right. */
 object SettingsNav {
     enum class Sec(val title: String) {
-        ACCOUNT("Account"), PORTAL("Portal"), CONTENT("Content"), PLAYER("Player"), LANGUAGES("Languages"),
-        KEYS("API keys"), HIDDEN("Hidden"), TROUBLE("Troubleshooting")
+        ACCOUNT("Account"), PORTAL("Portal"), CONTENT("Content"), PLAYBACK("Playback"),
+        KEYS("API keys"), HIDDEN("Hidden"), HELP("About & help")
     }
     val ALL = Sec.entries.toList()
 
@@ -47,11 +47,11 @@ fun SettingRow(title: String, value: String = "", modifier: Modifier = Modifier,
     val bg by animateColorAsState(when { f -> Pal.FocusBg; selected -> Pal.ChipSel.copy(alpha = 0.55f); else -> Pal.Soft }, Motion.colorSpec(), label = "setBg")
     val shape = RoundedCornerShape(Radii.row)
     Row(
-        modifier.fillMaxWidth().heightIn(min = 52.dp)
+        modifier.fillMaxWidth().heightIn(min = 44.dp)
             .onFocusChanged { f = it.isFocused }
             .focusCard(onClick, scale = 1.02f, shape = shape)
             .background(bg)
-            .padding(horizontal = 18.dp, vertical = 10.dp),
+            .padding(horizontal = 16.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text(title, color = if (f) Pal.GoldText else Pal.Text, fontSize = Ts.ROW.sp, fontWeight = if (f || selected) FontWeight.SemiBold else FontWeight.Medium,
@@ -106,7 +106,8 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
     fun Detail(which: SettingsNav.Sec, first: Modifier) {
         when (which) {
             SettingsNav.Sec.ACCOUNT -> {
-                SettingRow("Google account", if (Cloud.signedIn) Cloud.email.ifEmpty { "Signed in" } else "Not signed in", first) { go(Screen.Account) }
+                SettingRow("Google account", if (Cloud.signedIn) Cloud.email.ifEmpty { "Signed in" } else "Sign in to sync", first) { go(Screen.Account) }
+                SettingRow("Theme", Theme.label) { Theme.mode = Theme.next(Theme.mode); s.theme = Theme.mode }
             }
             SettingsNav.Sec.PORTAL -> {
                 Box(first) { SettingField("Portal URL", portal) { portal = it } }
@@ -121,10 +122,34 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
                 }, primary = true)
             }
             SettingsNav.Sec.CONTENT -> {
-                SettingRow("What to show", "Movies, series, Live TV", first) { go(Screen.Categories) }
+                SettingRow("What to show", "Groups and rows", first) { go(Screen.Categories) }
+                SettingRow("Movie languages") { go(Screen.Languages("movies", Screen.Settings)) }
+                SettingRow("Series languages") { go(Screen.Languages("series", Screen.Settings)) }
+                SettingRow("Live TV languages") { go(Screen.Languages("live", Screen.Settings)) }
+                SettingRow("Adult sections", if (repo.showAdult) "Shown" else "Hidden") {
+                    repo.showAdult = !repo.showAdult
+                    note = if (repo.showAdult) "Adult and locked sections are shown. Playing them still needs the lock password." else "Adult and locked sections are hidden from lists."
+                }
+                var hours by remember { mutableStateOf(s.catalogRefreshHours) }
+                SettingRow("Refresh titles after", "$hours h") {
+                    hours = CatalogStale.HOURS[(CatalogStale.HOURS.indexOf(hours).let { if (it < 0) 0 else it } + 1) % CatalogStale.HOURS.size]
+                    s.catalogRefreshHours = hours
+                    note = "Movies and Series refresh from the portal after $hours hours, or on the first launch of a new day."
+                }
+                val lib = repo.lib
+                var confirm by remember { mutableStateOf(false) }
+                when {
+                    lib.loading || lib.indexing -> SettingRow("Stop loading", libraryStatus(repo)) { lib.stop(); note = "Loading stopped" }
+                    confirm -> SettingRow("Check for new titles now?", "OK to confirm") { confirm = false; note = lib.requestManual() }
+                    else -> SettingRow("Refresh library", libraryStatus(repo)) {
+                        val w = lib.manualWait()
+                        if (w > 0) note = "Try again in ${(w + 59_999) / 60_000} min" else confirm = true
+                    }
+                }
+                if (lib.stopped && !lib.loading && !lib.indexing) SettingRow("Resume loading") { lib.resume(); note = "Loading resumed" }
                 var clearHist by remember { mutableStateOf(false) }
                 if (!clearHist) {
-                    SettingRow("Clear watch history", "Continue watching and resume points") { clearHist = true }
+                    SettingRow("Clear watch history") { clearHist = true }
                 } else {
                     SettingRow("Last 24 hours") {
                         s.clearHistory(24 * 3600_000L)
@@ -138,60 +163,34 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
                     }
                     SettingRow("Cancel") { clearHist = false }
                 }
-                SettingRow("Show adult sections", if (repo.showAdult) "On — locked portal categories are listed" else "Off — hidden from lists") {
-                    repo.showAdult = !repo.showAdult
-                    note = if (repo.showAdult) "Adult and locked sections are shown. Playing them still needs the lock password in Settings." else "Adult and locked sections are hidden from lists."
-                }
-                SettingRow("Remote buttons") { go(Screen.Remote) }
-                var hours by remember { mutableStateOf(s.catalogRefreshHours) }
-                SettingRow("Refresh movies after", "$hours hours") {
-                    hours = CatalogStale.HOURS[(CatalogStale.HOURS.indexOf(hours).let { if (it < 0) 0 else it } + 1) % CatalogStale.HOURS.size]
-                    s.catalogRefreshHours = hours
-                    note = "The Movies and Series lists will refresh from the portal after $hours hours, or on the first launch of a new day."
-                }
-                val lib = repo.lib
-                var confirm by remember { mutableStateOf(false) }
-                when {
-                    lib.loading || lib.indexing -> SettingRow("Stop loading", libraryStatus(repo)) { lib.stop(); note = "Loading stopped" }
-                    confirm -> SettingRow("Check for new titles now?", "OK to confirm") { confirm = false; note = lib.requestManual() }
-                    else -> SettingRow("Refresh library", libraryStatus(repo)) {
-                        val w = lib.manualWait()
-                        if (w > 0) note = "Try again in ${(w + 59_999) / 60_000} min" else confirm = true
-                    }
-                }
-                if (lib.stopped && !lib.loading && !lib.indexing) SettingRow("Resume loading") { lib.resume(); note = "Loading resumed" }
             }
-            SettingsNav.Sec.PLAYER -> {
+            SettingsNav.Sec.PLAYBACK -> {
                 SettingRow("Autoplay next episode", if (autoNext) "On" else "Off", first) { autoNext = !autoNext; s.autoNext = autoNext }
                 if (AppUi.phoneNav) SettingRow("Phone player starts in", if (phoneStartLand) "Landscape" else "Portrait") {
                     phoneStartLand = !phoneStartLand; s.phoneStartLandscape = phoneStartLand
                 }
-                SettingRow("App updates", "${updateMode.label} — ${updateMode.detail}") {
-                    updateMode = updateMode.next(); s.updateMode = updateMode
-                }
-                SettingRow("Check for updates", Updater.statusLine().ifEmpty { "GitHub release" }) {
-                    note = "Checking for updates…"
-                    scope.launch { note = Updater.check(ctx, s, manual = true) }
+                var aspect by remember { mutableStateOf(s.aspect) }
+                SettingRow("Video picture", when (aspect) { "fill" -> "Fill"; "zoom" -> "Zoom"; else -> "Fit" }) {
+                    aspect = when (aspect) { "fit" -> "fill"; "fill" -> "zoom"; else -> "fit" }; s.aspect = aspect
                 }
                 SettingRow("Subtitle size", subSize.replaceFirstChar { it.uppercase() }) {
                     subSize = TrackPrefs.SIZES[(TrackPrefs.SIZES.indexOf(subSize) + 1) % TrackPrefs.SIZES.size]; s.subSize = subSize
                 }
+                SettingRow("Remote buttons") { go(Screen.Remote) }
                 if (s.audioLang.isNotEmpty() || s.subLang.isNotEmpty())
                     SettingRow("Forget audio / subtitle choices") { s.audioLang = ""; s.subLang = ""; s.seriesTracks = ""; note = "Forgotten" }
             }
-            SettingsNav.Sec.LANGUAGES -> {
-                SettingRow("Movies", "", first) { go(Screen.Languages("movies", Screen.Settings)) }
-                SettingRow("Series") { go(Screen.Languages("series", Screen.Settings)) }
-                SettingRow("Live TV") { go(Screen.Languages("live", Screen.Settings)) }
-            }
             SettingsNav.Sec.KEYS -> {
+                var moreKeys by remember { mutableStateOf(osu.isNotEmpty() || osp.isNotEmpty() || sdk.isNotEmpty()) }
                 Box(first) { FieldWithLink({ SettingField("TMDB", tmdb, password = true) { tmdb = it } }, "Get key") { link("TMDB", TMDB_KEY_URL) } }
                 FieldWithLink({ SettingField("OMDb", omdb, password = true) { omdb = it } }, "Get key") { link("OMDb", OMDB_KEY_URL) }
                 FieldWithLink({ SettingField("OpenSubtitles", osk, password = true) { osk = it } }, "Get key") { link("OpenSubtitles", OpenSubs.KEY_URL) }
-                SettingField("OpenSubtitles username (optional: 20 downloads/day instead of 5)", osu) { osu = it }
-                SettingField("OpenSubtitles password (optional)", osp, password = true) { osp = it }
-                FieldWithLink({ SettingField("SubDL (subtitle backup)", sdk, password = true) { sdk = it } }, "Get key") { link("SubDL", SubDl.KEY_URL) }
                 FieldWithLink({ SettingField("Gemini", gem, password = true) { gem = it } }, "Get key") { link("Google AI Studio", Gemini.KEY_URL) }
+                if (moreKeys) {
+                    SettingField("OpenSubtitles username (optional: 20 downloads/day instead of 5)", osu) { osu = it }
+                    SettingField("OpenSubtitles password (optional)", osp, password = true) { osp = it }
+                    FieldWithLink({ SettingField("SubDL (subtitle backup)", sdk, password = true) { sdk = it } }, "Get key") { link("SubDL", SubDl.KEY_URL) }
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     PillButton("Save and test", {
                         keyboard?.hide()
@@ -212,6 +211,7 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
                             if (gem.isNotBlank()) launch { Ai.refreshSuggested(repo, force = true) }
                         }
                     }, primary = true)
+                    if (!moreKeys) PillButton("More subtitle options", { moreKeys = true })
                     PillButton("Learn more", {
                         learn = "API keys" to ("All optional. TMDB: posters, plots, cast. OMDb: IMDb ratings. OpenSubtitles (+ optional login for more downloads) and SubDL: subtitle downloads; files are saved on the device so replays never download again. " +
                             "Gemini: \"Suggested for you\" and voice / AI search (titles from your history are sent to Google). Keys sync with Google sync.")
@@ -221,26 +221,18 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
             SettingsNav.Sec.HIDDEN -> {
                 Box(first) { HiddenRowsPanel(repo, title = false) }
             }
-            SettingsNav.Sec.TROUBLE -> {
-                SettingRow("Portal replies", "", first) { learn = "Portal replies" to repo.api.debugLog() }
-                SettingRow("Live link diagnostics", "Last channels tried") { learn = "Live link diagnostics" to LinkDiag.report() }
-                SettingRow("Clear movie info cache") { Tmdb.clearCache(); note = "Cleared" }
-                var clearHist by remember { mutableStateOf(false) }
-                if (!clearHist) {
-                    SettingRow("Clear watch history", "Also on Home: Continue watching → Options") { clearHist = true }
-                } else {
-                    SettingRow("Last 24 hours") {
-                        s.clearHistory(24 * 3600_000L)
-                        note = "Cleared last 24 hours"
-                        clearHist = false
-                    }
-                    SettingRow("All history") {
-                        s.clearHistory()
-                        note = "All history cleared"
-                        clearHist = false
-                    }
-                    SettingRow("Cancel") { clearHist = false }
+            SettingsNav.Sec.HELP -> {
+                SettingRow("Check for updates", Updater.statusLine().ifEmpty { "GitHub release" }, first) {
+                    note = "Checking for updates…"
+                    scope.launch { note = Updater.check(ctx, s, manual = true) }
                 }
+                SettingRow("Automatic updates", updateMode.label) {
+                    updateMode = updateMode.next(); s.updateMode = updateMode
+                    note = updateMode.detail
+                }
+                SettingRow("Portal replies") { learn = "Portal replies" to repo.api.debugLog() }
+                SettingRow("Live link diagnostics") { learn = "Live link diagnostics" to LinkDiag.report() }
+                SettingRow("Clear movie info cache") { Tmdb.clearCache(); note = "Cleared" }
                 val ver = remember { try { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName } catch (e: Exception) { "?" } }
                 Text("TVstreamer $ver", color = Pal.Dim, fontSize = Ts.CAPTION.sp, modifier = Modifier.padding(start = 6.dp, top = 6.dp))
             }
@@ -251,7 +243,7 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
     fun DetailPane(which: SettingsNav.Sec, modifier: Modifier) {
         Column(
             modifier.verticalScroll(rememberScrollState()).imePadding().onFocusChanged { inDetail = it.hasFocus },
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Text(which.title, color = Pal.Text, fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(bottom = 6.dp))
             if (statusText.isNotEmpty()) Text(statusText, color = Pal.Warn, fontSize = Ts.SECONDARY.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -261,8 +253,8 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
     }
 
     Box(Modifier.fillMaxSize().background(Pal.Bg)) {
-        if (split) Row(Modifier.fillMaxSize().padding(horizontal = 40.dp, vertical = 28.dp), horizontalArrangement = Arrangement.spacedBy(36.dp)) {
-            Column(Modifier.width(280.dp).fillMaxHeight().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (split) Row(Modifier.fillMaxSize().padding(horizontal = 40.dp, vertical = 20.dp), horizontalArrangement = Arrangement.spacedBy(32.dp)) {
+            Column(Modifier.width(260.dp).fillMaxHeight().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("Settings", color = Pal.GoldText, fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 8.dp, bottom = 14.dp))
                 SettingsNav.ALL.forEach { x ->
                     // Focusing a section shows it on the right (Netflix style); Right / OK go into it
