@@ -3,6 +3,7 @@
 package tv.tvstreamer
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
@@ -25,6 +26,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -75,8 +77,18 @@ fun Label(text: String, size: Int = Ts.ROW, color: Color = Pal.Text, modifier: M
 
 @Composable
 fun Row1(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, onMenu: (() -> Unit)? = null, onFocus: (() -> Unit)? = null) {
-    Box(modifier.fillMaxWidth().tv(onClick, onMenu, onFocus).padding(horizontal = 12.dp, vertical = Ts.MENU_PAD)) {
-        Label(text, Ts.ROW, maxLines = 3)
+    // Netflix style menu line: plain text, the focused line is filled white with dark text
+    var f by remember { mutableStateOf(false) }
+    val bg by animateColorAsState(if (f) Pal.FocusFill else Color.Transparent, Motion.colorSpec(), label = "row1Bg")
+    Box(
+        modifier.fillMaxWidth().popupOpener()
+            .onFocusChanged { if (it.isFocused != f) { f = it.isFocused; if (f) onFocus?.invoke() } }
+            .clip(RoundedCornerShape(Radii.row)).background(bg)
+            .onKeyEvent { e -> if (onMenu != null && e.type == KeyEventType.KeyUp && e.key == Key.Menu) { onMenu(); true } else false }
+            .combinedClickable(onClick = onClick, onLongClick = onMenu)
+            .padding(horizontal = 14.dp, vertical = Ts.MENU_PAD)
+    ) {
+        Label(Glyphs.plain(text), Ts.ROW, if (f) Pal.OnFocus else Pal.Text, maxLines = 3)
     }
 }
 

@@ -2,10 +2,9 @@ package tv.tvstreamer
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
@@ -29,7 +28,10 @@ object HomeHide {
     fun tabLabel(tab: String) = when (tab) { "home" -> "Home"; "movies" -> "Movies"; "series" -> "Series"; else -> tab.replaceFirstChar { it.uppercase() } }
 }
 
-/** Settings > Hidden: hidden Home rows, categories and channels, each with "Show again" (D-pad: OK). The only place to restore them. */
+/**
+ * Settings > Hidden, as a plain list (1.75): a short header per kind and one row per hidden item. Selecting a row shows
+ * it again. The only place to restore hidden rows, categories, channels and titles.
+ */
 @Composable
 fun HiddenRowsPanel(repo: Repo, modifier: Modifier = Modifier, title: Boolean = true) {
     val rows = HomeHide.entries(repo.hidden)
@@ -38,41 +40,45 @@ fun HiddenRowsPanel(repo: Repo, modifier: Modifier = Modifier, title: Boolean = 
     val channels = repo.hiddenChannelCount()
     val groups = repo.hidden.filter { it.startsWith(Taxonomy.PREFIX) }.sorted()
     val titles = repo.hiddenTitleCount()
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    val total = rows.size + cats.size + liveCats.size + groups.size + (if (channels > 0) 1 else 0) + (if (titles > 0) 1 else 0)
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
         if (title) Label("Hidden", Ts.TITLE)
-        if (rows.isEmpty() && cats.isEmpty() && liveCats.isEmpty() && groups.isEmpty() && channels == 0 && titles == 0) Label("Nothing hidden", Ts.SECONDARY, Pal.Dim)
-        rows.forEach { e ->
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Label("${HomeHide.title(e)}  ·  ${HomeHide.tabLabel(HomeHide.tab(e))}", Ts.HEAD, Pal.Text, Modifier.weight(1f))
-                PillButton("Show again", { repo.unhideRow(e) }, size = Ts.SECONDARY)
-            }
+        if (total == 0) {
+            Label("Nothing is hidden", Ts.ROW, Pal.Text)
+            Label("Rows, categories, channels and titles you hide appear here.", Ts.SECONDARY, Pal.Dim, maxLines = 3)
+            return@Column
         }
-        cats.forEach { c ->
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Label("${GroupTitle.display(c.title)}  ·  category", Ts.HEAD, Pal.Text, Modifier.weight(1f))
-                PillButton("Show again", { repo.toggleHide("vod", c.id) }, size = Ts.SECONDARY)
-            }
+        Label("Select an item to show it again.", Ts.SECONDARY, Pal.Dim, Modifier.padding(bottom = 4.dp))
+        if (total > 1) SettingRow("Show everything again") {
+            repo.unhideAllRows(); repo.unhideAllChannels(); repo.unhideAllTitles()
+            liveCats.forEach { repo.toggleHide("itv", it.id) }
+            groups.forEach { repo.toggleGroup(it) }
         }
-        liveCats.forEach { c ->
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Label("${GroupTitle.display(c.title, "Live TV")}  ·  Live TV", Ts.HEAD, Pal.Text, Modifier.weight(1f))
-                PillButton("Show again", { repo.toggleHide("itv", c.id) }, size = Ts.SECONDARY)
-            }
+        if (rows.isNotEmpty()) {
+            HiddenHeader("Home rows")
+            rows.forEach { e -> SettingRow("${HomeHide.title(e)}  ·  ${HomeHide.tabLabel(HomeHide.tab(e))}", "Show") { repo.unhideRow(e) } }
         }
-        groups.forEach { g ->
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Label("${Taxonomy.label(g)}  ·  Live TV group", Ts.HEAD, Pal.Text, Modifier.weight(1f))
-                PillButton("Show again", { repo.toggleGroup(g) }, size = Ts.SECONDARY)
-            }
+        if (cats.isNotEmpty()) {
+            HiddenHeader("Movie and series categories")
+            cats.forEach { c -> SettingRow(GroupTitle.display(c.title), "Show") { repo.toggleHide("vod", c.id) } }
         }
-        if (channels > 0) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Label("$channels hidden channel" + (if (channels > 1) "s" else ""), Ts.HEAD, Pal.Text, Modifier.weight(1f))
-            PillButton("Show again", { repo.unhideAllChannels() }, size = Ts.SECONDARY)
+        if (liveCats.isNotEmpty() || groups.isNotEmpty()) {
+            HiddenHeader("Live TV")
+            liveCats.forEach { c -> SettingRow(GroupTitle.display(c.title, "Live TV"), "Show") { repo.toggleHide("itv", c.id) } }
+            groups.forEach { g -> SettingRow(Taxonomy.label(g), "Show") { repo.toggleGroup(g) } }
         }
-        if (titles > 0) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Label("$titles hidden title" + (if (titles > 1) "s" else ""), Ts.HEAD, Pal.Text, Modifier.weight(1f))
-            PillButton("Show again", { repo.unhideAllTitles() }, size = Ts.SECONDARY)
+        if (channels > 0) {
+            HiddenHeader("Channels")
+            SettingRow("$channels hidden channel" + (if (channels > 1) "s" else ""), "Show all") { repo.unhideAllChannels() }
         }
-        if (rows.size + cats.size > 1) PillButton("Show all rows again", { repo.unhideAllRows() }, size = Ts.SECONDARY)
+        if (titles > 0) {
+            HiddenHeader("Titles")
+            SettingRow("$titles hidden title" + (if (titles > 1) "s" else ""), "Show all") { repo.unhideAllTitles() }
+        }
     }
+}
+
+@Composable
+private fun HiddenHeader(text: String) {
+    Label(text, Ts.HEAD, Pal.Dim, Modifier.padding(start = 6.dp, top = 12.dp, bottom = 2.dp))
 }

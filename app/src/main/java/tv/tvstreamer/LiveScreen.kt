@@ -523,7 +523,7 @@ private fun TypeHeader(type: String, count: Int, folded: Boolean, tv: Boolean, m
             .onPreviewKeyEvent { e -> holdOkKey(e, held, { held = it }, onMenu) }
             .onKeyEvent { e -> if (e.type == KeyEventType.KeyUp && e.key == Key.Menu) { onMenu(); true } else false }
             .clip(shape).background(if (f) Pal.FocusBg else Color.Transparent)
-            .then(if (f) Modifier.border(2.dp, Pal.Gold, shape) else Modifier)
+            .then(if (f) Modifier.border(2.dp, Pal.Focus, shape) else Modifier)
             .combinedClickable(onClick = onToggle, onLongClick = onMenu)
             .padding(horizontal = 10.dp, vertical = if (tv) 8.dp else 6.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -545,7 +545,7 @@ private fun SectionHeader(s: LiveModes.Section, folded: Boolean, tv: Boolean, mo
             .onPreviewKeyEvent { e -> holdOkKey(e, held, { held = it }, onMenu) }
             .onKeyEvent { e -> if (e.type == KeyEventType.KeyUp && e.key == Key.Menu) { onMenu(); true } else false }
             .clip(shape).background(if (f) Pal.FocusBg else Color.Transparent)
-            .then(if (f) Modifier.border(2.dp, Pal.Gold, shape) else Modifier)
+            .then(if (f) Modifier.border(2.dp, Pal.Focus, shape) else Modifier)
             .combinedClickable(onClick = onToggle, onLongClick = onMenu)
             .padding(start = if (underType) 22.dp else 10.dp, end = 10.dp, top = if (tv) 6.dp else 5.dp, bottom = if (tv) 6.dp else 5.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -573,7 +573,7 @@ private fun NavEntry(icon: String, label: String, open: Boolean, modifier: Modif
             .then(if (onLongClick != null) Modifier.onKeyEvent { e -> if (e.type == KeyEventType.KeyUp && e.key == Key.Menu) { onLongClick(); true } else false } else Modifier)
             .clip(shape)
             .background(bg)
-            .then(if (f) Modifier.border(2.dp, Pal.Gold.copy(alpha = 0.95f), shape) else Modifier)
+            .then(if (f) Modifier.border(2.dp, Pal.Focus, shape) else Modifier)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(horizontal = 12.dp, vertical = if (small) 6.dp else 9.dp)
             .alpha(if (dim && !f) 0.45f else 1f),
@@ -629,7 +629,7 @@ private fun ChannelRow(repo: Repo, ch: Item, on: Boolean, browseAll: Boolean, pl
                 }
                 .clip(shape)
                 .background(when { f -> Pal.FocusBg; playing -> Pal.Soft; else -> Color.Transparent })
-                .then(if (f) Modifier.border(2.dp, Pal.Gold, shape) else Modifier)
+                .then(if (f) Modifier.border(2.dp, Pal.Focus, shape) else Modifier)
                 .combinedClickable(onClick = onClick, onLongClick = onMenu)
                 .padding(horizontal = 10.dp, vertical = if (tv) Ts.ROW_PAD_TV else Ts.ROW_PAD)
                 .alpha(if (on || checked == true) 1f else 0.45f),
@@ -699,13 +699,13 @@ private fun HideShowChip(shown: Boolean, tv: Boolean, onClick: () -> Unit, modif
             .popupOpener()
             .onFocusChanged { f = it.isFocused }
             .clip(shape)
-            .background(when { f -> Pal.Gold; !shown -> Pal.Soft2; else -> Pal.Soft })
-            .then(if (f) Modifier.border(2.dp, Pal.Gold, shape) else Modifier)
+            .background(when { f -> Pal.FocusFill; !shown -> Pal.Soft2; else -> Pal.Soft })
+            .then(if (f) Modifier.border(2.dp, Pal.Focus, shape) else Modifier)
             .combinedClickable(onClick = onClick)
             .padding(horizontal = if (tv) 12.dp else 10.dp, vertical = if (tv) 6.dp else 4.dp),
         contentAlignment = Alignment.Center
     ) {
-        Label(label, Ts.CAPTION, if (f) Color.Black else Pal.Text)
+        Label(label, Ts.CAPTION, if (f) Pal.OnFocus else Pal.Text)
     }
 }
 
@@ -767,7 +767,7 @@ fun LiveTile(ch: Item, fav: Boolean, playing: Boolean, checked: Boolean, tv: Boo
     Column {
         Box(Modifier.fillMaxWidth().aspectRatio(16f / 10f).focusCard(onClick, onMenu, { Keys.focused = ch }, scale = 1.06f, shape = shape)
             .background(Pal.Card, shape)
-            .then(if (playing) Modifier.border(2.dp, Pal.Gold, shape) else Modifier)) {
+            .then(if (playing) Modifier.border(2.dp, Pal.Focus, shape) else Modifier)) {
             if (ch.img.isNotEmpty()) Poster(ch.img, name, Modifier.fillMaxSize().padding(if (tv) 14.dp else 10.dp), ContentScale.Fit, initialsSize = if (tv) 26 else 20)
             else Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Label(ChannelTitle.initials(name), if (tv) Ts.DISPLAY else Ts.TITLE, Pal.GoldText) }
             NumBadge(ch.num, Modifier.align(Alignment.TopStart).padding(5.dp))

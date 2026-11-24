@@ -360,13 +360,13 @@ private fun QuietChip(label: String, accent: Boolean, tv: Boolean, onClick: () -
     Box(
         Modifier.popupOpener().onFocusChanged { f = it.isFocused }
             .clip(shape)
-            .background(when { f -> Pal.Gold; accent -> Pal.Gold.copy(alpha = 0.16f); else -> Pal.Soft })
-            .then(if (f) Modifier.border(2.dp, Pal.Gold, shape) else if (accent) Modifier.border(1.dp, Pal.Gold.copy(alpha = 0.45f), shape) else Modifier)
+            .background(when { f -> Pal.FocusFill; accent -> Pal.Gold.copy(alpha = 0.16f); else -> Pal.Soft })
+            .then(if (f) Modifier.border(2.dp, Pal.Focus, shape) else if (accent) Modifier.border(1.dp, Pal.Gold.copy(alpha = 0.45f), shape) else Modifier)
             .combinedClickable(onClick = onClick)
             .padding(horizontal = if (tv) 14.dp else 11.dp, vertical = if (tv) 6.dp else 5.dp),
         contentAlignment = Alignment.Center
     ) {
-        Text(label, color = when { f -> Color.Black; accent -> Pal.GoldText; else -> Pal.Text },
+        Text(label, color = when { f -> Pal.OnFocus; accent -> Pal.GoldText; else -> Pal.Text },
             fontSize = Ts.CAPTION.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.3.sp)
     }
 }

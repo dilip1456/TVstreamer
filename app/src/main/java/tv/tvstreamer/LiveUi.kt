@@ -73,7 +73,7 @@ fun InfoDialog(title: String, text: String, onClose: () -> Unit) {
     val fr = remember { FocusRequester() }
     LaunchedEffect(Unit) { delay(60); runCatching { fr.requestFocus() } }
     PopupFrame(onClose) {
-        Column(Modifier.widthIn(min = 320.dp, max = 620.dp).background(Pal.Surface, RoundedCornerShape(Radii.panel)).border(1.dp, Color(0x22D4AF37), RoundedCornerShape(Radii.panel)).padding(22.dp),
+        Column(Modifier.widthIn(min = 320.dp, max = 620.dp).background(Pal.Surface, RoundedCornerShape(Radii.panel)).border(1.dp, Color(0x1FFFFFFF), RoundedCornerShape(Radii.panel)).padding(22.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(title, color = Pal.Text, fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold)
             Text(text, color = Pal.Dim, fontSize = Ts.SECONDARY.sp, modifier = Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()))

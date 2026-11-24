@@ -78,7 +78,10 @@ object Pal {
     val Gold = Color(0xFFD4AF37)
     /** Gold for text (darker in light mode so it stays readable). */
     val GoldText get() = pick(0xFFD4AF37, 0xFF7A5C00)
-    val Focus = Gold
+    /** Netflix style focus: white (dark mode) / near black (light mode) fill with the opposite text colour. */
+    val Focus get() = pick(0xFFFFFFFF, 0xFF141418)
+    val FocusFill get() = pick(0xF2F5F0E6, 0xFF1B1B20)
+    val OnFocus get() = pick(0xFF141414, 0xFFFFFFFF)
     val Dim get() = pick(0xFF9AA0B5, 0xFF555B6B)
     val Warn get() = pick(0xFFFFB74D, 0xFFA04F00)
     val Error get() = pick(0xFFFF8A80, 0xFFC62828)
@@ -93,7 +96,7 @@ object Pal {
     val Field get() = pick(0xFF1A1A22, 0xFFEBEBF1)
     val FieldFocus get() = pick(0xFF1E1E26, 0xFFE2E2EA)
     val Row get() = pick(0xFF1E1E26, 0xFFFFFFFF)
-    val FocusBg get() = pick(0xFF2A2414, 0xFFFFF1C4)
+    val FocusBg get() = pick(0xFF2B2B30, 0xFFE2E2EA)
     val WarnBox get() = pick(0xFF2A1F1A, 0xFFFFEEDC)
     val ChipSel get() = pick(0xFF5A4A12, 0xFFF1DE9C)
     val Shimmer get() = pick(0xFF383844, 0xFFF0F0F5)
@@ -195,7 +198,7 @@ fun PillButton(
 ) {
     var f by remember { mutableStateOf(false) }
     val target = when {
-        f -> Pal.Gold
+        f -> Pal.FocusFill
         primary -> Pal.Accent
         selected -> Pal.Selected
         else -> Pal.Soft2
@@ -214,7 +217,7 @@ fun PillButton(
             .padding(horizontal = if (compact) 12.dp else 16.dp, vertical = if (compact) 6.dp else 8.dp),
         contentAlignment = Alignment.Center
     ) {
-        val fg = if (f) Color.Black else if (primary) Color.White else Pal.Text
+        val fg = if (f) Pal.OnFocus else if (primary) Color.White else Pal.Text
         androidx.compose.foundation.layout.Row(verticalAlignment = Alignment.CenterVertically) {
             if (icon != null) {
                 androidx.compose.material3.Icon(icon, null, tint = fg, modifier = Modifier.size((size + 6).dp))

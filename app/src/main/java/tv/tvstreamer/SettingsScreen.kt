@@ -1,8 +1,11 @@
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+
 package tv.tvstreamer
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -13,6 +16,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -40,23 +44,25 @@ object SettingsNav {
     fun back(inDetail: Boolean): Boolean = inDetail   // true = handled here (go up one level)
 }
 
-/** A big rounded settings row: one-line title, optional small value / note, smooth focus (same motion as the app). */
+/** A settings row, Netflix style: plain text and a small value on the right; the focused row is filled white with dark text. */
 @Composable
 fun SettingRow(title: String, value: String = "", modifier: Modifier = Modifier, selected: Boolean = false, onClick: () -> Unit) {
     var f by remember { mutableStateOf(false) }
-    val bg by animateColorAsState(when { f -> Pal.FocusBg; selected -> Pal.ChipSel.copy(alpha = 0.55f); else -> Pal.Soft }, Motion.colorSpec(), label = "setBg")
+    val bg by animateColorAsState(when { f -> Pal.FocusFill; selected -> Pal.Soft2; else -> Color.Transparent }, Motion.colorSpec(), label = "setBg")
     val shape = RoundedCornerShape(Radii.row)
     Row(
         modifier.fillMaxWidth().heightIn(min = 44.dp)
             .onFocusChanged { f = it.isFocused }
-            .focusCard(onClick, scale = 1.02f, shape = shape)
+            .popupOpener()
+            .clip(shape)
             .background(bg)
+            .combinedClickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text(title, color = if (f) Pal.GoldText else Pal.Text, fontSize = Ts.ROW.sp, fontWeight = if (f || selected) FontWeight.SemiBold else FontWeight.Medium,
+        Text(title, color = if (f) Pal.OnFocus else Pal.Text, fontSize = Ts.ROW.sp, fontWeight = if (f || selected) FontWeight.SemiBold else FontWeight.Normal,
             maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-        if (value.isNotEmpty()) Text(value, color = if (f) Pal.GoldText else Pal.Dim, fontSize = Ts.HEAD.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+        if (value.isNotEmpty()) Text(value, color = if (f) Pal.OnFocus.copy(alpha = 0.7f) else Pal.Dim, fontSize = Ts.HEAD.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
             modifier = Modifier.widthIn(max = 320.dp))
     }
 }

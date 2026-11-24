@@ -1070,7 +1070,7 @@ fun ChoiceDialog(title: String, opts: List<Pair<String, () -> Unit>>, focusKey: 
             Modifier.padding(end = 48.dp).widthIn(min = 252.dp, max = 340.dp).heightIn(max = 440.dp)
                 .clip(RoundedCornerShape(Radii.panel))
                 .background(Pal.Surface.copy(alpha = 0.94f))
-                .border(1.dp, Color(0x22D4AF37), RoundedCornerShape(Radii.panel))
+                .border(1.dp, Color(0x1FFFFFFF), RoundedCornerShape(Radii.panel))
                 .padding(horizontal = 10.dp, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
@@ -1094,7 +1094,7 @@ fun ChoiceDialog(title: String, opts: List<Pair<String, () -> Unit>>, focusKey: 
 @Composable
 fun MenuEntry(label: String, onClick: () -> Unit, modifier: Modifier = Modifier, dim: Boolean = false) {
     var f by remember { mutableStateOf(false) }
-    val bg by androidx.compose.animation.animateColorAsState(if (f) Pal.Gold else Color.Transparent, Motion.colorSpec(), label = "menuBg")
+    val bg by androidx.compose.animation.animateColorAsState(if (f) Pal.FocusFill else Color.Transparent, Motion.colorSpec(), label = "menuBg")
     Box(
         modifier.fillMaxWidth().popupOpener().onFocusChanged { f = it.isFocused }
             .clip(RoundedCornerShape(Radii.row))
@@ -1102,7 +1102,7 @@ fun MenuEntry(label: String, onClick: () -> Unit, modifier: Modifier = Modifier,
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = Ts.MENU_PAD)
     ) {
-        Text(Glyphs.plain(label), color = when { f -> Color.Black; dim -> Pal.Dim; else -> Pal.Text }, fontSize = Ts.ROW.sp,
+        Text(Glyphs.plain(label), color = when { f -> Pal.OnFocus; dim -> Pal.Dim; else -> Pal.Text }, fontSize = Ts.ROW.sp,
             fontWeight = if (f) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
