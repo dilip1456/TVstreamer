@@ -254,8 +254,6 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
         if (mode == "home") {
             if (recent.isNotEmpty()) add(Shelf("recent", "Recent channels", recent, "itv"))
         }
-        if (tabbed) {
-
         cats.forEach { cat ->
             val raw = lib.inCat(cat.id).takeIf { it.isNotEmpty() }?.take(ROW_LIMIT * 2)
             val items = raw?.filter { wantItem(it) }
