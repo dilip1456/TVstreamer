@@ -76,6 +76,8 @@ class LiveModelCache(private val max: Int = 30) {
         while (map.size > max) map.remove(map.keys.first())
     }
 
+    @Synchronized fun clear() = map.clear()
+
     /** A layout of the same channels, sort and languages (its sorted channel list is reused). */
     @Synchronized fun base(i: LiveInputs): LiveModel? = map.values.lastOrNull { LiveModel.sameBase(it.inputs, i) }
 
