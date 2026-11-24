@@ -1,12 +1,16 @@
 package tv.tvstreamer
 
 /**
- * Whether locked / adult portal titles and channels appear in lists.
- * Default mode shows them unless the user turns this off; playing a locked item still uses [Repo.gate].
+ * Sensitive / password-controlled content filter.
+ *
+ * [showAdult] = true  → "sensitive only" mode: lists show ONLY locked titles and channels.
+ * [showAdult] = false → normal mode: locked titles and channels are hidden from lists.
+ * Playing a locked item still goes through [Repo.gate].
  */
 object AdultContent {
-    /** True when a locked item or category may be listed. [showAdult] defaults to on. */
-    fun listOk(locked: Boolean, showAdult: Boolean): Boolean = !locked || showAdult
+    /** Whether an item or category may appear in lists. */
+    fun listOk(locked: Boolean, showAdult: Boolean): Boolean =
+        if (showAdult) locked else !locked
 }
 
 /**
