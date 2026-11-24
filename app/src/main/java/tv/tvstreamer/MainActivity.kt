@@ -67,6 +67,7 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState == null) handleIntent(intent)
         setContent {
             MaterialTheme(
+                typography = AppType.typography,
                 colorScheme = if (Theme.dark) darkColorScheme(primary = Pal.Accent, background = Pal.Bg, surface = Pal.Surface, onPrimary = Color.White)
                     else lightColorScheme(primary = Pal.Accent, background = Pal.Bg, surface = Pal.Surface, onPrimary = Color.White)
             ) {

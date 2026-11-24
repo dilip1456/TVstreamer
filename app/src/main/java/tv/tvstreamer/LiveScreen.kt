@@ -346,27 +346,22 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
 
     // TV: the same top menu as Home / Movies / Series, so Up from the list reaches it.
     // Back leaves Live TV in one press (no wasted "focus the tabs first" step).
-    val liveTabFrs = remember { List(5) { FocusRequester() } }
-    val liveTabFr = liveTabFrs[4]
-    var liveNavIx by remember { mutableIntStateOf(-1) }
+    val liveTabFr = remember { FocusRequester() }
     var headerFocused by remember { mutableStateOf(false) }
     val header = tv && !AppUi.phoneNav
     if (rail) Column(Modifier.fillMaxSize().onKeyEvent { e ->
         if (e.type == KeyEventType.KeyUp && e.key == Key.Menu && popup == null && menuCh == null) { popup = "more"; true }
         else false
     }) {
-        if (header) Row(
-            Modifier.fillMaxWidth().padding(start = 48.dp, end = 48.dp, top = 14.dp, bottom = 2.dp)
-                .menuRow({ liveNavIx }, { 5 }) { n -> liveNavIx = n; runCatching { liveTabFrs[n].requestFocus() } }
-                .onFocusChanged { headerFocused = it.hasFocus; if (it.hasFocus) navOpen = false; if (!it.hasFocus) liveNavIx = -1 },
-            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally)
-        ) {
-            NavTab("🔍", onSearch, Modifier.focusRequester(liveTabFrs[0]).onFocusChanged { if (it.isFocused) liveNavIx = 0 })
-            NavTab("Home", { go(Screen.Home) }, Modifier.focusRequester(liveTabFrs[1]).onFocusChanged { if (it.isFocused) liveNavIx = 1 })
-            NavTab("Movies", { go(Screen.MoviesTab) }, Modifier.focusRequester(liveTabFrs[2]).onFocusChanged { if (it.isFocused) liveNavIx = 2 })
-            NavTab("Series", { go(Screen.SeriesTab) }, Modifier.focusRequester(liveTabFrs[3]).onFocusChanged { if (it.isFocused) liveNavIx = 3 })
-            NavTab("Live TV", {}, Modifier.focusRequester(liveTabFr).onFocusChanged { if (it.isFocused) liveNavIx = 4 }, selected = true)
-        }
+        if (header) TvTopBar(
+            current = "live",
+            onGo = { k -> when (k) { "home" -> go(Screen.Home); "movies" -> go(Screen.MoviesTab); "series" -> go(Screen.SeriesTab); else -> {} } },
+            onSearch = onSearch,
+            onProfile = { AppUi.accountMenu = true },
+            modifier = Modifier.padding(start = 48.dp, end = 48.dp, top = 14.dp, bottom = 6.dp),
+            extra = { k -> if (k == "live") Modifier.focusRequester(liveTabFr) else Modifier },
+            onFocusState = { headerFocused = it; if (it) navOpen = false }
+        )
         Row(Modifier.fillMaxWidth().weight(1f)) {
             val w by animateDpAsState(if (navOpen) 268.dp else 80.dp, tween(180), label = "nav")
             Column(

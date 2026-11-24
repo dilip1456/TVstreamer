@@ -78,6 +78,7 @@ fun Item.isEpisode(): Boolean = kind == "vod" && num != -1 && (series > 0 || sea
 fun Item.isEpisodeLike(): Boolean = isEpisode() || (kind == "vod" && !isSeries && Tags.hasEpisodeMarker(name))
 
 private const val ROW_LIMIT = 40
+private const val HOME_ROWS = 12
 /** Last rows / hero slides per tab, shown at once when the tab opens again while fresh ones are worked out. */
 private val shelfMemo = java.util.concurrent.ConcurrentHashMap<String, List<Shelf>>()
 private val heroMemo = java.util.concurrent.ConcurrentHashMap<String, List<HeroPick>>()
@@ -321,16 +322,20 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
     val hero = heroPick?.show
 
     // Rows hidden with the row menu stay out; restore in What to show or Settings > Hidden
-    val shelvesShown = remember(shelves, repo.hidden) {
+    val shelvesAll = remember(shelves, repo.hidden) {
         val off = HomeHide.ids(repo.hidden)
         shelves.distinctBy { it.key }.filter { "${HomeHide.PREFIX}$mode|${it.key}" !in off }
     }
+    // Home is a short, curated page (1.75): Continue watching, My List and the like first, then the first
+    // HOME_ROWS category rows. Everything else is one step away in Movies and Series (a portal has hundreds of groups).
+    val homeHead = setOf("cont", "fav", "ai", "favc", "recent")
+    val homeMore = mode == "home" && shelvesAll.count { it.key !in homeHead } > HOME_ROWS
+    val shelvesShown = if (mode == "home") shelvesAll.filter { it.key in homeHead } + shelvesAll.filter { it.key !in homeHead }.take(HOME_ROWS) else shelvesAll
     val screenKey = "cat:$mode"
     val heroFr = remember { FocusRequester() }
     val navFr = remember { FocusRequester() }
     val searchFr = remember { FocusRequester() }
     var navFocused by remember { mutableStateOf(false) }
-    var navIx by remember { mutableIntStateOf(-1) }
     // Search closed (Back): focus returns to the Search tab it was opened from
     LaunchedEffect(AppUi.searchClosed) {
         // The item focused before Search takes focus itself (RestoreFocus); the Search tab only when there is none
@@ -389,34 +394,20 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                 // TV / tablet menu (Netflix style): profile on the left, text tabs centred; the focused tab is a soft
                 // light pill, the current one bold. Left / Right stay inside the menu, Down goes to the page.
                 // Settings, Preferences and Update live in the profile menu.
-                if (!AppUi.phoneNav) {
-                    val tabCount = tabs.size + 1
-                    val tabFrs = remember(tabCount) { List(tabCount) { FocusRequester() } }
-                    Row(
-                    Modifier.fillMaxWidth().menuRow({ navIx }, { tabCount }) { n ->
-                            navIx = n
-                            runCatching { tabFrs.getOrNull(n)?.requestFocus() }
+                if (!AppUi.phoneNav) TvTopBar(
+                    current = mode,
+                    onGo = { k -> when (k) { "home" -> go(Screen.Home); "movies" -> go(Screen.MoviesTab); "series" -> go(Screen.SeriesTab); "live" -> go(Screen.Live); else -> {} } },
+                    onSearch = { go(Screen.Search) },
+                    onProfile = { AppUi.accountMenu = true },
+                    extra = { k ->
+                        when {
+                            k == mode -> Modifier.focusRequester(navFr).onFocusChanged { if (it.isFocused) repo.lastFocus[screenKey] = "nav" }
+                            k == "search" -> Modifier.focusRequester(searchFr).onFocusChanged { if (it.isFocused) repo.lastFocus[screenKey] = "search" }
+                            else -> Modifier
                         }
-                        .onFocusChanged { navFocused = it.hasFocus; if (!it.hasFocus) navIx = -1 }.focusRestorer(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(Modifier.focusRequester(tabFrs[0]).onFocusChanged { if (it.hasFocus) navIx = 0 }) { AvatarButton { AppUi.accountMenu = true } }
-                    Spacer(Modifier.weight(1f))
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        tabs.forEachIndexed { ti, (t, k, a) ->
-                            val at = Modifier.focusRequester(tabFrs[ti + 1]).onFocusChanged { if (it.isFocused) navIx = ti + 1 }
-                            val m = at then when (k) {
-                                mode -> Modifier.focusRequester(navFr).onFocusChanged { if (it.isFocused) repo.lastFocus[screenKey] = "nav" }
-                                "search" -> Modifier.focusRequester(searchFr).onFocusChanged { if (it.isFocused) repo.lastFocus[screenKey] = "search" }
-                                else -> Modifier
-                            }
-                            NavTab(t, a, m, selected = k == mode)
-                        }
-                    }
-                    Spacer(Modifier.weight(1f))
-                    Text("TV", color = Pal.GoldText, fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold)
-                }
-                }
+                    },
+                    onFocusState = { navFocused = it }
+                )
             }
         LazyColumn(state = state, modifier = Modifier.fillMaxWidth().weight(1f), contentPadding = PaddingValues(bottom = 48.dp)) {
             item(key = "nav") {
@@ -464,7 +455,7 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
             }
             if (heroPick != null && hero != null) item(key = "hero") {
                 val h = heroPick
-                Hero(repo, hero, isTv, hPad, "▶  Play",
+                Hero(repo, hero, isTv, hPad, "Play",
                     onPlay = { if (h.play.isSeries) open(h.play) else playOrGate(h.play) },
                     onInfo = { open(hero) },
                     playModifier = Modifier.onFocusChanged { if (it.isFocused) repo.lastFocus[screenKey] = "hero" },
@@ -497,6 +488,13 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                     onMenu = { menu = shelf to it },
                     onSeeAll = shelf.cat?.let { c -> { go(Screen.Grid(c, Screen.Home)) } } ?: shelf.pool?.let { p -> { go(p) } }
                 )
+            }
+            if (homeMore) item(key = "homemore") {
+                Row(Modifier.padding(horizontal = hPad, vertical = 28.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("More to explore", color = Pal.Dim, fontSize = Ts.ROW.sp)
+                    PillButton("Movies", { go(Screen.MoviesTab) }, icon = NavIcons.Movie)
+                    PillButton("Series", { go(Screen.SeriesTab) }, icon = NavIcons.Series)
+                }
             }
         }
         }
@@ -619,9 +617,9 @@ private fun Hero(repo: Repo, raw: Item, isTv: Boolean, hPad: Dp, playLabel: Stri
                 if (item.desc.isNotEmpty()) Text(item.desc, color = Pal.Desc, fontSize = if (isTv) Ts.ROW.sp else Ts.SECONDARY.sp,
                     maxLines = if (isTv) 3 else 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth(if (isTv) 0.58f else 1f))
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    PillButton(playLabel.ifEmpty { "▶  Play" }, onPlay, playModifier.onFocusChanged { if (it.isFocused) Keys.focused = raw }, primary = true)
-                    PillButton("ⓘ  More info", onInfo)
-                    PillButton(if (fav) "✓  In My List" else "+  My List", { repo.toggleFav(raw); fav = repo.isFav(raw) })
+                    PillButton(playLabel.ifEmpty { "Play" }, onPlay, playModifier.onFocusChanged { if (it.isFocused) Keys.focused = raw }, primary = true, icon = Ic.Play)
+                    PillButton("More info", onInfo, icon = NavIcons.Info)
+                    PillButton(if (fav) "In My List" else "My List", { repo.toggleFav(raw); fav = repo.isFav(raw) }, icon = if (fav) NavIcons.Check else NavIcons.Add)
                     if (slides > 1) {
                         Spacer(Modifier.width(8.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {

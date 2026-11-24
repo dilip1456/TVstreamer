@@ -1102,7 +1102,7 @@ fun MenuEntry(label: String, onClick: () -> Unit, modifier: Modifier = Modifier,
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = Ts.MENU_PAD)
     ) {
-        Text(label, color = when { f -> Color.Black; dim -> Pal.Dim; else -> Pal.Text }, fontSize = Ts.ROW.sp,
+        Text(Glyphs.plain(label), color = when { f -> Color.Black; dim -> Pal.Dim; else -> Pal.Text }, fontSize = Ts.ROW.sp,
             fontWeight = if (f) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }

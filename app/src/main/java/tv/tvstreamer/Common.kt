@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -142,7 +144,7 @@ fun Modifier.focusCard(
 
 /** Top menu tab (Netflix style): plain text; focused = soft light pill (animated), current tab = bold white. */
 @Composable
-fun NavTab(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, selected: Boolean = false) {
+fun NavTab(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, selected: Boolean = false, icon: ImageVector? = null) {
     var f by remember { mutableStateOf(false) }
     val bg by androidx.compose.animation.animateColorAsState(if (f) Color(0xF2F5F0E6) else Color.Transparent, Motion.colorSpec(), label = "tabBg")
     val fg by androidx.compose.animation.animateColorAsState(when { f -> Color(0xFF141414); selected -> Pal.Text; else -> Pal.Dim }, Motion.colorSpec(), label = "tabFg")
@@ -155,8 +157,8 @@ fun NavTab(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, sel
             .padding(horizontal = 16.dp, vertical = 7.dp),
         contentAlignment = Alignment.Center
     ) {
-        Text(text, color = fg, fontSize = Ts.ROW.sp, fontWeight = if (selected || f) FontWeight.SemiBold else FontWeight.Medium,
-            letterSpacing = 0.2.sp, maxLines = 1)
+        if (icon != null) androidx.compose.material3.Icon(icon, text, tint = fg, modifier = Modifier.size(22.dp))
+        else Text(text, color = fg, fontSize = Ts.ROW.sp, fontWeight = if (selected || f) FontWeight.SemiBold else FontWeight.Medium, maxLines = 1)
     }
 }
 
@@ -188,7 +190,8 @@ fun PillButton(
     selected: Boolean = false,
     size: Int = Ts.HEAD,
     compact: Boolean = false,
-    onMenu: (() -> Unit)? = null
+    onMenu: (() -> Unit)? = null,
+    icon: ImageVector? = null
 ) {
     var f by remember { mutableStateOf(false) }
     val target = when {
@@ -211,9 +214,16 @@ fun PillButton(
             .padding(horizontal = if (compact) 12.dp else 16.dp, vertical = if (compact) 6.dp else 8.dp),
         contentAlignment = Alignment.Center
     ) {
-        Text(text, color = if (f) Color.Black else if (primary) Color.White else Pal.Text, fontSize = size.sp,
-            fontWeight = if (primary || selected) FontWeight.Bold else FontWeight.Medium, maxLines = 1,
-            overflow = TextOverflow.Ellipsis)
+        val fg = if (f) Color.Black else if (primary) Color.White else Pal.Text
+        androidx.compose.foundation.layout.Row(verticalAlignment = Alignment.CenterVertically) {
+            if (icon != null) {
+                androidx.compose.material3.Icon(icon, null, tint = fg, modifier = Modifier.size((size + 6).dp))
+                androidx.compose.foundation.layout.Spacer(Modifier.width(8.dp))
+            }
+            Text(Glyphs.plain(text), color = fg, fontSize = size.sp,
+                fontWeight = if (primary || selected) FontWeight.Bold else FontWeight.Medium, maxLines = 1,
+                overflow = TextOverflow.Ellipsis)
+        }
     }
 }
 
