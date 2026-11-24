@@ -396,12 +396,6 @@ class Repo(private val ctx: Context) {
         Theme.mode = store.theme
         liveLangs = store.langs("live")?.takeIf { it.isNotEmpty() }
         showAdult = store.showAdult
-        // Mode selection and live view also sync (sort_live_mode / sort_live_view)
-        val syncedMode = store.sort("live_mode", LiveModes.DEFAULT)
-        if (syncedMode != liveMode && (syncedMode == LiveModes.DEFAULT || syncedMode in folders.folders)) {
-            liveMode = syncedMode
-        }
-        liveView = LiveView.decode(store.sort("live_view", liveView.encode()))
         syncTick++
     }
     /** Bumped after a cloud sync changed local data. */
@@ -579,7 +573,7 @@ class Repo(private val ctx: Context) {
     var liveMode by mutableStateOf(store.sort("live_mode", LiveModes.DEFAULT))
         private set
     fun selectMode(name: String) {
-        liveMode = if (name in folders.folders) name else LiveModes.DEFAULT
+        liveMode = if (name == LiveModes.PASSWORD || name in folders.folders) name else LiveModes.DEFAULT
         store.saveSort("live_mode", liveMode)
     }
     /** Live TV list view (All channels, scroll, focused channel), kept across the player and restarts (1.53). */
@@ -587,7 +581,7 @@ class Repo(private val ctx: Context) {
         private set
     fun saveLiveView(v: LiveView) { if (v != liveView) { liveView = v; store.saveSort("live_view", v.encode()) } }
     /** The mode actually used ("" when the saved one was deleted, e.g. on another device). */
-    fun mode(): String = liveMode.takeIf { it in folders.folders } ?: LiveModes.DEFAULT
+    fun mode(): String = liveMode.takeIf { it == LiveModes.PASSWORD || it in folders.folders } ?: LiveModes.DEFAULT
     val modes: List<String> get() = folders.names
 
     fun createMode(name: String, current: List<Item>?): String? {
