@@ -442,7 +442,7 @@ class Library(private val repo: Repo) {
         repeat(2) { attempt ->
             try {
                 sessionPages++
-                return repo.api.vodPage(cat, p).also { if (note.startsWith("The portal")) note = "" }
+                return repo.api.vodPage(cat, p, fresh = p == 1 && !catNext.containsKey(cat)).also { if (note.startsWith("The portal")) note = "" }
             } catch (e: CancellationException) { throw e
             } catch (e: PortalBusyException) { note = e.message ?: ""; return null
             } catch (e: Exception) {
