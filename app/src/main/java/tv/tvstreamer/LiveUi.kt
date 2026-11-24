@@ -243,11 +243,15 @@ fun LiveGroupContextMenu(
     onToggleFold: () -> Unit, onExpandAll: () -> Unit, onCollapseAll: () -> Unit,
     onSelect: () -> Unit, onClose: () -> Unit
 ) {
-    val labels = ItemContext.liveGroupItems(groupOn, folded)
+    val labels = ItemContext.liveGroupItems(groupOn, folded).map { 
+        if (it == ItemContext.SHOW) "Show this category" 
+        else if (it == ItemContext.HIDE) "Hide this category" 
+        else it 
+    }
     ChoiceDialog(title, labels.map { label ->
         label to {
             when (label) {
-                ItemContext.SHOW, ItemContext.HIDE -> onShowHide()
+                "Show this category", "Hide this category", ItemContext.SHOW, ItemContext.HIDE -> onShowHide()
                 ItemContext.SHOW_ALL_CHANNELS -> onShowAll()
                 ItemContext.HIDE_ALL_CHANNELS -> onHideAll()
                 ItemContext.COLLAPSE, ItemContext.EXPAND -> onToggleFold()
