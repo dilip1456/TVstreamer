@@ -383,9 +383,7 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                 }
             )
             Column(Modifier.fillMaxWidth().padding(start = hPad, end = hPad, top = if (isTv) 18.dp else 10.dp, bottom = if (isTv) 10.dp else 6.dp)) {
-                if (AppUi.phoneNav || !isTv) Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("TVSTREAMER", color = Pal.GoldText, fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold)
-                }
+
                 // TV / tablet menu (Netflix style): profile on the left, text tabs centred; the focused tab is a soft
                 // light pill, the current one bold. Left / Right stay inside the menu, Down goes to the page.
                 // Settings, Preferences and Update live in the profile menu.
@@ -414,7 +412,6 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                         }
                     }
                     Spacer(Modifier.weight(1f))
-                    Text("TV", color = Pal.GoldText, fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold)
                 }
                 }
             }
