@@ -38,9 +38,18 @@ object LiveLink {
             addLink("alternate cmd ${n + 1}", c, "&series=&forced_storage=&disable_ad=0&download=0")
         }
         // The MAG placeholder by channel id (and by the cmds' own ch_id when it differs)
+        // Several dialects: ffrt / ffmpeg / auto, with and without forced_storage
         (listOf(id) + meta.cmdChIds).filter { it.isNotBlank() }.distinct().take(2).forEach { cid ->
-            val ph = "ffrt http://localhost/ch/${cid}_"
-            if (ph != main) addLink(if (cid == id) "placeholder by channel id" else "placeholder by cmds ch_id", ph, "&series=&forced_storage=&disable_ad=0&download=0")
+            val variants = listOf(
+                "ffrt http://localhost/ch/${cid}_" to "placeholder by channel id",
+                "ffmpeg http://localhost/ch/${cid}_" to "placeholder ffmpeg",
+                "auto http://localhost/ch/${cid}_" to "placeholder auto"
+            )
+            for ((ph, label) in variants) {
+                if (ph == main) continue
+                addLink(label, ph, "&series=&forced_storage=&disable_ad=0&download=0")
+                addLink("$label, storage=0", ph, "&series=0&forced_storage=0&disable_ad=0&download=0")
+            }
         }
         // Last resort: a real URL in the cmd played directly
         val c = StreamLink.clean(main)
