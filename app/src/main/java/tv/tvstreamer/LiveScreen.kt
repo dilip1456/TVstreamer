@@ -452,11 +452,12 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
                 undo = n.key to !repo.groupOn(n.key)
             },
             onShowAll = {
+                // Channels in this section only — never toggle the category group key
                 val rs = rowsOf(n)
                 if (rs.isNotEmpty()) repo.setOnRows(rs, true)
-                if (!repo.groupOn(n.key)) repo.toggleGroupKey(n.key, n.label)
             },
             onHideAll = {
+                // Channels in this section only — never hide the whole category
                 val rs = rowsOf(n)
                 if (rs.isNotEmpty()) {
                     if (!view.shows(false)) {
