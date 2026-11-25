@@ -386,9 +386,10 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                 }
             )
             Column(Modifier.fillMaxWidth().padding(start = hPad, end = hPad, top = if (isTv) 18.dp else 10.dp, bottom = if (isTv) 10.dp else 6.dp)) {
+                if (AppUi.phoneNav) BrandMark(Modifier.padding(bottom = 6.dp), height = 28.dp)
 
-                // TV / tablet menu (Netflix style): profile on the left, text tabs centred; the focused tab is a soft
-                // light pill, the current one bold. Left / Right stay inside the menu, Down goes to the page.
+                // TV / tablet menu (Netflix style): brand on the left, profile, then text tabs centred; the focused tab
+                // is a soft light pill, the current one bold. Left / Right stay inside the menu, Down goes to the page.
                 // Settings, Preferences and Update live in the profile menu.
                 if (!AppUi.phoneNav) {
                     val tabCount = tabs.size + 1
@@ -401,6 +402,7 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                         .onFocusChanged { navFocused = it.hasFocus; if (!it.hasFocus) navIx = -1 }.focusRestorer(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    BrandMark(Modifier.padding(end = 14.dp), height = 32.dp)
                     Box(Modifier.focusRequester(tabFrs[0]).onFocusChanged { if (it.hasFocus) navIx = 0 }) { AvatarButton { AppUi.accountMenu = true } }
                     Spacer(Modifier.weight(1f))
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -475,13 +477,16 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
             }
             // Cached titles must never be hidden behind a spinner; "Loading…" only when nothing is saved yet
             if (shelves.isEmpty() && repo.status.isEmpty() && !(lib.hasData && !shelvesReady)) item(key = "empty") {
-                Text(when {
+                val emptyMsg = when {
                     repo.vodCats.isEmpty() && !lib.hasData -> "Loading your portal…"
                     !shelvesReady && !lib.hasData -> "Loading…"
                     tabbed && !langs.isNullOrEmpty() && lib.loading && !lib.hasData -> "Loading…"
                     tabbed && !langs.isNullOrEmpty() -> "Nothing found for these languages yet. Try Refresh or pick more languages."
                     else -> "Nothing here yet. Open What to show (Options or Settings) to unhide groups."
-                }, color = Pal.Dim, fontSize = Ts.ROW.sp, modifier = Modifier.padding(hPad))
+                }
+                // Cached titles must never be hidden behind a spinner; the phoenix mark only when nothing is saved yet.
+                if (emptyMsg.startsWith("Loading")) PhoenixLoading(emptyMsg, Modifier.padding(hPad))
+                else Text(emptyMsg, color = Pal.Dim, fontSize = Ts.ROW.sp, modifier = Modifier.padding(hPad))
             }
             items(shelvesShown, key = { it.key }) { shelf ->
                 // Lazy: a category's items are requested only when its row is composed (scrolled into view)

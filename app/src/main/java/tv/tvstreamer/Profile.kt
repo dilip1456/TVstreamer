@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.addPathNodes
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
@@ -248,7 +249,7 @@ fun ProfileScreen(repo: Repo, go: (Screen) -> Unit) {
         }
         if (msg.isNotEmpty()) item { Label(msg, Ts.HEAD, Pal.Warn, maxLines = 4) }
         item { Label("About", Ts.TITLE, Pal.Text, Modifier.padding(top = 12.dp)) }
-        item { Label("TVstreamer v$ver · Stalker portal player for Fire TV and Android phones", Ts.HEAD, Pal.Dim, maxLines = 2) }
+        item { Label(stringResource(R.string.app_name) + " v$ver · Stalker portal player for Fire TV and Android phones", Ts.HEAD, Pal.Dim, maxLines = 2) }
         item { Spacer(Modifier.height(32.dp)) }
     }
 }

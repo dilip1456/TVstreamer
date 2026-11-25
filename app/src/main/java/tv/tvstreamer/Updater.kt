@@ -153,7 +153,7 @@ object Updater {
         }
         val file = download(ctx, url, size, code) ?: return status.ifEmpty { "Update download failed" }
         val fileCode = apkCode(ctx, file)
-        if (fileCode < 0) { file.delete(); return "Update: downloaded file is not a valid TVStreamer APK" }
+        if (fileCode < 0) { file.delete(); return "Update: downloaded file is not a valid " + ctx.getString(R.string.app_name) + " APK" }
         if (fileCode <= cur) { file.delete(); return "Up to date (v$curName, code $cur)" }
         val ready = Pending(fileCode, label, file)
         return if (mode == UpdateLogic.Mode.AUTO) {
@@ -200,13 +200,14 @@ object Updater {
     /** Opens the "Install unknown apps" screen when needed. Returns a message if the user must grant it first. */
     private fun needUnknownApps(ctx: Context, tag: String, interactive: Boolean): String? {
         if (canInstall(ctx)) return null
-        if (!interactive) return "Update $tag is ready. Allow \"Install unknown apps\" for TVStreamer, then Check for updates."
+        if (!interactive) return "Update $tag is ready. Allow \"Install unknown apps\" for " + ctx.getString(R.string.app_name) + ", then Check for updates."
         val opened = runCatching {
             ctx.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${ctx.packageName}"))
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         }.isSuccess
-        return if (opened) "Turn on \"Allow from this source\" for TVStreamer, then Check for updates again."
-        else "Update $tag downloaded. Allow \"Install unknown apps\" for TVStreamer in the device settings, then Check for updates again."
+        val app = ctx.getString(R.string.app_name)
+        return if (opened) "Turn on \"Allow from this source\" for $app, then Check for updates again."
+        else "Update $tag downloaded. Allow \"Install unknown apps\" for $app in the device settings, then Check for updates again."
     }
 
     private fun install(ctx: Context, file: File, tag: String, interactive: Boolean): String {

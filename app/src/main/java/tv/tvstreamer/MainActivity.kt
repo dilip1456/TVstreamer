@@ -10,9 +10,6 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.coroutineScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -21,8 +18,6 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.darkColorScheme
@@ -272,11 +267,11 @@ fun App(repo: Repo) {
     val barSpace = if (showBar) 84.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() else 0.dp
     val bannerKind = if (cur is Screen.Play) UpdateLogic.Banner.HIDDEN
         else UpdateLogic.banner(Updater.progress, Updater.busy, Updater.pending != null, Updater.status)
+    // Cold-start brand overlay only. The screens (including Live TV) compose underneath and
+    // are not held up; the splash fades as soon as the short ember/rise has played.
     var splash by remember { mutableStateOf(true) }
-    LaunchedEffect(Unit) {
-        kotlinx.coroutines.delay(2200)
-        splash = false
-    }
+    var splashReady by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { splashReady = true }
     Surface(Modifier.fillMaxSize().background(Pal.Bg), color = Pal.Bg) {
         Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
@@ -341,49 +336,7 @@ fun App(repo: Repo) {
             if (AppUi.accountMenu && cur !is Screen.Play) AccountMenu(repo.store, go) { AppUi.accountMenu = false }
             }
         }
-        if (splash) LaunchLogo { splash = false }
-        }
-    }
-}
-
-@Composable
-private fun LaunchLogo(onDone: () -> Unit) {
-    val scale = remember { androidx.compose.animation.core.Animatable(0.55f) }
-    val alpha = remember { androidx.compose.animation.core.Animatable(0f) }
-    LaunchedEffect(Unit) {
-        coroutineScope {
-            launch {
-                scale.animateTo(1f, androidx.compose.animation.core.tween(1000, easing = androidx.compose.animation.core.EaseOutBack))
-            }
-            alpha.animateTo(1f, androidx.compose.animation.core.tween(700))
-        }
-        kotlinx.coroutines.delay(1400)
-        alpha.animateTo(0f, androidx.compose.animation.core.tween(450))
-        onDone()
-    }
-    BoxWithConstraints(
-        Modifier.fillMaxSize().background(Color.Black).graphicsLayer { this.alpha = alpha.value },
-        contentAlignment = Alignment.Center
-    ) {
-        val isTv = maxWidth > 600.dp
-        val tvSize = if (isTv) 140.sp else 88.sp
-        val streamerSize = if (isTv) 56.sp else 36.sp
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            androidx.compose.material3.Text(
-                "TV",
-                color = Color(0xFFFFD700),
-                fontSize = tvSize,
-                fontWeight = androidx.compose.ui.text.font.FontWeight.Black,
-                letterSpacing = (-2).sp,
-                modifier = Modifier.graphicsLayer { scaleX = scale.value; scaleY = scale.value }
-            )
-            androidx.compose.material3.Text(
-                "STREAMER",
-                color = Color(0xFFE50914),
-                fontSize = streamerSize,
-                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                letterSpacing = if (isTv) 10.sp else 6.sp
-            )
+        if (splash) PhoenixSplash(ready = splashReady) { splash = false }
         }
     }
 }

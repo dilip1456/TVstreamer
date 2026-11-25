@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Launcher name, top bar, splash and in-app label. Swap this and drawable/ic_wordmark together. -->
+    <string name="app_name">Ashfire</string>
+</resources>

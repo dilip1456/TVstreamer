@@ -362,13 +362,16 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
             Modifier.fillMaxWidth().padding(start = 48.dp, end = 48.dp, top = 14.dp, bottom = 2.dp)
                 .menuRow({ liveNavIx }, { 5 }) { n -> liveNavIx = n; runCatching { liveTabFrs[n].requestFocus() } }
                 .onFocusChanged { headerFocused = it.hasFocus; if (it.hasFocus) navOpen = false; if (!it.hasFocus) liveNavIx = -1 },
-            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally)
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            NavTab("🔍", onSearch, Modifier.focusRequester(liveTabFrs[0]).onFocusChanged { if (it.isFocused) liveNavIx = 0 })
-            NavTab("Home", { go(Screen.Home) }, Modifier.focusRequester(liveTabFrs[1]).onFocusChanged { if (it.isFocused) liveNavIx = 1 })
-            NavTab("Movies", { go(Screen.MoviesTab) }, Modifier.focusRequester(liveTabFrs[2]).onFocusChanged { if (it.isFocused) liveNavIx = 2 })
-            NavTab("Series", { go(Screen.SeriesTab) }, Modifier.focusRequester(liveTabFrs[3]).onFocusChanged { if (it.isFocused) liveNavIx = 3 })
-            NavTab("Live TV", {}, Modifier.focusRequester(liveTabFr).onFocusChanged { if (it.isFocused) liveNavIx = 4 }, selected = true)
+            BrandMark(Modifier.padding(end = 16.dp), height = 32.dp)
+            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally)) {
+                NavTab("🔍", onSearch, Modifier.focusRequester(liveTabFrs[0]).onFocusChanged { if (it.isFocused) liveNavIx = 0 })
+                NavTab("Home", { go(Screen.Home) }, Modifier.focusRequester(liveTabFrs[1]).onFocusChanged { if (it.isFocused) liveNavIx = 1 })
+                NavTab("Movies", { go(Screen.MoviesTab) }, Modifier.focusRequester(liveTabFrs[2]).onFocusChanged { if (it.isFocused) liveNavIx = 2 })
+                NavTab("Series", { go(Screen.SeriesTab) }, Modifier.focusRequester(liveTabFrs[3]).onFocusChanged { if (it.isFocused) liveNavIx = 3 })
+                NavTab("Live TV", {}, Modifier.focusRequester(liveTabFr).onFocusChanged { if (it.isFocused) liveNavIx = 4 }, selected = true)
+            }
         }
         Row(Modifier.fillMaxWidth().weight(1f)) {
             val w by animateDpAsState(if (navOpen) 268.dp else 80.dp, tween(180), label = "nav")

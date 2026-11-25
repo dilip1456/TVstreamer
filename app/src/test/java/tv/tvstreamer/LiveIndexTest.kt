@@ -40,12 +40,11 @@ class LiveIndexTest {
         }
     }
 
-    @Test fun progressArrivesInChunks() = runBlocking {
-        val seen = mutableListOf<Int>()
-        val m = LiveIndex.build(chans, titles, chunk = 10) { partial, n -> assertEquals(n, partial.size); seen += n }
-        assertTrue(seen.size >= (chans.size - 1) / 10)
-        assertEquals(seen.sorted(), seen)
+    @Test fun buildIsOneShotAndComplete() {
+        // Progressive chunk yields were removed so Live TV can open from the saved list in one go.
+        val m = LiveIndex.build(chans, titles)
         assertEquals(chans.size, m.size)
+        assertTrue(m.keys.containsAll(chans.map { it.key }))
     }
 
     @Test fun groupsOnlySortedChannelsInPortalOrder() {
