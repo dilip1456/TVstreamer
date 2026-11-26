@@ -74,4 +74,21 @@ class GeminiParseTest {
         val a = GeminiParse.assistantPrompt("say \"hi\"", emptyList(), lib)
         assertTrue(a.contains("say 'hi'"))
     }
+
+    @Test fun promptsIncludeLikedAndDislikedSignals() {
+        val p = GeminiParse.suggestPrompt(listOf("Inception (2010)"), emptyList(), lib,
+            liked = listOf("The Matrix (1999)"), disliked = listOf("Foo (2020)"))
+        assertTrue(p.contains("LIKED (more like these):"))
+        assertTrue(p.contains("The Matrix (1999)"))
+        assertTrue(p.contains("DISLIKED (do not pick, avoid similar):"))
+        assertTrue(p.contains("Foo (2020)"))
+        assertTrue(p.contains("prefer more titles like them"))
+        assertTrue(p.contains("do not pick them, and avoid similar"))
+        val a = GeminiParse.assistantPrompt("something funny", emptyList(), lib,
+            liked = listOf("Amélie (2001)"), disliked = listOf("Inception (2010)"))
+        assertTrue(a.contains("LIKED (more like these):"))
+        assertTrue(a.contains("Amélie (2001)"))
+        assertTrue(a.contains("DISLIKED (do not pick, avoid similar):"))
+        assertTrue(a.contains("Inception (2010)"))
+    }
 }

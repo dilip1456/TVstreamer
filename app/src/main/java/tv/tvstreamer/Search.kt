@@ -278,6 +278,7 @@ fun SearchOverlay(repo: Repo, st: SearchState, open: (Item) -> Unit, play: (List
         more = false
         if (few) repo.lib.searchSweep()
     }
+    var aiMenu by remember { mutableStateOf<Item?>(null) }
     val posterW = posterWidth(isTv)
     val hPad = if (isTv) 48.dp else 12.dp
     Box(Modifier.fillMaxSize().background(Pal.Bg.copy(alpha = 0.97f)).focusTrap()) {
@@ -368,12 +369,12 @@ fun SearchOverlay(repo: Repo, st: SearchState, open: (Item) -> Unit, play: (List
             var first = true
             fun firstMod(): Modifier = if (first) { first = false; Modifier.focusRequester(firstResFr) } else Modifier
             if (st.aiItems.isNotEmpty()) {
-                val ai = st.aiItems
+                val ai = AiFeedback.visible(st.aiItems, Ai.feedback)
                 item(span = { GridItemSpan(maxLineSpan) }) { Section("✨ Suggested", ai.size) }
                 val a0 = firstMod()
                 gridItemsIndexed(ai, key = { i, it -> "ai|$i|${it.key}" }) { i, it ->
                     PosterCard(it, posterW, null, if (i == 0) a0 else Modifier, { open(it) },
-                        { repo.toggleFav(it) }, fav = repo.isFav(it)) { Keys.focused = it }
+                        { aiMenu = it }, fav = repo.isFav(it)) { Keys.focused = it }
                 }
             }
             if (r != null) {
@@ -407,6 +408,7 @@ fun SearchOverlay(repo: Repo, st: SearchState, open: (Item) -> Unit, play: (List
                 }
             }
         }
+        aiMenu?.let { m -> TitleMenu(repo, m, 0, open, { play(listOf(it), 0) }) { aiMenu = null } }
     }
 }
 

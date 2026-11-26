@@ -251,7 +251,7 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
             add(Shelf("cont", "Continue watching", c.map { it.first }, "vod", progress = prog))
         }
         // My List / Favorite channels are spliced on in composition so a toggle does not rebuild every row.
-        if (Gemini.enabled) Ai.suggested.filter { repo.listOk(it.locked) && wantItem(it) }.takeIf { it.isNotEmpty() }
+        if (Gemini.enabled) AiFeedback.visible(Ai.suggested, Ai.feedback).filter { repo.listOk(it.locked) && wantItem(it) }.takeIf { it.isNotEmpty() }
             ?.let { add(Shelf("ai", "✨ Suggested for you", it, "vod")) }
         if (mode == "home") {
             if (recent.isNotEmpty()) add(Shelf("recent", "Recent channels", recent, "itv"))
@@ -265,9 +265,9 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
     }
 
 
-    // Gemini "Suggested for you": cached for 12 h; refreshed (debounced) when the key, history or library changes. Quiet without a key.
+    // Gemini "Suggested for you": cached for 12 h; refreshed (debounced) when the key, history, votes or library changes. Quiet without a key.
     LaunchedEffect(Gemini.key) { Ai.loadCache(repo) }
-    LaunchedEffect(Gemini.key, tick, lib.version) {
+    LaunchedEffect(Gemini.key, tick, lib.version, Ai.feedback) {
         if (!Gemini.enabled) return@LaunchedEffect
         delay(4000)
         Ai.refreshSuggested(repo)
@@ -281,7 +281,7 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
     // Channel hide keys (ch:) must not rebuild movie/series rows; only group / VOD hides change the catalog.
     val catalogHideSig = remember(repo.hidden) { repo.hidden.filter { it.startsWith("vod:") || it.startsWith("grp:") }.toSet() }
     val coreShelves by produceState(shelfMemo[memoKey] ?: emptyList(), mode, cont, recent, langShelves, lib.version, catalogHideSig,
-        repo.vodCats, repo.vodOrder, Ai.suggested, Gemini.enabled, showAdult, homeLangs, langs, rowErrs, repo.liveMode, repo.folders) {
+        repo.vodCats, repo.vodOrder, Ai.suggested, Ai.feedback, Gemini.enabled, showAdult, homeLangs, langs, rowErrs, repo.liveMode, repo.folders) {
         val built = withContext(Dispatchers.Default) { runCatching { buildShelves() }.getOrNull() }
         if (built != null) { value = built; shelfMemo[memoKey] = built }
         shelvesReady = true
@@ -540,6 +540,11 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                     }
                     if (item.kind == "vod" && !item.isEpisode() && shelf.key != "cont") add("Details" to { menu = null; open(item) })
                     if (!item.isEpisode()) add((if (repo.isFav(item)) "✓  In My List" else "+  My List") to { repo.toggleFav(item); menu = null })
+                    if (item.kind == "vod" && !item.isEpisode()) {
+                        AiFeedback.menuItems(Ai.voteOf(item)).forEach { (label, vote) ->
+                            add(label to { Ai.toggleVote(repo, item, vote); menu = null })
+                        }
+                    }
                     if (item.kind == "vod" && !item.isSeries) add((if (repo.isWatched(item)) "Mark as unwatched" else "Mark as watched") to { repo.setWatched(item, !repo.isWatched(item)); contVer++; menu = null })
                     if (item.kind == "vod" && (shelf.versions[item.key] ?: 0) > 1) add("Versions (${shelf.versions[item.key]})…" to { menu = null; open(item) })
                     if (item.kind == "vod" && !item.isEpisode() && shelf.key != "cont") add("Hide this title" to { repo.toggleHideTitle(item); menu = null })
@@ -1241,8 +1246,8 @@ fun GridScreen(repo: Repo, cat: Cat, open: (Item) -> Unit, play: (List<Item>, In
 }
 
 /**
- * Movie / series menu: only valid options, Close last (ChoiceDialog). Play / Episodes, My List, Mark watched,
- * Versions (when there are several), Hide this title.
+ * Movie / series menu: only valid options, Close last (ChoiceDialog). Play / Episodes, My List, Like / Dislike,
+ * Mark watched, Versions (when there are several), Hide this title.
  */
 @Composable
 fun TitleMenu(repo: Repo, m: Item, versions: Int, open: (Item) -> Unit, play: ((Item) -> Unit)?, onClose: () -> Unit) {
@@ -1254,6 +1259,11 @@ fun TitleMenu(repo: Repo, m: Item, versions: Int, open: (Item) -> Unit, play: ((
         }
         add("ⓘ  Details" to { onClose(); open(m) })
         if (!m.isEpisode()) add((if (repo.isFav(m)) "✓  In My List" else "+  My List") to { repo.toggleFav(m); onClose() })
+        if (m.kind == "vod" && !m.isEpisode()) {
+            AiFeedback.menuItems(Ai.voteOf(m)).forEach { (label, vote) ->
+                add(label to { Ai.toggleVote(repo, m, vote); onClose() })
+            }
+        }
         if (!m.isSeries) add((if (repo.isWatched(m)) "Mark as unwatched" else "Mark as watched") to { repo.setWatched(m, !repo.isWatched(m)); onClose() })
         if (versions > 1) add("Versions ($versions)…" to { onClose(); open(m) })
         if (!m.isEpisode()) add("Hide this title" to {

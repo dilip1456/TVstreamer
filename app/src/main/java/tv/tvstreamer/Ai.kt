@@ -17,10 +17,13 @@ sealed class AiOutcome {
 
 /** Gemini features: "Suggested for you" on Home and the voice / typed assistant in Search. Everything fails quietly without a key. */
 object Ai {
-    /** Suggested titles (library items) for the Home row. */
+    /** Suggested titles (library items) for the Home row. Disliked titles are never kept here. */
     var suggested by mutableStateOf<List<Item>>(emptyList())
         private set
     var lastError by mutableStateOf("")
+        private set
+    /** Local Like / Dislike votes. Observable so the Home row and menus update at once. */
+    var feedback by mutableStateOf(AiFeedbackState())
         private set
 
     private const val CACHE = "ai_suggest.json"
@@ -30,13 +33,9 @@ object Ai {
     @Volatile private var busy = false
     @Volatile private var lastTry = 0L
     @Volatile private var lastTrySig = ""
+    @Volatile private var feedbackLoaded = false
 
-    private fun titleOf(i: Item): String {
-        val p = i.parsed
-        val t = p.title.ifBlank { Names.title(i.name) }
-        val y = p.year.ifEmpty { i.year.take(4) }
-        return if (y.isNotEmpty()) "$t ($y)" else t
-    }
+    private fun titleOf(i: Item): String = AiFeedback.titleOf(i)
 
     /** Compact library for the prompt: one entry per title (best version), movies and series, respecting the Show adult setting. */
     fun library(repo: Repo): List<LibEntry<Item>> {
@@ -59,46 +58,90 @@ object Ai {
 
     private fun favorites(repo: Repo): List<String> = repo.favs.filter { it.kind == "vod" }.map { titleOf(it) }.distinct()
 
-    /** Loads the cached row (if any) so Home shows it at once. */
-    fun loadCache(repo: Repo) {
-        if (suggested.isNotEmpty()) return
-        val o = repo.store.cacheRead(CACHE)?.let { runCatching { JSONObject(it) }.getOrNull() } ?: return
-        val a = o.optJSONArray("items") ?: return
-        suggested = (0 until a.length()).mapNotNull { runCatching { Item.from(a.getJSONObject(it)) }.getOrNull() }
+    fun voteOf(item: Item): AiVote = AiFeedback.voteOf(feedback, item)
+
+    fun loadFeedback(repo: Repo) {
+        if (feedbackLoaded) return
+        feedback = AiFeedback.fromJson(repo.store.cacheRead(AiFeedback.FILE))
+        feedbackLoaded = true
     }
 
-    /** Asks Gemini for new suggestions when the cache is old or the history / favourites changed. Never throws. */
+    /**
+     * Toggle Like or Dislike on [item]. Disliked titles leave the suggestion row immediately
+     * and stay out of later Gemini picks; both lists are sent as preference signals in the prompt.
+     */
+    fun toggleVote(repo: Repo, item: Item, want: AiVote) {
+        loadFeedback(repo)
+        feedback = AiFeedback.toggle(feedback, item.key, titleOf(item), want)
+        repo.store.cacheWrite(AiFeedback.FILE, AiFeedback.toJson(feedback))
+        val kept = AiFeedback.visible(suggested, feedback)
+        if (kept != suggested) {
+            suggested = kept
+            // Stale timestamp so the next refresh (triggered by the new feedback sig) asks Gemini again.
+            persistSuggested(repo, sig(repo), stamped = false)
+        }
+    }
+
+    private fun sig(repo: Repo): String {
+        val w = watched(repo); val f = favorites(repo)
+        val liked = AiFeedback.likedTitles(feedback)
+        val disliked = AiFeedback.dislikedTitles(feedback)
+        return (w.take(20) + "|" + f.take(20) + "|" + liked.take(20) + "|" + disliked.take(20)).hashCode().toString()
+    }
+
+    private fun persistSuggested(repo: Repo, signature: String, stamped: Boolean) {
+        repo.store.cacheWrite(CACHE, JSONObject()
+            .put("t", if (stamped) System.currentTimeMillis() else 0L)
+            .put("sig", signature)
+            .put("items", JSONArray().also { a -> suggested.forEach { a.put(it.toJson()) } })
+            .toString())
+    }
+
+    /** Loads the cached row (if any) so Home shows it at once. Disliked titles are dropped. */
+    fun loadCache(repo: Repo) {
+        loadFeedback(repo)
+        if (suggested.isNotEmpty()) {
+            suggested = AiFeedback.visible(suggested, feedback)
+            return
+        }
+        val o = repo.store.cacheRead(CACHE)?.let { runCatching { JSONObject(it) }.getOrNull() } ?: return
+        val a = o.optJSONArray("items") ?: return
+        suggested = AiFeedback.visible((0 until a.length()).mapNotNull { runCatching { Item.from(a.getJSONObject(it)) }.getOrNull() }, feedback)
+    }
+
+    /** Asks Gemini for new suggestions when the cache is old or the history / favourites / votes changed. Never throws. */
     suspend fun refreshSuggested(repo: Repo, force: Boolean = false) {
         if (!Gemini.enabled) { suggested = emptyList(); return }
         loadCache(repo)
         if (busy) return
         val w = watched(repo); val f = favorites(repo)
-        if (w.isEmpty() && f.isEmpty()) return
-        val sig = (w.take(20) + "|" + f.take(20)).hashCode().toString()
+        val liked = AiFeedback.likedTitles(feedback)
+        val disliked = AiFeedback.dislikedTitles(feedback)
+        if (w.isEmpty() && f.isEmpty() && liked.isEmpty()) return
+        val signature = sig(repo)
         val cache = repo.store.cacheRead(CACHE)?.let { runCatching { JSONObject(it) }.getOrNull() }
-        val fresh = cache != null && cache.optString("sig") == sig && System.currentTimeMillis() - cache.optLong("t") < TTL_MS
+        val fresh = cache != null && cache.optString("sig") == signature && System.currentTimeMillis() - cache.optLong("t") < TTL_MS
         if (fresh && !force) return
-        if (!force && sig == lastTrySig && System.currentTimeMillis() - lastTry < RETRY_MS) return
+        if (!force && signature == lastTrySig && System.currentTimeMillis() - lastTry < RETRY_MS) return
         busy = true
         try {
             val lib = withContext(Dispatchers.Default) { library(repo) }
             if (lib.size < 20) return                       // library not loaded yet; tried again when it grows
-            val text = withContext(Dispatchers.IO) { Gemini.generate(GeminiParse.suggestPrompt(w, f, lib)) }
+            val text = withContext(Dispatchers.IO) { Gemini.generate(GeminiParse.suggestPrompt(w, f, lib, liked = liked, disliked = disliked)) }
             val (ids, titles) = GeminiParse.picksFromText(text)
             val skip = (repo.favs.map { it.key } + repo.store.history().map { it.key }).toSet()
-            val items = GeminiParse.map(ids, titles, lib).filter { it.key !in skip }
+            val items = GeminiParse.map(ids, titles, lib).filter { it.key !in skip && !AiFeedback.isDisliked(feedback, it) }
             if (items.isNotEmpty()) {
                 suggested = items
-                repo.store.cacheWrite(CACHE, JSONObject().put("t", System.currentTimeMillis()).put("sig", sig)
-                    .put("items", JSONArray().also { a -> items.forEach { a.put(it.toJson()) } }).toString())
+                persistSuggested(repo, signature, stamped = true)
             }
             lastError = ""
-            lastTry = System.currentTimeMillis(); lastTrySig = sig
+            lastTry = System.currentTimeMillis(); lastTrySig = signature
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
             lastError = e.message ?: "Gemini request failed"
-            lastTry = System.currentTimeMillis(); lastTrySig = sig   // back off; no retry storm
+            lastTry = System.currentTimeMillis(); lastTrySig = signature   // back off; no retry storm
         } finally { busy = false }
     }
 
@@ -106,11 +149,14 @@ object Ai {
     suspend fun ask(repo: Repo, request: String): AiOutcome {
         if (!Gemini.enabled) return AiOutcome.Search(request, "")
         return try {
+            loadFeedback(repo)
+            val liked = AiFeedback.likedTitles(feedback)
+            val disliked = AiFeedback.dislikedTitles(feedback)
             val lib = withContext(Dispatchers.Default) { library(repo) }
-            val text = withContext(Dispatchers.IO) { Gemini.generate(GeminiParse.assistantPrompt(request, watched(repo), lib)) }
+            val text = withContext(Dispatchers.IO) { Gemini.generate(GeminiParse.assistantPrompt(request, watched(repo), lib, liked = liked, disliked = disliked)) }
             val r = GeminiParse.assistant(text) ?: return AiOutcome.Search(request, "")
             if (r.action == "suggest") {
-                val items = GeminiParse.map(r.ids, r.titles, lib, limit = 24)
+                val items = GeminiParse.map(r.ids, r.titles, lib, limit = 24).filter { !AiFeedback.isDisliked(feedback, it) }
                 if (items.isEmpty()) AiOutcome.Search(r.query.ifEmpty { request }, r.message)
                 else AiOutcome.Suggest(items, r.message.ifEmpty { "Suggestions for \"$request\"" })
             } else AiOutcome.Search(r.query, r.message)

@@ -91,26 +91,36 @@ object GeminiParse {
     fun libraryLines(lib: List<LibEntry<*>>): String =
         lib.joinToString("\n") { e -> "${e.id}|${e.title.replace('|', '/')}|${e.year}|${e.kind}" }
 
-    /** Prompt for "Suggested for you". */
-    fun suggestPrompt(watched: List<String>, favorites: List<String>, lib: List<LibEntry<*>>, count: Int = 20): String = buildString {
+    /** Prompt for "Suggested for you". [liked] / [disliked] are local votes (more like these / avoid similar). */
+    fun suggestPrompt(watched: List<String>, favorites: List<String>, lib: List<LibEntry<*>>, count: Int = 20,
+                      liked: List<String> = emptyList(), disliked: List<String> = emptyList()): String = buildString {
         append("You recommend movies and TV series for a TV app. Pick up to $count titles the user is likely to enjoy, ")
         append("similar in genre, tone, cast or era to what they watched and liked. ")
         append("Pick ONLY from the LIBRARY list below and do not pick titles they already watched or favorited. ")
+        if (liked.isNotEmpty()) append("The user liked these suggestions — prefer more titles like them. ")
+        if (disliked.isNotEmpty()) append("The user disliked these titles — do not pick them, and avoid similar titles. ")
         append("Answer with JSON only: {\"ids\":[<library id>, ...]} ordered best first.\n\n")
         append("WATCHED:\n").append(watched.take(40).joinToString("\n").ifEmpty { "(none)" }).append("\n\n")
         append("FAVORITES:\n").append(favorites.take(40).joinToString("\n").ifEmpty { "(none)" }).append("\n\n")
+        append("LIKED (more like these):\n").append(liked.take(40).joinToString("\n").ifEmpty { "(none)" }).append("\n\n")
+        append("DISLIKED (do not pick, avoid similar):\n").append(disliked.take(40).joinToString("\n").ifEmpty { "(none)" }).append("\n\n")
         append("LIBRARY (id|title|year|kind):\n").append(libraryLines(lib))
     }
 
-    /** Prompt for the voice / typed assistant. */
-    fun assistantPrompt(request: String, watched: List<String>, lib: List<LibEntry<*>>): String = buildString {
+    /** Prompt for the voice / typed assistant. [liked] / [disliked] steer suggestions the same way as [suggestPrompt]. */
+    fun assistantPrompt(request: String, watched: List<String>, lib: List<LibEntry<*>>,
+                        liked: List<String> = emptyList(), disliked: List<String> = emptyList()): String = buildString {
         append("You are the search assistant of a TV app (movies, TV series and live channels). The user said: \"")
         append(request.replace("\"", "'")).append("\"\n")
         append("If they ask for a specific title, person, channel or keyword, answer {\"action\":\"search\",\"query\":\"<short search words>\"}. ")
         append("If they ask for ideas or a kind of thing (e.g. 'something funny for tonight', 'movies like Inception'), answer ")
         append("{\"action\":\"suggest\",\"ids\":[<library id>, ...],\"message\":\"<one short sentence>\"} with up to 24 ids picked ONLY from the LIBRARY list. ")
+        if (liked.isNotEmpty()) append("The user liked these titles — prefer more like them when suggesting. ")
+        if (disliked.isNotEmpty()) append("The user disliked these titles — do not pick them, and avoid similar titles. ")
         append("Answer with JSON only.\n\n")
         append("RECENTLY WATCHED:\n").append(watched.take(20).joinToString("\n").ifEmpty { "(none)" }).append("\n\n")
+        append("LIKED (more like these):\n").append(liked.take(40).joinToString("\n").ifEmpty { "(none)" }).append("\n\n")
+        append("DISLIKED (do not pick, avoid similar):\n").append(disliked.take(40).joinToString("\n").ifEmpty { "(none)" }).append("\n\n")
         append("LIBRARY (id|title|year|kind):\n").append(libraryLines(lib))
     }
 }
