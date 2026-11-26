@@ -654,7 +654,7 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
     // continues. With nothing open, the first Back shows a short hint; a second Back within 2 s leaves the
     // player and returns to the screen it was opened from (not the main menu). Menus / pickers / side panels
     // still close themselves via PopupFrame. A held Back is not treated as a double press. Elsewhere in the
-    // app, Back stays one-press.
+    // app, Back walks up one level and asks before exit.
     var exitArmedAt by remember { mutableLongStateOf(0L) }
     var exitHint by remember { mutableStateOf(false) }
     fun onPlayerBack(repeat: Boolean = false) {

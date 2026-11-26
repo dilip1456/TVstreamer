@@ -211,7 +211,30 @@ fun App(repo: Repo) {
         if (s === fromSearch) { search.open = true; fromSearch = null }
         tick++
     }
-    BackHandler(screen != Screen.Home && !Popups.any) { back() }
+    fun onAppBack() {
+        val main = screen is Screen.Home || screen is Screen.MoviesTab || screen is Screen.SeriesTab || screen is Screen.Live
+        when (BackNav.action(
+            search = search.open,
+            canLeaveScreen = !main && screen !is Screen.Play,
+            railFocused = MainBack.railFocused,
+            mainSection = main,
+            atChrome = MainBack.atChrome,
+            exitConfirmOpen = AppExit.open,
+            now = android.os.SystemClock.elapsedRealtime(),
+            exitOpenedAt = AppExit.openedAt,
+        )) {
+            BackNav.Action.CLOSE_SEARCH -> search.open = false
+            BackNav.Action.CLOSE_RAIL -> MainBack.closeRail()
+            BackNav.Action.FOCUS_TOP -> MainBack.focusTop()
+            BackNav.Action.SHOW_EXIT -> AppExit.show()
+            BackNav.Action.CANCEL_EXIT -> AppExit.cancel()
+            BackNav.Action.LEAVE_SCREEN -> back()
+            else -> {}
+        }
+    }
+    // Always intercept Back outside the player so Home (and a main tab) cannot finish the app.
+    // Popups, search, settings subsections and Live select mode register their own handlers above this.
+    BackHandler(screen !is Screen.Play && !Popups.any) { onAppBack() }
     LaunchedEffect(screen) { Keys.focused = null }
 
     val play: (List<Item>, Int) -> Unit = { l, i -> if (l.isNotEmpty()) screen = Screen.Play(l, i, screen) }
@@ -279,7 +302,7 @@ fun App(repo: Repo) {
                 Act.LIVE -> { screen = Screen.Live; true }
                 Act.SEARCH -> { if (screen !is Screen.Play) search.open = !search.open; true }
                 Act.SETTINGS -> { screen = Screen.Settings; true }
-                Act.BACK -> { if (screen != Screen.Home) back(); true }
+                Act.BACK -> { if (screen !is Screen.Play) onAppBack(); true }
                 Act.FAV -> {
                     val f = Keys.focused
                     if (f != null && !f.isEpisode()) {
@@ -370,6 +393,7 @@ fun App(repo: Repo) {
                 tick++
             }, Modifier.align(Alignment.BottomCenter))
             if (AppUi.accountMenu && cur !is Screen.Play) AccountMenu(repo.store, go) { AppUi.accountMenu = false }
+            if (AppExit.open && cur !is Screen.Play) ExitConfirm()
             }
         }
         if (splash) BrandSplash(ready = splashReady) { splash = false }

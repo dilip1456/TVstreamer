@@ -124,8 +124,13 @@ fun TopNavBar(current: String, tabs: List<TopTab>, rail: RailFocus?, onProfile: 
     }
 }
 
-/** Closes the app (Exit in the account / options menus and the TV side menu). */
+/** Asks "Exit Bluey?" (account menu, Options, and the TV side menu all use the same confirm). */
 fun exitApp(ctx: Context) {
+    AppExit.show()
+}
+
+/** Really leaves the app. Only the Exit button on the confirm dialog calls this. */
+fun finishApp(ctx: Context) {
     var c: Context? = ctx
     while (c is ContextWrapper) {
         if (c is Activity) { c.finishAndRemoveTask(); return }
@@ -335,4 +340,26 @@ fun Modifier.pivotInList(
     this
         .onFocusChanged { f -> if (f.hasFocus || f.isFocused) runScroll() }
         .bringIntoViewResponder(responder)
+}
+
+/** The open Home / Movies / TV / Live screen reports its chrome so App-level Back can act on it. */
+@Composable
+fun MainBackSync(
+    isTv: Boolean,
+    railFocused: Boolean,
+    topMenuFocused: Boolean,
+    listState: LazyListState,
+    closeRail: () -> Unit,
+    focusTop: () -> Unit,
+) {
+    val atTop = listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset <= 0
+    SideEffect {
+        MainBack.isTv = isTv
+        MainBack.railFocused = railFocused
+        MainBack.topMenuFocused = topMenuFocused
+        MainBack.atTop = atTop
+        MainBack.closeRail = closeRail
+        MainBack.focusTop = focusTop
+    }
+    DisposableEffect(Unit) { onDispose { MainBack.reset() } }
 }

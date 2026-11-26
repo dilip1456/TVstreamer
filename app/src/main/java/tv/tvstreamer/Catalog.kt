@@ -405,7 +405,27 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
         catalogSize = lib.size,
         catalogStopped = lib.stopped,
     )
-    // Back leaves the tab in one press (no wasted "focus the top menu first" step). Up still reaches the tabs.
+    // Back: close the rail if it has focus, else scroll to the top and focus this tab's menu item, then ask before exit.
+    var pendingTop by remember { mutableStateOf(false) }
+    val focusTop: () -> Unit = {
+        pendingTop = true
+        scope.launch { runCatching { state.animateScrollToItem(0) } }
+    }
+    LaunchedEffect(pendingTop, topBarVisible) {
+        if (!pendingTop) return@LaunchedEffect
+        if (isTv && !topBarVisible) return@LaunchedEffect
+        delay(80)
+        if (isTv && railOn) runCatching { navFr.requestFocus() }
+        pendingTop = false
+    }
+    MainBackSync(
+        isTv = isTv && railOn,
+        railFocused = railFocused,
+        topMenuFocused = topBarFocused,
+        listState = state,
+        closeRail = { runCatching { railFocus.leave() } },
+        focusTop = focusTop,
+    )
     Box(Modifier.fillMaxSize().background(Pal.Bg).onKeyEvent { e ->
         // Options / Menu on the remote: page context menu (languages, sort). Cards that handle Menu keep their own.
         if (isTv && e.type == KeyEventType.KeyUp && e.key == Key.Menu && menu == null && !pageMenu && !sortMenu) {

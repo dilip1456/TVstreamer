@@ -146,6 +146,7 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
     val scope = rememberCoroutineScope()
     // Shared TV side menu (1.99): Left from a channel, header or the first action opens it; Right comes back
     val railFocus = remember { RailFocus() }
+    val navFr = remember { FocusRequester() }
     val actionFr = remember { FocusRequester() }
     SideEffect { railFocus.fallback = actionFr }
     val toRail = if (railAvailable) Modifier.focusProperties { left = railFocus.reqs.getValue(RailEntry.LIVE) } else Modifier
@@ -161,6 +162,27 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
     var focusSec by remember { mutableStateOf("") }
     var onHeader by remember { mutableStateOf(false) }   // focus is on a type / sub-category header (not a channel)
     val barFr = remember { FocusRequester() }
+    // Back: close the rail if it has focus, else scroll to the top and focus the Live tab, then ask before exit.
+    var pendingTop by remember { mutableStateOf(false) }
+    val focusTop: () -> Unit = {
+        pendingTop = true
+        scope.launch { runCatching { state.animateScrollToItem(0) } }
+    }
+    LaunchedEffect(pendingTop, topBarVisible) {
+        if (!pendingTop) return@LaunchedEffect
+        if (tv && rail && !topBarVisible) return@LaunchedEffect
+        delay(80)
+        if (tv && rail) runCatching { navFr.requestFocus() }
+        pendingTop = false
+    }
+    MainBackSync(
+        isTv = tv && rail,
+        railFocused = railFocused,
+        topMenuFocused = topBarFocused,
+        listState = state,
+        closeRail = { runCatching { railFocus.leave() } },
+        focusTop = focusTop,
+    )
     BackHandler(sel != null && !Popups.any) { sel = null }
     fun bulk(on: Boolean) {
         val s0 = sel ?: return
@@ -421,7 +443,7 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
 
     // TV (1.99): the same frame as Home / Movies / TV Shows: shared top menu, shared side menu, title-safe margins.
     // Left from a channel (or the leftmost tab / action) opens the side menu; Right there comes back.
-    // Back leaves Live TV in one press (no wasted "focus the tabs first" step).
+    // Back closes the rail or returns to the top menu; it does not leave Live TV in one press.
     if (rail) Box(Modifier.fillMaxSize().background(Pal.Bg).onKeyEvent { e ->
         if (e.type == KeyEventType.KeyUp && e.key == Key.Menu && popup == null && menuCh == null) { popup = "more"; true }
         else false
@@ -452,7 +474,9 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
             ) {
                 TopNavBar("live", topTabs(go, onSearch), if (railAvailable) railFocus else null, { AppUi.accountMenu = true },
                     Modifier.padding(start = Layout.TV_SIDE, end = Layout.TV_SIDE, top = Layout.TV_TOP, bottom = Layout.S)
-                        .onFocusChanged { topBarFocused = it.hasFocus })
+                        .onFocusChanged { topBarFocused = it.hasFocus }) { k ->
+                        if (k == "live") Modifier.focusRequester(navFr) else Modifier
+                    }
             }
             Column(Modifier.weight(1f).fillMaxWidth().padding(start = Layout.TV_SIDE, end = Layout.TV_SIDE)) {
                 // Page header: title, one quiet summary line, and the page actions as pills (like a catalog page)

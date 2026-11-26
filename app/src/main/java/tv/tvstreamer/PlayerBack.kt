@@ -8,7 +8,7 @@ package tv.tvstreamer
  * open, the first Back shows a short "Press Back again to exit" hint; a second Back
  * within [EXIT_WINDOW_MS] leaves the player and returns to the screen it was opened from
  * (not the main menu). Key repeats / a held Back are ignored so a long press is not
- * read as a double Back. Elsewhere in the app, Back stays one-press.
+ * read as a double Back. Elsewhere, Back walks up one level and asks before exit.
  */
 object PlayerBack {
     const val EXIT_WINDOW_MS = 2_000L
