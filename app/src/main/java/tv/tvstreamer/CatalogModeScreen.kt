@@ -118,7 +118,7 @@ fun CatalogModeScreen(repo: Repo, go: (Screen) -> Unit) {
                 letterSpacing = 2.2.sp, modifier = Modifier.padding(bottom = 2.dp))
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)) {
-                Text("What to show", color = Pal.Text, fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f, fill = false))
+                Text("Catalog Selector", color = Pal.Text, fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f, fill = false))
                 Text(
                     listOfNotNull(
                         if (mode == LiveModes.DEFAULT) "Default" else mode,
@@ -229,7 +229,7 @@ fun CatalogModeScreen(repo: Repo, go: (Screen) -> Unit) {
 
     when (popup) {
         "modes" -> ModeMenu(repo, liveOnScreen) { popup = null }
-        "more" -> ChoiceDialog("What to show", listOf(
+        "more" -> ChoiceDialog("Catalog Selector", listOf(
             "Modes…" to { popup = "modes" },
             "Only visible" to { view = LiveModes.View.ACTIVE; popup = null },
             "Only hidden" to { view = LiveModes.View.HIDDEN; popup = null },

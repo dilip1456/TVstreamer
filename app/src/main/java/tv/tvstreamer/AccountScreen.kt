@@ -97,8 +97,8 @@ fun AccountScreen(repo: Repo, onReady: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Label("Google account & sync", if (tv) 32 else 26, maxLines = 2)
-        Label("Sign in with Google to keep favourites, hidden items, languages, sorting, Live TV settings, remote buttons, " +
-            "Continue watching and Fix match choices the same on your TV and phone. They are saved in your own Google Drive, " +
+        Label("Sign in with Google to keep favourites, hidden items, languages, sorting, Live TV settings, remote buttons " +
+            "and Continue watching the same on your TV and phone. They are saved in your own Google Drive, " +
             "in a place only TVstreamer can read.", Ts.SECONDARY, ADIM, maxLines = 20)
         if (note.isNotEmpty()) Label(note, body, Pal.GoldText, maxLines = 20)
         noteErr?.let { ErrorBox(it.message ?: "", it.hint, it.link, body) { u -> link(u) } }

@@ -364,7 +364,7 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
                 .onFocusChanged { headerFocused = it.hasFocus; if (it.hasFocus) navOpen = false; if (!it.hasFocus) liveNavIx = -1 },
             verticalAlignment = Alignment.CenterVertically
         ) {
-            BrandMark(Modifier.padding(end = 16.dp), height = 32.dp)
+            PhoenixMark(Modifier.padding(end = 16.dp), size = 38.dp)
             Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally)) {
                 NavTab("🔍", onSearch, Modifier.focusRequester(liveTabFrs[0]).onFocusChanged { if (it.isFocused) liveNavIx = 0 })
                 NavTab("Home", { go(Screen.Home) }, Modifier.focusRequester(liveTabFrs[1]).onFocusChanged { if (it.isFocused) liveNavIx = 1 })
@@ -372,6 +372,7 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
                 NavTab("Series", { go(Screen.SeriesTab) }, Modifier.focusRequester(liveTabFrs[3]).onFocusChanged { if (it.isFocused) liveNavIx = 3 })
                 NavTab("Live TV", {}, Modifier.focusRequester(liveTabFr).onFocusChanged { if (it.isFocused) liveNavIx = 4 }, selected = true)
             }
+            Spacer(Modifier.width(54.dp))  // balances the phoenix so the tabs sit in the exact centre
         }
         Row(Modifier.fillMaxWidth().weight(1f)) {
             val w by animateDpAsState(if (navOpen) 268.dp else 80.dp, tween(180), label = "nav")
@@ -389,6 +390,9 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
             ) {
                 val toList = Modifier
                 NavEntry("🔍", "Search", navOpen, toList, onClick = onSearch)
+                NavEntry("⌂", "Home", navOpen, toList, onClick = { go(Screen.Home) })
+                NavEntry("🎬", "Movies", navOpen, toList, onClick = { go(Screen.MoviesTab) })
+                NavEntry("📺", "TV Shows", navOpen, toList, onClick = { go(Screen.SeriesTab) })
                 NavEntry("◉", if (mode == LiveModes.DEFAULT) "Mode" else "Mode: $mode", navOpen, toList, onClick = { popup = "modes" })
                 NavEntry("🌐", "Languages", navOpen, toList, onClick = { popup = "langs" })
                 NavEntry("☰", "Sections", navOpen, toList, onClick = { popup = "sections" })
@@ -437,8 +441,8 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
         "more" -> ChoiceDialog("Options", listOf(
             "Expand all" to { expandAll(); popup = null },
             "Collapse all" to { collapseAll(); popup = null },
-            "What to show…" to { popup = null; go(Screen.Categories) }
-        ) + viewOpts { popup = null }, focusKey = "more", onClose = { popup = null })
+            "Catalog Selector…" to { popup = null; go(Screen.Categories) }
+        ) + viewOpts { popup = null } + listOf("⏻  Exit app" to { popup = null; exitApp(ctx) }), focusKey = "more", onClose = { popup = null })
     }
     menuCh?.let { ch ->
         val row = rows.firstOrNull { it.ch.key == ch.key }

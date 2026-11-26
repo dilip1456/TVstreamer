@@ -326,7 +326,7 @@ class Store(ctx: Context) {
         get() = p.getString("live_nav_type", "").orEmpty()
         set(v) { p.edit().putString("live_nav_type", v).apply() }
 
-    /** Folded sections in What to show (Movies / Series / Live type rows). Device-only. */
+    /** Folded sections in Catalog Selector (Movies / Series / Live type rows). Device-only. */
     var catalogFolded: String
         get() = p.getString("catalog_folded", "").orEmpty()
         set(v) { p.edit().putString("catalog_folded", v).apply() }

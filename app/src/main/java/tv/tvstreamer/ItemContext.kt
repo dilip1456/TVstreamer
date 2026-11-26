@@ -1,7 +1,7 @@
 package tv.tvstreamer
 
 /**
- * Compact context-menu labels for Live TV channels/groups and What to show / catalog groups.
+ * Compact context-menu labels for Live TV channels/groups and Catalog Selector / catalog groups.
  * Actions are applied by the screen; this is the menu contract (unit-tested).
  */
 object ItemContext {
@@ -58,7 +58,7 @@ object ItemContext {
         COLLAPSE_ALL
     )
 
-    /** What to show: Movies + Series + every Live TV type parent. */
+    /** Catalog Selector: Movies + Series + every Live TV type parent. */
     fun catalogCollapseAll(liveTypes: Collection<String>): Set<String> =
         setOf("Movies", "Series") + liveTypes.map { "live:$it" }.toSet()
 }

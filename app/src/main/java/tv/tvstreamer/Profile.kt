@@ -179,6 +179,7 @@ fun AccountMenu(store: Store, go: (Screen) -> Unit, onClose: () -> Unit) {
             if (Cloud.signedIn) Row1("Sign out", { Cloud.signOut(); msg = "Signed out. Data on this device is kept." })
             else Row1("Sign in with Google", { onClose(); go(Screen.Account) })
             if (msg.isNotEmpty()) Label(msg, Ts.HEAD, Pal.Warn, maxLines = 3)
+            Row1("⏻  Exit " + stringResource(R.string.app_name), { onClose(); exitApp(ctx) })
             Row1("Close", onClose)
         }
     }
@@ -234,7 +235,7 @@ fun ProfileScreen(repo: Repo, go: (Screen) -> Unit) {
         item { Row1("Languages for Movies", { go(Screen.Languages("movies", Screen.Profile)) }) }
         item { Row1("Languages for Series", { go(Screen.Languages("series", Screen.Profile)) }) }
         item { Row1("Languages for Live TV", { go(Screen.Languages("live", Screen.Profile)) }) }
-        item { Row1("What to show (categories & groups)", { go(Screen.Categories) }) }
+        item { Row1("Catalog Selector (categories & groups)", { go(Screen.Categories) }) }
 
         item { Label("Device", Ts.TITLE, Pal.Text, Modifier.padding(top = 12.dp)) }
         item { Row1("Remote buttons", { go(Screen.Remote) }) }

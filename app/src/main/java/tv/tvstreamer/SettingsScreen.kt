@@ -122,7 +122,7 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
                 }, primary = true)
             }
             SettingsNav.Sec.CONTENT -> {
-                SettingRow("What to show", "Movies, series, Live TV", first) { go(Screen.Categories) }
+                SettingRow("Catalog Selector", "Movies, series, Live TV", first) { go(Screen.Categories) }
                 var clearHist by remember { mutableStateOf(false) }
                 if (!clearHist) {
                     SettingRow("Clear watch history", "Continue watching and resume points") { clearHist = true }

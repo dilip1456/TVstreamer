@@ -5,6 +5,7 @@ package tv.tvstreamer
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -203,7 +204,6 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
     val cont = remember(tick, contVer) { repo.store.continueList() }
     val recent = remember(tick) { repo.store.list("recent").filter { repo.listOk(it.locked) }.map(repo::named) }
     var menu by remember { mutableStateOf<Pair<Shelf, Item?>?>(null) }
-    var fixItem by remember { mutableStateOf<Item?>(null) }
     var sortMenu by remember { mutableStateOf(false) }
     var clearHist by remember { mutableStateOf(false) }
     var pageMenu by remember { mutableStateOf(false) }
@@ -323,7 +323,7 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
     val heroPick = slides.getOrNull(heroIx.coerceIn(0, (slides.size - 1).coerceAtLeast(0)))
     val hero = heroPick?.show
 
-    // Rows hidden with the row menu stay out; restore in What to show or Settings > Hidden
+    // Rows hidden with the row menu stay out; restore in Catalog Selector or Settings > Hidden
     val shelvesShown = remember(shelves, repo.hidden) {
         val off = HomeHide.ids(repo.hidden)
         shelves.distinctBy { it.key }.filter { "${HomeHide.PREFIX}$mode|${it.key}" !in off }
@@ -331,6 +331,10 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
     val screenKey = "cat:$mode"
     val heroFr = remember { FocusRequester() }
     val navFr = remember { FocusRequester() }
+    // TV side menu (1.91): Left on a row's first card opens it; Right goes back to the card it came from
+    val railOn = !AppUi.phoneNav
+    val railFocus = remember { RailFocus() }
+    SideEffect { railFocus.fallback = if (hero != null) heroFr else navFr }
     val searchFr = remember { FocusRequester() }
     var navFocused by remember { mutableStateOf(false) }
     var navIx by remember { mutableIntStateOf(-1) }
@@ -359,14 +363,24 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
     // Back leaves the tab in one press (no wasted "focus the top menu first" step). Up still reaches the tabs.
     Box(Modifier.fillMaxSize().background(Pal.Bg).onKeyEvent { e ->
         // Options / Menu on the remote: page context menu (languages, sort). Cards that handle Menu keep their own.
-        if (isTv && tabbed && e.type == KeyEventType.KeyUp && e.key == Key.Menu && menu == null && !pageMenu && !sortMenu) {
+        if (isTv && e.type == KeyEventType.KeyUp && e.key == Key.Menu && menu == null && !pageMenu && !sortMenu) {
             pageMenu = true; true
         } else false
     }) {
         // Soft cinematic wash at the top (static gradient, no blur — cheap on Fire TV). Not a second copy of the hero art.
         CinematicWash()
+        if (railOn) SideRail(when (mode) { "movies" -> RailEntry.MOVIES; "series" -> RailEntry.SERIES; else -> RailEntry.HOME }, railFocus, { e ->
+            when (e) {
+                RailEntry.SEARCH -> go(Screen.Search)
+                RailEntry.HOME -> go(Screen.Home)
+                RailEntry.MOVIES -> go(Screen.MoviesTab)
+                RailEntry.SERIES -> go(Screen.SeriesTab)
+                RailEntry.LIVE -> go(Screen.Live)
+                RailEntry.EXIT -> exitApp(ctx)
+            }
+        }, Modifier.align(Alignment.CenterStart))
         // The top menu is pinned (1.53): it stays on screen while the page scrolls beneath it
-        Column(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize().padding(start = if (railOn) RAIL_W - 32.dp else 0.dp)) {
             val tabs = if (!AppUi.phoneNav) listOf<Triple<String, String, () -> Unit>>(
                 Triple("🔍", "search") { go(Screen.Search) },
                 Triple("Home", "home") { go(Screen.Home) },
@@ -386,38 +400,42 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                 }
             )
             Column(Modifier.fillMaxWidth().padding(start = hPad, end = hPad, top = if (isTv) 18.dp else 10.dp, bottom = if (isTv) 10.dp else 6.dp)) {
-                if (AppUi.phoneNav) BrandMark(Modifier.padding(bottom = 6.dp), height = 28.dp)
+                // Phone: phoenix only (no name) on the left, profile on the right; the tabs are the bottom bar
+                if (AppUi.phoneNav) Row(Modifier.fillMaxWidth().padding(bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    PhoenixMark(size = 32.dp)
+                    Spacer(Modifier.weight(1f))
+                    AvatarButton { AppUi.accountMenu = true }
+                }
 
-                // TV / tablet menu (Netflix style): brand on the left, profile, then text tabs centred; the focused tab
-                // is a soft light pill, the current one bold. Left / Right stay inside the menu, Down goes to the page.
-                // Settings, Preferences and Update live in the profile menu.
+                // TV / tablet menu (Netflix style, 1.91): phoenix only on the left, text tabs centred, profile on the right.
+                // The focused tab is a soft light pill, the current one bold. Left / Right stay inside the menu, Down goes
+                // to the page. Settings, Preferences, Update and Exit live in the profile menu.
                 if (!AppUi.phoneNav) {
                     val tabCount = tabs.size + 1
                     val tabFrs = remember(tabCount) { List(tabCount) { FocusRequester() } }
-                    Row(
-                    Modifier.fillMaxWidth().menuRow({ navIx }, { tabCount }) { n ->
+                    Box(
+                        Modifier.fillMaxWidth().menuRow({ navIx }, { tabCount }) { n ->
                             navIx = n
                             runCatching { tabFrs.getOrNull(n)?.requestFocus() }
                         }
                         .onFocusChanged { navFocused = it.hasFocus; if (!it.hasFocus) navIx = -1 }.focusRestorer(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    BrandMark(Modifier.padding(end = 14.dp), height = 32.dp)
-                    Box(Modifier.focusRequester(tabFrs[0]).onFocusChanged { if (it.hasFocus) navIx = 0 }) { AvatarButton { AppUi.accountMenu = true } }
-                    Spacer(Modifier.weight(1f))
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        tabs.forEachIndexed { ti, (t, k, a) ->
-                            val at = Modifier.focusRequester(tabFrs[ti + 1]).onFocusChanged { if (it.isFocused) navIx = ti + 1 }
-                            val m = at then when (k) {
-                                mode -> Modifier.focusRequester(navFr).onFocusChanged { if (it.isFocused) repo.lastFocus[screenKey] = "nav" }
-                                "search" -> Modifier.focusRequester(searchFr).onFocusChanged { if (it.isFocused) repo.lastFocus[screenKey] = "search" }
-                                else -> Modifier
+                        contentAlignment = Alignment.Center
+                    ) {
+                        PhoenixMark(Modifier.align(Alignment.CenterStart), size = 38.dp)
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                            tabs.forEachIndexed { ti, (t, k, a) ->
+                                val at = Modifier.focusRequester(tabFrs[ti]).onFocusChanged { if (it.isFocused) navIx = ti }
+                                val m = at then when (k) {
+                                    mode -> Modifier.focusRequester(navFr).onFocusChanged { if (it.isFocused) repo.lastFocus[screenKey] = "nav" }
+                                    "search" -> Modifier.focusRequester(searchFr).onFocusChanged { if (it.isFocused) repo.lastFocus[screenKey] = "search" }
+                                    else -> Modifier
+                                }
+                                NavTab(t, a, m, selected = k == mode)
                             }
-                            NavTab(t, a, m, selected = k == mode)
                         }
+                        Box(Modifier.align(Alignment.CenterEnd).focusRequester(tabFrs[tabs.size])
+                            .onFocusChanged { if (it.hasFocus) navIx = tabs.size }) { AvatarButton { AppUi.accountMenu = true } }
                     }
-                    Spacer(Modifier.weight(1f))
-                }
                 }
             }
         LazyColumn(state = state, modifier = Modifier.fillMaxWidth().weight(1f), contentPadding = PaddingValues(bottom = 48.dp)) {
@@ -469,7 +487,7 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                 Hero(repo, hero, isTv, hPad, "▶  Play",
                     onPlay = { if (h.play.isSeries) open(h.play) else playOrGate(h.play) },
                     onInfo = { open(hero) },
-                    playModifier = Modifier.onFocusChanged { if (it.isFocused) repo.lastFocus[screenKey] = "hero" },
+                    playModifier = Modifier.onFocusChanged { if (it.isFocused) { repo.lastFocus[screenKey] = "hero"; railFocus.content = null } },
                     heroModifier = Modifier.focusRequester(heroFr).onFocusChanged { if (it.isFocused) repo.lastFocus[screenKey] = "hero" }
                         .focusProperties { up = navFr },
                     slide = heroIx, slides = slides.size, onTouch = { heroTouched = System.currentTimeMillis() },
@@ -482,7 +500,7 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                     !shelvesReady && !lib.hasData -> "Loading…"
                     tabbed && !langs.isNullOrEmpty() && lib.loading && !lib.hasData -> "Loading…"
                     tabbed && !langs.isNullOrEmpty() -> "Nothing found for these languages yet. Try Refresh or pick more languages."
-                    else -> "Nothing here yet. Open What to show (Options or Settings) to unhide groups."
+                    else -> "Nothing here yet. Open Catalog Selector (Options or Settings) to unhide groups."
                 }
                 // Cached titles must never be hidden behind a spinner; the phoenix mark only when nothing is saved yet.
                 if (emptyMsg.startsWith("Loading")) PhoenixLoading(emptyMsg, Modifier.padding(hPad))
@@ -492,6 +510,8 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                 // Lazy: a category's items are requested only when its row is composed (scrolled into view)
                 if (shelf.cat != null && shelf.loading) LaunchedEffect(shelf.key) { repo.loadRow(shelf.cat) }
                 ShelfRow(repo, screenKey, shelf, isTv, hPad,
+                    onLeftEdge = if (railOn) ({ railFocus.enter() }) else null,
+                    onCardFocus = { railFocus.content = it },
                     onOpen = { it ->
                         when {
                             it.kind == "itv" -> play(shelf.items, shelf.items.indexOfFirst { x -> x.key == it.key }.coerceAtLeast(0))
@@ -520,7 +540,6 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                     if (item.kind == "vod" && !item.isEpisode() && shelf.key != "cont") add("Details" to { menu = null; open(item) })
                     if (!item.isEpisode()) add((if (repo.isFav(item)) "✓  In My List" else "+  My List") to { repo.toggleFav(item); menu = null })
                     if (item.kind == "vod" && !item.isSeries) add((if (repo.isWatched(item)) "Mark as unwatched" else "Mark as watched") to { repo.setWatched(item, !repo.isWatched(item)); contVer++; menu = null })
-                    if (item.kind == "vod" && !item.isEpisode()) add("Fix match…" to { menu = null; fixItem = item })
                     if (item.kind == "vod" && (shelf.versions[item.key] ?: 0) > 1) add("Versions (${shelf.versions[item.key]})…" to { menu = null; open(item) })
                     if (item.kind == "vod" && !item.isEpisode() && shelf.key != "cont") add("Hide this title" to { repo.toggleHideTitle(item); menu = null })
                     if (shelf.key == "cont") add("✕  Remove from history" to { repo.store.removeResume(item.key); menu = null; contVer++ })
@@ -537,21 +556,21 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                     val gOn = repo.groupOn(gKey)
                     add((if (gOn) "Hide" else "Show") to {
                         repo.setGroupsOn(listOf(gKey to shelf.title), !gOn); menu = null
-                        repo.status = "\"${shelf.title}\" " + (if (gOn) "hidden" else "shown") + ". Change this in What to show."
+                        repo.status = "\"${shelf.title}\" " + (if (gOn) "hidden" else "shown") + ". Change this in Catalog Selector."
                     })
                     add("Show all" to { repo.setGroupsOn(listOf(gKey to shelf.title), true); menu = null })
                     add("Hide all" to {
                         repo.setGroupsOn(listOf(gKey to shelf.title), false); menu = null
-                        repo.status = "\"${shelf.title}\" hidden. Show it again in What to show."
+                        repo.status = "\"${shelf.title}\" hidden. Show it again in Catalog Selector."
                     })
                     if (shelf.error.isNotEmpty()) add("Retry loading" to { repo.retryRow(c); menu = null })
                 }
                 if (shelf.cat == null) add("🚫  Hide this category" to {
                     repo.hideRow(mode, shelf.key, shelf.title); menu = null
-                    repo.status = "\"${shelf.title}\" hidden. Show it again in What to show."
+                    repo.status = "\"${shelf.title}\" hidden. Show it again in Catalog Selector."
                 })
                 if (tabbed) add("🌐  Languages…" to { menu = null; go(Screen.Languages(mode, Screen.Home)) })
-                add("What to show…" to { menu = null; go(Screen.Categories) })
+                add("Catalog Selector…" to { menu = null; go(Screen.Categories) })
             }
             val title = item?.let { (if (it.season.isNotEmpty()) "${it.season} · " else "") + Names.title(it.name) } ?: shelf.cat?.let { c ->
                 val pos = repo.visibleVod().indexOfFirst { it.id == c.id }
@@ -559,7 +578,6 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
             } ?: shelf.title
             ChoiceDialog(title, opts, focusKey = shelf.key + (item?.key ?: "")) { menu = null }
         }
-        fixItem?.let { f -> FixMatchDialog(f) { fixItem = null } }
         if (clearHist) {
             ChoiceDialog("Clear all watch history?", listOf(
                 "Clear all history" to { repo.store.clearHistory(); heroMemo.clear(); clearHist = false; contVer++; toast(ctx, "Watch history cleared") },
@@ -568,9 +586,10 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
         }
         if (pageMenu) {
             ChoiceDialog("Options", buildList {
-                add("🌐  Languages…" to { pageMenu = false; go(Screen.Languages(mode, Screen.Home)) })
-                if (!langs.isNullOrEmpty()) add("⇅  " + Sorts.label(sort) to { pageMenu = false; sortMenu = true })
-                add("What to show…" to { pageMenu = false; go(Screen.Categories) })
+                if (tabbed) add("🌐  Languages…" to { pageMenu = false; go(Screen.Languages(mode, Screen.Home)) })
+                if (tabbed && !langs.isNullOrEmpty()) add("⇅  " + Sorts.label(sort) to { pageMenu = false; sortMenu = true })
+                add("Catalog Selector…" to { pageMenu = false; go(Screen.Categories) })
+                add("⏻  Exit ${ctx.getString(R.string.app_name)}" to { pageMenu = false; exitApp(ctx) })
             }, focusKey = "page-menu") { pageMenu = false }
         }
         if (sortMenu) {
@@ -661,7 +680,8 @@ fun MetaLine(item: Item, meta: Meta? = null) {
 }
 
 @Composable
-private fun ShelfRow(repo: Repo, screen: String, shelf: Shelf, isTv: Boolean, hPad: Dp, onOpen: (Item) -> Unit, onMenu: (Item?) -> Unit, onSeeAll: (() -> Unit)?) {
+private fun ShelfRow(repo: Repo, screen: String, shelf: Shelf, isTv: Boolean, hPad: Dp, onOpen: (Item) -> Unit, onMenu: (Item?) -> Unit, onSeeAll: (() -> Unit)?,
+                     onLeftEdge: (() -> Unit)? = null, onCardFocus: (FocusRequester) -> Unit = {}) {
     // Reaching the end of a row fetches a little more (that row's category, or the row's language)
     val onEnd: () -> Unit = {
         shelf.cat?.let { repo.lib.moreInCat(it.id) } ?: shelf.pool?.let { p -> repo.lib.more(p.tab, setOf(p.lang)) }
@@ -670,10 +690,17 @@ private fun ShelfRow(repo: Repo, screen: String, shelf: Shelf, isTv: Boolean, hP
     val posterW = posterWidth(isTv)
     val tileW = if (isTv) 200.dp else 150.dp
     val shown = remember(shelf.items) { shelf.items.distinctBy { it.key }.take(ROW_LIMIT) }
+    // Focused card in this row (-1: none) and how many cards there are, so the row's ends never hand focus to another row
+    var focusIx by remember(shelf.key) { mutableIntStateOf(-1) }
+    val hasSeeAll = onSeeAll != null && shelf.items.isNotEmpty()
+    val cardCount = shown.size + (if (hasSeeAll) 1 else 0)
     Column(Modifier.padding(top = if (isTv) 16.dp else 12.dp)) {
         Row(Modifier.padding(horizontal = hPad), verticalAlignment = Alignment.CenterVertically) {
-            Text(shelf.title, color = Pal.Text, fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold,
-                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+            // Touch: tapping the row title opens the whole category. TV: the "See all" tile at the row's end does
+            // (the title is not a focus stop, so Up / Down between rows needs no extra press)
+            val titleTap = if (AppUi.phoneNav && hasSeeAll) Modifier.clip(RoundedCornerShape(Radii.row)).clickable { onSeeAll?.invoke() } else Modifier
+            Text(shelf.title + (if (AppUi.phoneNav && hasSeeAll) "  ›" else ""), color = Pal.Text, fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold,
+                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false).then(titleTap))
             if (shelf.cat?.locked == true) Text("  🔒", fontSize = Ts.HEAD.sp)
             if (!isTv) {
                 // Phones: "⋮" next to the title opens the row menu (move / hide). TV: Menu (or long-press OK) on any card in
@@ -698,6 +725,15 @@ private fun ShelfRow(repo: Repo, screen: String, shelf: Shelf, isTv: Boolean, hP
             horizontalArrangement = Arrangement.spacedBy(if (isTv) 14.dp else 10.dp),
             contentPadding = PaddingValues(horizontal = hPad, vertical = 8.dp),
             modifier = Modifier.focusRestorer()
+                .onFocusChanged { if (!it.hasFocus) focusIx = -1 }
+                .onPreviewKeyEvent { e ->
+                    if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                    when (RowNav.onKey(focusIx, cardCount, when (e.key) { Key.DirectionLeft -> TabNav.Dir.LEFT; Key.DirectionRight -> TabNav.Dir.RIGHT; else -> TabNav.Dir.OTHER }, onLeftEdge != null)) {
+                        RowNav.Action.NONE -> false
+                        RowNav.Action.STAY -> true
+                        RowNav.Action.TO_MENU -> { onLeftEdge?.invoke(); true }
+                    }
+                }
         ) {
             if (shelf.loading && shelf.items.isEmpty()) {
                 items(7) {
@@ -712,20 +748,30 @@ private fun ShelfRow(repo: Repo, screen: String, shelf: Shelf, isTv: Boolean, hP
                 val k = "${shelf.key}|${it.key}"
                 val fr = remember { FocusRequester() }
                 RestoreFocus(repo, screen, k, fr)
+                val track = Modifier.focusRequester(fr).onFocusChanged { f -> if (f.hasFocus) { focusIx = i; onCardFocus(fr) } }
                 if (shelf.kind == "itv") {
-                    ChannelTile(it, tileW, repo.isFav(it), Modifier.focusRequester(fr), { onOpen(it) }, { onMenu(it) }) { repo.focusItem(screen, k); Keys.focused = it }
+                    ChannelTile(it, tileW, repo.isFav(it), track, { onOpen(it) }, { onMenu(it) }) { repo.focusItem(screen, k); Keys.focused = it }
                 } else {
-                    PosterCard(it, posterW, shelf.progress[it.key], Modifier.focusRequester(fr), { onOpen(it) }, { onMenu(it) },
+                    PosterCard(it, posterW, shelf.progress[it.key], track, { onOpen(it) }, { onMenu(it) },
                         fav = repo.isFav(it), versions = shelf.versions[it.key] ?: 0) { repo.focusItem(screen, k); Keys.focused = it }
                 }
             }
             if (onSeeAll != null && shelf.items.isNotEmpty()) {
                 item(key = "seeall") {
                     LaunchedEffect(shelf.key) { onEnd() }
+                    val sfr = remember { FocusRequester() }
                     Box(
-                        Modifier.width(posterW).aspectRatio(2f / 3f).focusCard(onSeeAll).background(Pal.Card),
+                        Modifier.width(posterW).aspectRatio(2f / 3f).focusRequester(sfr)
+                            .onFocusChanged { f -> if (f.hasFocus) { focusIx = shown.size; onCardFocus(sfr) } }
+                            .focusCard(onSeeAll).background(Pal.Card),
                         contentAlignment = Alignment.Center
-                    ) { Text("See all  ›", color = Pal.Text, fontSize = Ts.ROW.sp, fontWeight = FontWeight.SemiBold) }
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("See all  ›", color = Pal.Text, fontSize = Ts.ROW.sp, fontWeight = FontWeight.SemiBold)
+                            Text(shelf.title, color = Pal.Dim, fontSize = Ts.CAPTION.sp, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(horizontal = 8.dp))
+                        }
+                    }
                 }
             }
         }
@@ -824,7 +870,6 @@ fun DetailScreen(repo: Repo, item: Item, play: (List<Item>, Int) -> Unit, onBack
     var fav by remember(cur.key) { mutableStateOf(repo.isFav(cur)) }
     var reload by remember { mutableIntStateOf(0) }
     var more by remember { mutableStateOf(false) }
-    var fix by remember { mutableStateOf(false) }
     LaunchedEffect(cur.key) { Keys.focused = cur }
     LaunchedEffect(cur.key, reload) {
         if (!cur.isSeries) return@LaunchedEffect
@@ -1066,63 +1111,10 @@ fun DetailScreen(repo: Repo, item: Item, play: (List<Item>, Int) -> Unit, onBack
         }
         if (more) {
             ChoiceDialog(name, focusKey = "more", opts = buildList {
-                if (Tmdb.key.isNotBlank()) add("✎  Fix match (choose the right TMDB title)" to { more = false; fix = true })
                 if (Tmdb.enabled) add("↻  Look up details again" to { more = false; scope.launch { Tmdb.clearFor(cur) } })
                 add((if (repo.isFav(cur)) "✓  In My List" else "+  My List") to { repo.toggleFav(cur); fav = repo.isFav(cur); more = false })
                 if (canResume) add("Remove from Continue watching" to { repo.store.removeResume(cur.key); more = false })
             }) { more = false }
-        }
-        if (fix) FixMatchDialog(cur) { fix = false }
-    }
-}
-
-/** Search TMDB and pick the right title; the choice is saved and used from then on. */
-@Composable
-private fun FixMatchDialog(item: Item, onClose: () -> Unit) {
-    val scope = rememberCoroutineScope()
-    val p = item.parsed
-    var q by remember { mutableStateOf(p.title + (if (p.year.isNotEmpty()) " (${p.year})" else "")) }
-    var type by remember { mutableStateOf(Tmdb.typeOf(item)) }
-    var results by remember { mutableStateOf<List<Cand>?>(null) }
-    var busy by remember { mutableStateOf(false) }
-    val fr = remember { FocusRequester() }
-    fun run() { busy = true; scope.launch { results = Tmdb.search(q, type); busy = false } }
-    LaunchedEffect(Unit) { run(); delay(150); runCatching { fr.requestFocus() } }
-    // One Back closes the dialog (not the details page behind it); focus returns to "Fix match"
-    PopupFrame(onClose, scrim = Color(0xCC000000)) {
-        Column(Modifier.widthIn(max = 640.dp).fillMaxWidth(0.9f).heightIn(max = 560.dp).background(Pal.Surface, RoundedCornerShape(Radii.panel)).border(1.dp, Color(0x22D4AF37), RoundedCornerShape(Radii.panel)).padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Fix match: ${Names.title(item.name)}", color = Pal.Text, fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            val kb = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
-            KeyboardGate(Modifier.fillMaxWidth()) { inner ->
-            TextField(value = q, onValueChange = { q = it }, singleLine = true, modifier = inner.fillMaxWidth(),
-                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
-                keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { kb?.hide(); run(); runCatching { fr.requestFocus() } }),
-                colors = TextFieldDefaults.colors(focusedContainerColor = Pal.FieldFocus, unfocusedContainerColor = Pal.Field,
-                    focusedTextColor = Pal.Text, unfocusedTextColor = Pal.Text))
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PillButton("Search", { run() }, Modifier.focusRequester(fr), primary = true, size = Ts.HEAD)
-                PillButton("Movie", { type = "movie"; run() }, selected = type == "movie", size = Ts.HEAD)
-                PillButton("Series", { type = "tv"; run() }, selected = type == "tv", size = Ts.HEAD)
-                PillButton("Close", onClose, size = Ts.HEAD)
-            }
-            if (busy) CircularProgressIndicator(color = Pal.Accent)
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                val r = results
-                if (r != null && r.isEmpty() && !busy) item { Text("No TMDB results. Edit the title and search again.", color = Pal.Dim, fontSize = Ts.HEAD.sp) }
-                items(r ?: emptyList(), key = { "${it.type}${it.id}" }) { c ->
-                    Row(Modifier.fillMaxWidth().focusCard({ scope.launch { Tmdb.setOverride(item, c); onClose() } }, scale = 1.02f)
-                        .background(Pal.Row).padding(6.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Poster(c.poster, c.title, Modifier.width(46.dp).aspectRatio(2f / 3f).clip(RoundedCornerShape(4.dp)), initialsSize = 12)
-                        Column(Modifier.weight(1f)) {
-                            Text(c.title + (if (c.year.isNotEmpty()) " (${c.year})" else ""), color = Pal.Text, fontSize = Ts.ROW.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            if (c.overview.isNotEmpty()) Text(c.overview, color = Pal.Dim, fontSize = Ts.CAPTION.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        }
-                    }
-                }
-                item { PillButton("No match: use the portal's info", { scope.launch { Tmdb.setOverride(item, null); onClose() } }, Modifier.fillMaxWidth(), size = Ts.HEAD) }
-            }
         }
     }
 }
@@ -1234,12 +1226,10 @@ fun GridScreen(repo: Repo, cat: Cat, open: (Item) -> Unit, play: (List<Item>, In
 
 /**
  * Movie / series menu: only valid options, Close last (ChoiceDialog). Play / Episodes, My List, Mark watched,
- * Fix match, Versions (when there are several), Hide this title.
+ * Versions (when there are several), Hide this title.
  */
 @Composable
 fun TitleMenu(repo: Repo, m: Item, versions: Int, open: (Item) -> Unit, play: ((Item) -> Unit)?, onClose: () -> Unit) {
-    var fix by remember(m.key) { mutableStateOf(false) }
-    if (fix) { FixMatchDialog(m) { fix = false; onClose() }; return }
     val ctx = androidx.compose.ui.platform.LocalContext.current
     ChoiceDialog(Names.title(m.name), buildList {
         when {
@@ -1249,7 +1239,6 @@ fun TitleMenu(repo: Repo, m: Item, versions: Int, open: (Item) -> Unit, play: ((
         add("ⓘ  Details" to { onClose(); open(m) })
         if (!m.isEpisode()) add((if (repo.isFav(m)) "✓  In My List" else "+  My List") to { repo.toggleFav(m); onClose() })
         if (!m.isSeries) add((if (repo.isWatched(m)) "Mark as unwatched" else "Mark as watched") to { repo.setWatched(m, !repo.isWatched(m)); onClose() })
-        if (m.kind == "vod" && !m.isEpisode()) add("Fix match…" to { fix = true })
         if (versions > 1) add("Versions ($versions)…" to { onClose(); open(m) })
         if (!m.isEpisode()) add("Hide this title" to {
             repo.toggleHideTitle(m); onClose(); toast(ctx, "Hidden. Show it again in Settings > Hidden.")
@@ -1386,6 +1375,6 @@ fun LanguagesScreen(repo: Repo, tab: String, onBack: () -> Unit) {
     }
 }
 
-/** What to show: one mode-aware list of movie, series and Live TV groups. */
+/** Catalog Selector: one mode-aware list of movie, series and Live TV groups. */
 @Composable
 fun CategoriesScreen(repo: Repo, go: (Screen) -> Unit) = CatalogModeScreen(repo, go)
