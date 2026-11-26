@@ -79,10 +79,10 @@ object GeminiParse {
         val byId = lib.associateBy { it.id }
         val byTitle = lib.groupBy { Tags.norm(it.title) }
         val out = LinkedHashMap<Int, T>()
-        ids.forEach { id -> byId[id]?.let { out.putIfAbsent(it.id, it.ref) } }
+        ids.forEach { id -> byId[id]?.let { if (it.id !in out) out[it.id] = it.ref } }
         titles.forEach { t ->
             val clean = Tags.norm(t.replace(Regex("\\(\\d{4}\\)\\s*$"), ""))
-            byTitle[clean]?.firstOrNull()?.let { out.putIfAbsent(it.id, it.ref) }
+            byTitle[clean]?.firstOrNull()?.let { if (it.id !in out) out[it.id] = it.ref }
         }
         return out.values.take(limit)
     }

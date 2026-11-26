@@ -19,7 +19,7 @@ object Paging {
      */
     fun <T> stable(prev: List<String>, next: List<T>, key: (T) -> String): List<T> {
         val byKey = LinkedHashMap<String, T>()
-        for (x in next) byKey.putIfAbsent(key(x), x)
+        for (x in next) { val k = key(x); if (k !in byKey) byKey[k] = x }
         val out = ArrayList<T>(byKey.size)
         val used = HashSet<String>()
         for (k in prev) { val x = byKey[k] ?: continue; if (used.add(k)) out += x }

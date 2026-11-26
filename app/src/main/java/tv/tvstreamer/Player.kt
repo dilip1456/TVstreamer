@@ -1015,7 +1015,7 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
                         c.group.getTrackFormat(c.index).language?.takeIf { it.isNotBlank() && it != "und" }?.let { rememberTracks(it, null) }
                         dialog = null
                     }
-                }.ifEmpty { listOf("No other audio tracks" to { dialog = null }) }
+                }.ifEmpty { listOf("No Other Audio Tracks" to { dialog = null }) }
                 "subs" -> {
                     val off = exo.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT) ||
                         choices(tracks, C.TRACK_TYPE_TEXT).none { it.selected }
@@ -1033,8 +1033,8 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
                             dialog = null
                         }
                     } + listOfNotNull(
-                        (if (live) null else "⬇  Download subtitles…" to { dialog = "subdl" }),
-                        "    Text size: ${subSize.replaceFirstChar { it.uppercase() }}" to {
+                        (if (live) null else "    Download Subtitles…" to { dialog = "subdl" }),
+                        "    Text Size: ${subSize.replaceFirstChar { it.uppercase() }}" to {
                             subSize = TrackPrefs.SIZES[(TrackPrefs.SIZES.indexOf(subSize) + 1) % TrackPrefs.SIZES.size]
                             repo.store.subSize = subSize
                         }
@@ -1064,20 +1064,20 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
                         }
                     }
                 }
-                "aspect" -> listOf("fit" to "Fit (whole picture)", "fill" to "Fill (stretch to screen)", "zoom" to "Zoom (crop edges)").map { (k, t) ->
+                "aspect" -> listOf("fit" to "Fit Whole Picture", "fill" to "Stretch to Fill Screen", "zoom" to "Zoom and Crop Edges").map { (k, t) ->
                     ((if (aspect == k) "✓ " else "    ") + t) to { setAspect(k); dialog = null }
                 }
                 else -> buildList {
                     // Bar options that had no room on the one-line bar come first (Fullscreen is already listed below)
                     barOverflow.filter { it.key != "fs" && it.key != "move" }.forEach { a -> add(a.label to { dialog = null; a.onClick() }) }
                     if (!live) add((if (repo.isFav(item)) WatchLists.REMOVE else WatchLists.ADD) to { repo.toggleFav(item); favTick++; dialog = null })
-                    add("Audio track" to { dialog = "audio" })
+                    add("Audio Track" to { dialog = "audio" })
                     add("Subtitles" to { dialog = "subs" })
-                    add("Picture: Fit / Fill / Zoom" to { dialog = "aspect" })
-                    if (phone) add((if (landscape) "Exit fullscreen" else "Fullscreen") to { toggleLandscape(); dialog = null })
-                    if (!isTv && !live) add("Move options bar: now $barPos" to { barPos = BarFit.nextPos(barPos); repo.store.barPos = barPos; dialog = null })
-                    add((if (live) "Not working? Retry link" else "Reload stream") to { autoRetries = 0; linkFrom = 0; attempt++; dialog = null })
-                    if (err.isNotEmpty() || live) add("Stream details" to { dialog = "details" })
+                    add("Picture Size" to { dialog = "aspect" })
+                    if (phone) add((if (landscape) "Exit Fullscreen" else "Fullscreen") to { toggleLandscape(); dialog = null })
+                    if (!isTv && !live) add("Move Options Bar: $barPos" to { barPos = BarFit.nextPos(barPos); repo.store.barPos = barPos; dialog = null })
+                    add((if (live) "Retry Link" else "Reload Stream") to { autoRetries = 0; linkFrom = 0; attempt++; dialog = null })
+                    if (err.isNotEmpty() || live) add("Stream Details" to { dialog = "details" })
                 }
             }
             val title = when (d) { "audio" -> "Audio"; "subs" -> "Subtitles"; "subdl" -> "Download subtitles: language"; "aspect" -> "Picture"; else -> item.name }
@@ -1240,7 +1240,7 @@ private fun Controls(
             }
             CtrlButton(if (isFav) Ic.Star else Ic.StarOutline, "Favorite", onFav, compact = compact)
             if (onFullscreen != null) CtrlButton(if (landscape) Ic.FullscreenExit else Ic.Fullscreen,
-                if (landscape) "Exit fullscreen" else "Fullscreen", onFullscreen, compact = compact)
+                if (landscape) "Exit Fullscreen" else "Fullscreen", onFullscreen, compact = compact)
         }
 
         // Centre: prev, -10, play/pause, +10, next — tighter in portrait so they are not squashed
@@ -1360,7 +1360,7 @@ private fun TvControls(
                         add(BarAction("subs", Ic.Subtitles, if (hasSubs) "Subtitles" else "No subtitles", { onDialog("subs") }))
                         add(BarAction("aspect", Ic.Aspect, "Picture: " + aspect.replaceFirstChar { it.uppercase() }, { onDialog("aspect") }))
                         if (onFullscreen != null) add(BarAction("fs", if (landscape) Ic.FullscreenExit else Ic.Fullscreen,
-                            if (landscape) "Exit fullscreen" else "Fullscreen", onFullscreen))
+                            if (landscape) "Exit Fullscreen" else "Fullscreen", onFullscreen))
                     }, onMore = { onDialog("menu") }, onOverflow = onOverflow, large = true)
                 }
             }

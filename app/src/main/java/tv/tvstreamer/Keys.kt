@@ -215,9 +215,9 @@ fun RemoteScreen(onBack: () -> Unit) {
 
         picked?.let { c ->
             ChoiceDialog(Keys.name(c), focusKey = "k$c", opts = listOf(
-                "Short press: ${Keys.shortOf(c).label}" to { choose = c to false; picked = null },
+                "Short Press: ${Keys.shortOf(c).label}" to { choose = c to false; picked = null },
                 "Hold: ${Keys.longOf(c).label}" to { choose = c to true; picked = null },
-                "Remove custom actions" to { Keys.remove(c); picked = null }
+                "Remove Custom Actions" to { Keys.remove(c); picked = null }
             ), onClose = { picked = null })
         }
         choose?.let { (c, isLong) ->

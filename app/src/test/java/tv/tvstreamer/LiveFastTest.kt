@@ -61,7 +61,7 @@ class LiveFastTest {
         val folders = FolderSet().create("Sports").add("Sports", ch.filterIndexed { i, _ -> i % 870 == 0 })   // 23
             .create("Mine").add("Mine", ch.filterIndexed { i, _ -> i % 153 == 0 })                            // 131
         fun inputs(mode: String, v: LiveModes.View) =
-            LiveInputs(ch, cats, emptyList(), setOf("ch:itv:5"), true, null, inf, mode, folders, v)
+            LiveInputs(ch, cats, emptyList(), setOf("ch:itv:5"), false, null, inf, mode, folders, v)
         val cache = LiveModelCache()
         var last = LiveModel.build(inputs(LiveModes.DEFAULT, LiveModes.View.ACTIVE)).also { cache.put(it) }
         // Pre-building every mode / view (what Repo.prewarmLive does in the background): each is a cheap pass now
@@ -91,9 +91,9 @@ class LiveFastTest {
     @Test fun switchingToACustomModeIsNoLongerQuadratic() {
         val cats = cats(); val ch = chans(20_000); val inf = info(ch, cats)
         val folders = FolderSet().create("Mine").add("Mine", ch.filterIndexed { i, _ -> i % 153 == 0 })
-        val base = LiveModel.build(LiveInputs(ch, cats, emptyList(), emptySet(), true, null, inf, LiveModes.DEFAULT, folders, LiveModes.View.ACTIVE))
-        repeat(3) { LiveModel.build(LiveInputs(ch, cats, emptyList(), emptySet(), true, null, inf, "Mine", folders, LiveModes.View.ALL), base) }   // warm the JIT
-        val t = ms { LiveModel.build(LiveInputs(ch, cats, emptyList(), emptySet(), true, null, inf, "Mine", folders, LiveModes.View.ACTIVE), base) }
+        val base = LiveModel.build(LiveInputs(ch, cats, emptyList(), emptySet(), false, null, inf, LiveModes.DEFAULT, folders, LiveModes.View.ACTIVE))
+        repeat(3) { LiveModel.build(LiveInputs(ch, cats, emptyList(), emptySet(), false, null, inf, "Mine", folders, LiveModes.View.ALL), base) }   // warm the JIT
+        val t = ms { LiveModel.build(LiveInputs(ch, cats, emptyList(), emptySet(), false, null, inf, "Mine", folders, LiveModes.View.ACTIVE), base) }
         // 1.72 took ~200 ms here on a desktop (seconds on a Fire TV); now a set look-up per channel
         assertTrue("custom mode layout took $t ms", t < 50)
     }
@@ -124,7 +124,7 @@ class LiveFastTest {
         val lc = LiveCatalog.withMissingCats(snap.cats, snap.items); val groups = lc.associate { it.id to it.title }
         val raw = snap.items.map { it.copy(name = ChannelTitle.display(it.name, it.num, groups[it.cat].orEmpty())) }
         val firstEmit = (System.nanoTime() - t0) / 1_000_000
-        val model = LiveModel.build(LiveInputs(raw, lc, emptyList(), emptySet(), true, null, emptyMap(), LiveModes.DEFAULT, FolderSet(), LiveModes.View.ACTIVE))
+        val model = LiveModel.build(LiveInputs(raw, lc, emptyList(), emptySet(), false, null, emptyMap(), LiveModes.DEFAULT, FolderSet(), LiveModes.View.ACTIVE))
         val onScreen = (System.nanoTime() - t0) / 1_000_000
         println("saved list: first emit $firstEmit ms, laid out $onScreen ms, ${model.flat.size} rows (portal hanging)")
         assertEquals(5000, model.flat.size)
@@ -191,14 +191,14 @@ class LiveFastTest {
     @Test fun cacheDropsLayoutsOfAnOldChannelList() {
         val cats = cats(4); val a = chans(50, 4); val b = chans(60, 4)
         val cache = LiveModelCache()
-        fun i(ch: List<Item>, v: LiveModes.View) = LiveInputs(ch, cats, emptyList(), emptySet(), true, null, emptyMap(), LiveModes.DEFAULT, FolderSet(), v)
+        fun i(ch: List<Item>, v: LiveModes.View) = LiveInputs(ch, cats, emptyList(), emptySet(), false, null, emptyMap(), LiveModes.DEFAULT, FolderSet(), v)
         cache.put(LiveModel.build(i(a, LiveModes.View.ACTIVE))); cache.put(LiveModel.build(i(a, LiveModes.View.ALL)))
         assertEquals(2, cache.size())
         cache.put(LiveModel.build(i(b, LiveModes.View.ACTIVE)))
         assertEquals(1, cache.size())
         assertNull(cache.get(i(a, LiveModes.View.ALL)))
         // A hide / show changes the inputs: the old layout is not served
-        val hid = LiveInputs(b, cats, emptyList(), setOf("ch:itv:1"), true, null, emptyMap(), LiveModes.DEFAULT, FolderSet(), LiveModes.View.ACTIVE)
+        val hid = LiveInputs(b, cats, emptyList(), setOf("ch:itv:1"), false, null, emptyMap(), LiveModes.DEFAULT, FolderSet(), LiveModes.View.ACTIVE)
         assertNull(cache.get(hid))
     }
 }

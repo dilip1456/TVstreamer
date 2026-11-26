@@ -103,6 +103,7 @@ class MainActivity : ComponentActivity() {
      * Normal (Compose) key handling. A navigation key must never take the app down: a focus move that races a lazy
      * list (target not composed yet / just disposed) throws inside Compose's focus search; that step is skipped instead.
      */
+    @android.annotation.SuppressLint("RestrictedApi")   // lint false positive: Activity.dispatchKeyEvent is public API
     private fun safeDispatch(e: KeyEvent): Boolean =
         if (!KeyRepeat.isNav(e.keyCode)) super.dispatchKeyEvent(e)
         else try { super.dispatchKeyEvent(e) } catch (t: RuntimeException) {
@@ -122,6 +123,7 @@ class MainActivity : ComponentActivity() {
      * Central key handler: learning mode, then custom short / long press bindings (Keys), else normal handling.
      * Keys with a long-press action wait for release (or [Keys.LONG_MS]) to tell short from long.
      */
+    @android.annotation.SuppressLint("RestrictedApi")   // lint false positive: Activity.dispatchKeyEvent is public API
     override fun dispatchKeyEvent(e: KeyEvent): Boolean {
         if (replaying) return safeDispatch(e)
         val code = e.keyCode

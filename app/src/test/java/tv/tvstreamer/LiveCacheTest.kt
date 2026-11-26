@@ -172,7 +172,7 @@ class LiveCacheTest {
      */
     @Test fun liveLayoutDoesNotQueueBehindCatalogWork() = runBlocking {
         val s = LiveSource.Snapshot(cats(120), chans(20_000, 120), 1L)
-        val inputs = LiveInputs(s.items, s.cats, emptyList(), emptySet(), true, null, emptyMap(), LiveModes.DEFAULT, FolderSet(), LiveModes.View.ACTIVE)
+        val inputs = LiveInputs(s.items, s.cats, emptyList(), emptySet(), false, null, emptyMap(), LiveModes.DEFAULT, FolderSet(), LiveModes.View.ACTIVE)
         withContext(LiveWork.dispatcher) { LiveModel.build(inputs) }   // warm up (JIT)
         val busyMs = 4_000L
         val cores = Runtime.getRuntime().availableProcessors()

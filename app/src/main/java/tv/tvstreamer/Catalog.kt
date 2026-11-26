@@ -103,7 +103,7 @@ private fun RestoreFocus(repo: Repo, screen: String, key: String, fr: FocusReque
     }
 }
 
-/** The series an episode in Continue watching belongs to (for "See all episodes"). */
+/** The series an episode in Continue watching belongs to (for "See All Episodes"). */
 fun parentSeries(repo: Repo, ep: Item): Item? {
     repo.store.parentOf(ep)?.let { return it }
     if (ep.pid.isNotEmpty()) return Item("vod", ep.pid, ep.parsed.title, ep.pcmd, ep.cat, -1, ep.locked, img = ep.img, desc = ep.desc)
@@ -505,9 +505,9 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                     if (shelf.key == "cont") {
                         val (p, _) = repo.store.resumeInfo(item)
                         add("Resume from ${fmt(p)}" to { menu = null; playOrGate(item) })
-                        add("Start over" to { menu = null; repo.store.removeResume(item.key); contVer++; playOrGate(item) })
+                        add("Start Over" to { menu = null; repo.store.removeResume(item.key); contVer++; playOrGate(item) })
                         if (item.isEpisodeLike()) parentSeries(repo, item)?.let { ps ->
-                            add("See all episodes" to { menu = null; go(Screen.Detail(ps, Screen.Home, item.key)) })
+                            add("See All Episodes" to { menu = null; go(Screen.Detail(ps, Screen.Home, item.key)) })
                         }
                     }
                     if (item.kind == "vod" && !item.isEpisode() && shelf.key != "cont") add("Details" to { menu = null; open(item) })
@@ -527,35 +527,35 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                             }
                         }
                     }
-                    if (item.kind == "vod" && !item.isSeries && shelf.key != "ai") add((if (repo.isWatched(item)) "Mark as unwatched" else "Mark as watched") to { repo.setWatched(item, !repo.isWatched(item)); contVer++; menu = null })
+                    if (item.kind == "vod" && !item.isSeries && shelf.key != "ai") add((if (repo.isWatched(item)) "Mark as Unwatched" else "Mark as Watched") to { repo.setWatched(item, !repo.isWatched(item)); contVer++; menu = null })
                     if (item.kind == "vod" && (shelf.versions[item.key] ?: 0) > 1) add("Versions: ${shelf.versions[item.key]}" to { menu = null; open(item) })
-                    if (item.kind == "vod" && !item.isEpisode() && shelf.key != "cont") add("Hide this title" to { repo.toggleHideTitle(item); menu = null })
-                    if (shelf.key == "cont") add("Remove from history" to { repo.store.removeResume(item.key); menu = null; contVer++ })
-                    if (item.kind == "itv") add("Hide channel" to { repo.toggleHideChannel(item); menu = null })
+                    if (item.kind == "vod" && !item.isEpisode() && shelf.key != "cont") add("Hide This Title" to { repo.toggleHideTitle(item); menu = null })
+                    if (shelf.key == "cont") add("Remove from History" to { repo.store.removeResume(item.key); menu = null; contVer++ })
+                    if (item.kind == "itv") add("Hide Channel" to { repo.toggleHideChannel(item); menu = null })
                 }
-                if (shelf.key == "cont") add("Clear all history" to { menu = null; clearHist = true })
+                if (shelf.key == "cont") add("Clear All History" to { menu = null; clearHist = true })
                 if (shelf.key == "ai") add(AiSuggest.REFRESH to { menu = null; scope.launch { Ai.refreshSuggested(repo, force = true) } })
                 if (shelf.key == "fav" || shelf.key.startsWith("wl:")) add("Manage Watchlists" to { menu = null; listPick = WATCHLIST_MANAGER })
-                shelf.pool?.let { p -> add("See all: ${shelf.title}" to { menu = null; go(p) }) }
+                shelf.pool?.let { p -> add("See All: ${shelf.title}" to { menu = null; go(p) }) }
                 shelf.cat?.let { c ->
-                    add("See all in ${shelf.title}" to { menu = null; go(Screen.Grid(c, Screen.Home)) })
-                    add("Move row up" to { repo.moveCat("vod", c.id, -1) })
-                    add("Move row down" to { repo.moveCat("vod", c.id, 1) })
-                    add("Move row to top" to { repo.moveCatTo("vod", c.id, true); menu = null })
+                    add("See All in ${shelf.title}" to { menu = null; go(Screen.Grid(c, Screen.Home)) })
+                    add("Move Row Up" to { repo.moveCat("vod", c.id, -1) })
+                    add("Move Row Down" to { repo.moveCat("vod", c.id, 1) })
+                    add("Move Row to Top" to { repo.moveCatTo("vod", c.id, true); menu = null })
                     val gKey = "vod:${c.id}"
                     val gOn = repo.groupOn(gKey)
                     add((if (gOn) "Hide" else "Show") to {
                         repo.setGroupsOn(listOf(gKey to shelf.title), !gOn); menu = null
                         repo.status = "\"${shelf.title}\" " + (if (gOn) "hidden" else "shown") + ". Change this in Catalog Selector."
                     })
-                    add("Show all" to { repo.setGroupsOn(listOf(gKey to shelf.title), true); menu = null })
-                    add("Hide all" to {
+                    add("Show All" to { repo.setGroupsOn(listOf(gKey to shelf.title), true); menu = null })
+                    add("Hide All" to {
                         repo.setGroupsOn(listOf(gKey to shelf.title), false); menu = null
                         repo.status = "\"${shelf.title}\" hidden. Show it again in Catalog Selector."
                     })
-                    if (shelf.error.isNotEmpty()) add("Retry loading" to { repo.retryRow(c); menu = null })
+                    if (shelf.error.isNotEmpty()) add("Retry Loading" to { repo.retryRow(c); menu = null })
                 }
-                if (shelf.cat == null) add("🚫  Hide this category" to {
+                if (shelf.cat == null) add("Hide This Category" to {
                     repo.hideRow(mode, shelf.key, shelf.title); menu = null
                     repo.status = "\"${shelf.title}\" hidden. Show it again in Catalog Selector."
                 })
@@ -564,14 +564,14 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
             }
             val title = item?.let { (if (it.season.isNotEmpty()) "${it.season} · " else "") + Names.title(it.name) } ?: shelf.cat?.let { c ->
                 val pos = repo.visibleVod().indexOfFirst { it.id == c.id }
-                "${shelf.title}  (row ${pos + 1})"
+                "${shelf.title}  ·  Row ${pos + 1}"
             } ?: shelf.title
             ChoiceDialog(title, opts, focusKey = shelf.key + (item?.key ?: "")) { menu = null }
         }
         listPick?.let { li -> WatchlistPicker(repo, li.takeIf { it !== WATCHLIST_MANAGER }) { listPick = null } }
         if (clearHist) {
-            ChoiceDialog("Clear all watch history?", listOf(
-                "Clear all history" to { repo.store.clearHistory(); heroMemo.clear(); clearHist = false; contVer++; toast(ctx, "Watch history cleared") },
+            ChoiceDialog("Clear All Watch History?", listOf(
+                "Clear All History" to { repo.store.clearHistory(); heroMemo.clear(); clearHist = false; contVer++; toast(ctx, "Watch history cleared") },
                 "Cancel" to { clearHist = false }
             ), focusKey = "clear-hist") { clearHist = false }
         }
@@ -1054,7 +1054,7 @@ fun DetailScreen(repo: Repo, item: Item, play: (List<Item>, Int) -> Unit, onBack
                                 cur.isSeries -> PillButton("Retry", { reload++ }, pm)
                                 canResume -> {
                                     PillButton(ResumeEpisode.movieLabel(true) + " · ${fmt(rp)}", { start(listOf(cur), 0) }, pm, primary = true, onMenu = { more = true }, icon = Ic.Play)
-                                    PillButton("Start over", { repo.store.removeResume(cur.key); start(listOf(cur), 0) }, icon = Ic.Restart)
+                                    PillButton("Start Over", { repo.store.removeResume(cur.key); start(listOf(cur), 0) }, icon = Ic.Restart)
                                 }
                                 else -> PillButton(ResumeEpisode.movieLabel(false), { start(listOf(cur), 0) }, pm, primary = true, onMenu = { more = true }, icon = Ic.Play)
                             }
@@ -1151,12 +1151,12 @@ fun DetailScreen(repo: Repo, item: Item, play: (List<Item>, Int) -> Unit, onBack
         }
         if (more) {
             ChoiceDialog(name, focusKey = "more", opts = buildList {
-                if (Tmdb.enabled) add("Look up details again" to { more = false; scope.launch { Tmdb.clearFor(cur) } })
+                if (Tmdb.enabled) add("Look Up Details Again" to { more = false; scope.launch { Tmdb.clearFor(cur) } })
                 if (cur.kind == "vod" && !cur.isEpisode()) {
                     add((if (repo.isFav(cur)) WatchLists.REMOVE else WatchLists.ADD) to { repo.toggleFav(cur); fav = repo.isFav(cur); more = false })
                     add(WatchLists.OTHER to { more = false; detailPick = true })
                 }
-                if (canResume) add("Remove from Continue watching" to { repo.store.removeResume(cur.key); more = false })
+                if (canResume) add("Remove from Continue Watching" to { repo.store.removeResume(cur.key); more = false })
             }) { more = false }
         }
         if (detailPick) WatchlistPicker(repo, cur) { detailPick = false; fav = repo.isFav(cur) }
@@ -1296,9 +1296,9 @@ fun TitleMenu(repo: Repo, m: Item, versions: Int, open: (Item) -> Unit, play: ((
                 add(label to { Ai.toggleVote(repo, m, vote); onClose() })
             }
         }
-        if (!m.isSeries) add((if (repo.isWatched(m)) "Mark as unwatched" else "Mark as watched") to { repo.setWatched(m, !repo.isWatched(m)); onClose() })
+        if (!m.isSeries) add((if (repo.isWatched(m)) "Mark as Unwatched" else "Mark as Watched") to { repo.setWatched(m, !repo.isWatched(m)); onClose() })
         if (versions > 1) add("Versions: $versions" to { onClose(); open(m) })
-        if (!m.isEpisode()) add("Hide this title" to {
+        if (!m.isEpisode()) add("Hide This Title" to {
             repo.toggleHideTitle(m); onClose(); toast(ctx, "Hidden. Show it again in Settings > Hidden.")
         })
     }, focusKey = "title" + m.key, onClose = onClose)

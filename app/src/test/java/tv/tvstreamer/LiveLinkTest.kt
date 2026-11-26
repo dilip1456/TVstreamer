@@ -8,7 +8,12 @@ class LiveLinkTest {
 
     @Test fun placeholderTriesAllDialectsOnce() {
         val t = LiveLink.tries("ffrt http://localhost/ch/12_", "12", enc = enc)
-        assertEquals(3, t.size)
+        // the live cmd three ways, then the ffmpeg and auto placeholder dialects with and without storage (the ffrt
+        // placeholder is the live cmd itself, so it is not asked again)
+        assertEquals(7, t.size)
+        assertEquals(3, t.count { it.cmd == "ffrt http://localhost/ch/12_" })
+        assertEquals(2, t.count { it.cmd == "ffmpeg http://localhost/ch/12_" })
+        assertEquals(2, t.count { it.cmd == "auto http://localhost/ch/12_" })
         assertTrue(t.all { it.query!!.startsWith("type=itv&action=create_link&cmd=") })
         assertEquals(t.size, t.map { it.query }.distinct().size)
         assertTrue(t.any { "forced_storage=0" in it.query!! })
@@ -25,7 +30,10 @@ class LiveLinkTest {
         val t = LiveLink.tries("ffrt http://localhost/ch/12_", "12", m, enc)
         assertTrue(t.any { it.label.startsWith("alternate") && "99_" in it.cmd })
         // the ch_id placeholder equals the alternate: asked only once
-        assertEquals(1, t.count { "ch/99_" in it.cmd && "series=&forced_storage=&" in it.query.orEmpty() })
+        assertEquals(1, t.count { it.cmd == "ffrt http://localhost/ch/99_" && "series=&forced_storage=&" in it.query.orEmpty() })
+        // never the same create_link query twice, and bounded (the player walks them one at a time on failure)
+        assertEquals(t.size, t.map { it.query }.distinct().size)
+        assertTrue(t.size <= 18)
     }
 
     @Test fun emptyCmdUsesPlaceholder() {

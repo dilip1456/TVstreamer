@@ -4,12 +4,13 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class AdultContentTest {
-    @Test fun defaultListsLockedAndUnlocked() {
-        assertTrue(AdultContent.listOk(locked = false, showAdult = true))
+    @Test fun sensitiveOnlyModeListsOnlyLocked() {
+        // Settings > Sensitive Content Only = On: lists show only password-controlled titles and channels
+        assertFalse(AdultContent.listOk(locked = false, showAdult = true))
         assertTrue(AdultContent.listOk(locked = true, showAdult = true))
     }
 
-    @Test fun turningOffHidesOnlyLocked() {
+    @Test fun normalModeHidesOnlyLocked() {
         assertTrue(AdultContent.listOk(locked = false, showAdult = false))
         assertFalse(AdultContent.listOk(locked = true, showAdult = false))
     }

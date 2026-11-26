@@ -68,7 +68,14 @@ object Subtitles {
         fun parseReset(body: String, now: Long): Long {
             val o = runCatching { JSONObject(body) }.getOrNull()
             val utc = o?.optString("reset_time_utc").orEmpty()
-            runCatching { if (utc.isNotBlank()) return java.time.Instant.parse(utc).toEpochMilli() }
+            // "2023-05-26T00:00:00Z" (fraction / zone suffix ignored: always UTC). SimpleDateFormat works on every API level.
+            runCatching {
+                if (utc.length >= 19) {
+                    val f = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
+                    f.timeZone = java.util.TimeZone.getTimeZone("UTC"); f.isLenient = false
+                    f.parse(utc.substring(0, 19))?.time?.let { return it }
+                }
+            }
             // Unknown: next midnight UTC (OpenSubtitles resets at midnight UTC)
             val day = 24 * 3600_000L
             return (now / day + 1) * day

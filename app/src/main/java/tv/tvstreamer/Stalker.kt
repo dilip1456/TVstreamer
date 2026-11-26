@@ -26,7 +26,7 @@ class Stalker(private val store: Store) {
         return "mac=$mac; stb_lang=en; timezone=Europe/London"
     }
     var parentPassword: String? = null
-    private val lockedCatIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val lockedCatIds = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
 
     fun reset() { token = ""; api = ""; parentPassword = null }
 

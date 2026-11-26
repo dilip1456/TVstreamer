@@ -236,9 +236,12 @@ class Store(ctx: Context) {
         get() = (p.getString("auto_next", "1") ?: "1") != "0"
         set(v) { p.edit().putString("auto_next", if (v) "1" else "0").apply() }
 
-    /** Show locked / adult portal categories in lists (Settings > Content). Synced; default on. Playing still needs the lock password. */
+    /**
+     * Settings > Sensitive Content Only. On = lists show ONLY password-controlled titles and channels (see [AdultContent]).
+     * Synced; default off (a fresh install shows the normal catalog). Playing a locked item still needs the lock password.
+     */
     var showAdult: Boolean
-        get() = (p.getString("show_adult", "1") ?: "1") != "0"
+        get() = (p.getString("show_adult", "0") ?: "0") == "1"
         set(v) { p.edit().putString("show_adult", if (v) "1" else "0").apply() }
 
     /** Preferred audio language ("" = the stream's default). Synced. */

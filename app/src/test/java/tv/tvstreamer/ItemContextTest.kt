@@ -10,33 +10,41 @@ class ItemContextTest {
         val on = ItemContext.channelItems(on = true, inList = false, renamed = false)
         assertEquals(listOf("Hide", "Rename", "Add to My List", "Select"), on)
         val off = ItemContext.channelItems(on = false, inList = true, renamed = true)
-        assertEquals(listOf("Show", "Rename", "Reset to original", "Remove from My List", "Select"), off)
+        assertEquals(listOf("Show", "Rename", "Reset to Original", "Remove from My List", "Select"), off)
         assertFalse(on.contains("Languages…"))
     }
 
     @Test fun liveGroupMenuHasShowHideAllAndCollapse() {
         val items = ItemContext.liveGroupItems(groupOn = true, folded = false)
         assertEquals(
-            listOf("Hide", "Show all channels in group", "Hide all channels in group",
-                "Collapse", "Expand all", "Collapse all", "Select channels"),
+            listOf("Hide", "Show Channels in This Section", "Hide Channels in This Section",
+                "Collapse", "Expand All", "Collapse All", "Select Channels"),
             items
         )
         val shown = ItemContext.liveGroupItems(groupOn = false, folded = true)
         assertEquals("Show", shown[0])
         assertEquals("Expand", shown[3])
+        // menu labels: no brackets, no emoji prefixes, Title Case first letters
+        val all = ItemContext.liveGroupItems(true, false) + ItemContext.liveGroupItems(false, true) +
+            ItemContext.channelItems(true, false, false) + ItemContext.channelItems(false, true, true) +
+            ItemContext.catalogGroupItems(true, true, false)
+        all.forEach { l ->
+            assertFalse(l, l.any { it in "()[]{}" })
+            assertTrue(l, l.first().isUpperCase())
+        }
     }
 
     @Test fun catalogMovieGroupHasShowHideAll() {
         val items = ItemContext.catalogGroupItems(groupOn = true, liveType = false, folded = null)
-        assertEquals(listOf("Hide", "Show all", "Hide all", "Select"), items)
+        assertEquals(listOf("Hide", "Show All", "Hide All", "Select"), items)
     }
 
     @Test fun catalogLiveTypeAlsoHasCollapse() {
         val items = ItemContext.catalogGroupItems(groupOn = false, liveType = true, folded = true)
         assertTrue(items.contains("Show"))
-        assertTrue(items.contains("Show all"))
+        assertTrue(items.contains("Show All"))
         assertTrue(items.contains("Expand"))
-        assertTrue(items.contains("Collapse all"))
+        assertTrue(items.contains("Collapse All"))
         assertTrue(items.contains("Select"))
     }
 

@@ -253,7 +253,7 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
     // Live TV options (Menu on the left nav / ⋮ on phone): view state, Select, languages
     fun viewOpts(close: () -> Unit): List<Pair<String, () -> Unit>> = LiveModes.View.values().map { v ->
         ((if (v == view) "✓  " else "     ") + v.label) to { view = v; close() }
-    } + listOf("Select channels" to { sel = emptySet(); close() })
+    } + listOf("Select Channels" to { sel = emptySet(); close() })
     fun jumpTo(type: String) { layout.second[type]?.let { scope.launch { runCatching { state.animateScrollToItem(it) } } } }
 
     @Composable
@@ -417,8 +417,8 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
             layout.first[s.key]?.let { scope.launch { runCatching { state.scrollToItem(it) } } }; popup = null
         } }, focusKey = "sections", onClose = { popup = null })
         "more" -> ChoiceDialog("Options", listOf(
-            "Expand all" to { expandAll(); popup = null },
-            "Collapse all" to { collapseAll(); popup = null },
+            "Expand All" to { expandAll(); popup = null },
+            "Collapse All" to { collapseAll(); popup = null },
             "Catalog Selector" to { popup = null; go(Screen.Categories) }
         ) + viewOpts { popup = null } + listOf("Exit ${ctx.getString(R.string.app_name)}" to { popup = null; exitApp(ctx) }), focusKey = "more", onClose = { popup = null })
     }

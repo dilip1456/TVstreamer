@@ -22,7 +22,7 @@ class LiveSourceTest {
 
     private fun inputs(s: LiveSource.Snapshot, hidden: Set<String> = emptySet(), mode: String = LiveModes.DEFAULT,
                        folders: FolderSet = FolderSet(), view: LiveModes.View = LiveModes.View.ACTIVE, info: Map<String, ChInfo> = emptyMap()) =
-        LiveInputs(s.items, s.cats, emptyList(), hidden, true, null, info, mode, folders, view)
+        LiveInputs(s.items, s.cats, emptyList(), hidden, false, null, info, mode, folders, view)
 
     @Test fun firstRunFetchesOnceThenEverythingIsLocal() {
         val portal = FakePortal(cats(5), chans(50, 5))
@@ -80,7 +80,7 @@ class LiveSourceTest {
         assertTrue(noCat.flat.none { it.cat == "c0" })
         // Rename = a new channel list with the same keys: same order
         val renamed = s.items.map { if (it.id == "5") it.copy(name = "My channel") else it }
-        val r = LiveModel.build(LiveInputs(renamed, s.cats, emptyList(), emptySet(), true, null, emptyMap(), LiveModes.DEFAULT, FolderSet(), LiveModes.View.ACTIVE))
+        val r = LiveModel.build(LiveInputs(renamed, s.cats, emptyList(), emptySet(), false, null, emptyMap(), LiveModes.DEFAULT, FolderSet(), LiveModes.View.ACTIVE))
         assertEquals(open.flat.map { it.key }, r.flat.map { it.key })
         assertEquals(0, portal.calls)
     }

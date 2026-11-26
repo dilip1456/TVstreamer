@@ -80,7 +80,7 @@ class Library(private val repo: Repo) {
     @Volatile private var diskLoaded = false
     @Volatile private var owner = ""
     private fun account() = (repo.store.portal.trim().trimEnd('/') + "|" + repo.store.mac.trim().uppercase()).hashCode().toString()
-    private val knownKeys = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val knownKeys = java.util.Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
     @Volatile private var indexes = CatalogIndexes()
     private val poolMemo = java.util.concurrent.ConcurrentHashMap<String, List<Item>>()
     private val cardMemo = java.util.concurrent.ConcurrentHashMap<String, List<Group>>()
@@ -94,10 +94,10 @@ class Library(private val repo: Repo) {
     private fun savePolicy() { repo.store.refreshPolicy = policy.toJson() }
 
     private val catNext = ConcurrentHashMap<String, Int>()      // next page to fetch per category
-    private val catEnd = ConcurrentHashMap.newKeySet<String>()  // every page fetched
+    private val catEnd = java.util.Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())  // every page fetched
     private val fewSpent = ConcurrentHashMap<String, Int>()
     private val emptyPages = ConcurrentHashMap<String, Int>()  // pages in a row that brought nothing new, per category
-    private val queued = ConcurrentHashMap.newKeySet<String>()
+    private val queued = java.util.Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
     @Volatile private var sessionPages = 0
     @Volatile private var current: Job? = null
 

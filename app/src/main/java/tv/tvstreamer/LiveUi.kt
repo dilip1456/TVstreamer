@@ -193,20 +193,20 @@ fun ChannelMenu(repo: Repo, ch: Item, @Suppress("UNUSED_PARAMETER") folder: Stri
     ChoiceDialog(ChannelTitle.pretty(ch.name), buildList {
         if (!inPlayer && onPlay != null) add("Play" to { onClose(); onPlay() })
         add(when {
-            mode == LiveModes.DEFAULT -> if (on) "Hide channel" else "Show channel again"
+            mode == LiveModes.DEFAULT -> if (on) "Hide Channel" else "Show Channel Again"
             on -> "Remove from \"$mode\""
             else -> "Add to \"$mode\""
         } to { repo.toggleOn(ch); onClose() })
-        if (repo.modes.isNotEmpty() || mode == LiveModes.DEFAULT) add("Add to a mode…" to { page = "modes" })
-        if (onGuide != null) add("Guide / schedule" to { onGuide() })
-        if (next != null) add((if (repo.hasReminder(ch, next)) "Cancel reminder: " else "Remind me: ") + "${next.title} ${hhmm(next.start)}" to {
+        if (repo.modes.isNotEmpty() || mode == LiveModes.DEFAULT) add("Add to a Mode…" to { page = "modes" })
+        if (onGuide != null) add("Guide and Schedule" to { onGuide() })
+        if (next != null) add((if (repo.hasReminder(ch, next)) "Cancel Reminder: " else "Remind Me: ") + "${next.title} ${hhmm(next.start)}" to {
             val set = repo.toggleReminder(ch, next)
             toast(ctx, if (set) "Reminder set for ${hhmm(next.start)}" else "Reminder removed"); onClose()
         })
-        add("Rename channel" to { page = "rename" })
-        if (repo.isRenamed(ch)) add("Reset name to ${repo.portalName(ch)}" to { repo.renameChannel(ch, null); onClose() })
-        add("Channel info" to { page = "info" })
-        if (!inPlayer && onPlay != null) add("Play with a fresh link" to { onClose(); onPlay() })
+        add("Rename Channel" to { page = "rename" })
+        if (repo.isRenamed(ch)) add("Reset Name to ${repo.portalName(ch)}" to { repo.renameChannel(ch, null); onClose() })
+        add("Channel Info" to { page = "info" })
+        if (!inPlayer && onPlay != null) add("Play with a Fresh Link" to { onClose(); onPlay() })
         addAll(extra)
     }, focusKey = ch.key + page, onClose = onClose)
 }
@@ -277,7 +277,7 @@ fun ModePicker(repo: Repo, ch: Item, onClose: () -> Unit) {
             val inIt = f.items(n).any { it.key == ch.key }
             add("${if (inIt) "☑" else "☐"}  $n" to { if (inIt) repo.removeFromFolder(n, listOf(ch)) else repo.addToFolder(n, listOf(ch)) })
         }
-        add("New mode" to { naming = true })
+        add("New Mode" to { naming = true })
     }, focusKey = "modes" + f.names.size, onClose = onClose)
 }
 
@@ -294,8 +294,8 @@ fun ModeMenu(repo: Repo, current: List<Item>, onClose: () -> Unit) {
         "new" -> { NameDialog("New mode", "", "Next", { newName = it; page = "start" }) { page = "main" }; return }
         "start" -> {
             ChoiceDialog("Start \"${FolderSet.clean(newName)}\" with", listOf(
-                "Everything hidden (pick what to show)" to { repo.createMode(newName, null); onClose() },
-                "What's visible now" to { repo.createMode(newName, current); onClose() }
+                "Start Empty and Pick What to Show" to { repo.createMode(newName, null); onClose() },
+                "Start with What's Visible Now" to { repo.createMode(newName, current); onClose() }
             ), focusKey = "start", onClose = { page = "main" })
             return
         }
@@ -309,20 +309,20 @@ fun ModeMenu(repo: Repo, current: List<Item>, onClose: () -> Unit) {
         "rename" -> { NameDialog("Rename mode", target, "Save", { repo.renameMode(target, it); onClose() }) { page = "edit" }; return }
         "delete" -> {
             ChoiceDialog("Delete \"$target\"? Channels stay in Live TV.", listOf(
-                "Yes, delete" to { repo.deleteMode(target); onClose() },
-                "No, keep it" to { page = "edit" }
+                "Yes, Delete" to { repo.deleteMode(target); onClose() },
+                "No, Keep It" to { page = "edit" }
             ), focusKey = "del$target", onClose = { page = "edit" })
             return
         }
     }
     val cur = repo.mode()
     ChoiceDialog("Mode", buildList {
-        add((if (cur == LiveModes.DEFAULT) "✓  " else "     ") + "Default: every channel not hidden" to { repo.selectMode(LiveModes.DEFAULT); onClose() })
-        add((if (cur == LiveModes.PASSWORD) "✓  " else "     ") + "Password: locked channels only" to { repo.selectMode(LiveModes.PASSWORD); onClose() })
+        add((if (cur == LiveModes.DEFAULT) "✓  " else "     ") + "Default: Every Channel Not Hidden" to { repo.selectMode(LiveModes.DEFAULT); onClose() })
+        add((if (cur == LiveModes.PASSWORD) "✓  " else "     ") + "Password: Locked Channels Only" to { repo.selectMode(LiveModes.PASSWORD); onClose() })
         repo.modes.forEach { m ->
             add((if (cur == m) "✓  " else "     ") + "$m  ·  ${repo.folders.channelItems(m).size}" to { repo.selectMode(m); onClose() })
         }
-        add("New mode" to { page = "new" })
+        add("New Mode" to { page = "new" })
         repo.modes.forEach { m -> add("Edit $m" to { target = m; page = "edit" }) }
     }, focusKey = "modes" + repo.modes.size, onClose = onClose)
 }

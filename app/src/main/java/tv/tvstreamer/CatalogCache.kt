@@ -104,7 +104,7 @@ object CatalogDisk {
                 if (line.isBlank()) return@forEach
                 runCatching {
                     val i = Item.from(JSONObject(line))
-                    first.putIfAbsent(i.key, i)
+                    if (i.key !in first) first[i.key] = i
                 }
             }
         }

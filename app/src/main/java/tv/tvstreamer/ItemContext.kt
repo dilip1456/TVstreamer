@@ -7,20 +7,20 @@ package tv.tvstreamer
 object ItemContext {
     const val SHOW = "Show"
     const val HIDE = "Hide"
-    const val SHOW_ALL_CHANNELS = "Show channels in this section"
-    const val HIDE_ALL_CHANNELS = "Hide channels in this section"
-    const val SHOW_ALL = "Show all"
-    const val HIDE_ALL = "Hide all"
+    const val SHOW_ALL_CHANNELS = "Show Channels in This Section"
+    const val HIDE_ALL_CHANNELS = "Hide Channels in This Section"
+    const val SHOW_ALL = "Show All"
+    const val HIDE_ALL = "Hide All"
     const val RENAME = "Rename"
-    const val RESET_NAME = "Reset to original"
+    const val RESET_NAME = "Reset to Original"
     const val ADD_LIST = "Add to My List"
     const val REMOVE_LIST = "Remove from My List"
     const val SELECT = "Select"
-    const val SELECT_CHANNELS = "Select channels (subgroup)"
+    const val SELECT_CHANNELS = "Select Channels"
     const val COLLAPSE = "Collapse"
     const val EXPAND = "Expand"
-    const val COLLAPSE_ALL = "Collapse all"
-    const val EXPAND_ALL = "Expand all"
+    const val COLLAPSE_ALL = "Collapse All"
+    const val EXPAND_ALL = "Expand All"
 
     fun channelItems(on: Boolean, inList: Boolean, renamed: Boolean): List<String> = buildList {
         add(if (on) HIDE else SHOW)
