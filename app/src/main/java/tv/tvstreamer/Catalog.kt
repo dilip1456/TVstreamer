@@ -393,13 +393,13 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
         // The top menu is pinned (1.53): it stays on screen while the page scrolls beneath it
         Column(Modifier.fillMaxSize().padding(start = if (railOn) RAIL_W - 32.dp else 0.dp)) {
             Column(Modifier.fillMaxWidth().padding(start = hPad, end = hPad, top = if (isTv) Layout.TV_TOP else Layout.PHONE_TOP, bottom = if (isTv) Layout.S else 6.dp)) {
-                // Phone: compact phoenix only (no name) on the left, profile on the right; the tabs are the bottom bar
+                // Phone: compact Bluey mark only (no name) on the left, profile on the right; the tabs are the bottom bar
                 if (AppUi.phoneNav) Row(Modifier.fillMaxWidth().padding(bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    PhoenixMark(size = Layout.LOGO_PHONE)
+                    BlueyMark(size = Layout.LOGO_PHONE)
                     Spacer(Modifier.weight(1f))
                     AvatarButton { AppUi.accountMenu = true }
                 }
-                // TV / tablet menu (shared with Live TV, 1.99): compact phoenix top-left, tabs centred, profile right.
+                // TV / tablet menu (shared with Live TV, 1.99): compact Bluey mark top-left, tabs centred, profile right.
                 // Left on the first tab opens the side menu; Down goes to the page. Settings and Exit live in the profile menu.
                 if (!AppUi.phoneNav) TopNavBar(mode, topTabs(go) { go(Screen.Search) }, if (railOn) railFocus else null, { AppUi.accountMenu = true }) { k ->
                     when (k) {
@@ -436,7 +436,7 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                             if (lib.total > 0) {
                                 Spacer(Modifier.height(4.dp))
                                 LinearProgressIndicator(progress = { (lib.done.toFloat() / lib.total).coerceIn(0f, 1f) },
-                                    modifier = Modifier.fillMaxWidth(if (isTv) 0.4f else 1f).height(3.dp), color = Pal.Gold, trackColor = Pal.Dim.copy(alpha = 0.3f))
+                                    modifier = Modifier.fillMaxWidth(if (isTv) 0.4f else 1f).height(3.dp), color = Pal.Primary, trackColor = Pal.Dim.copy(alpha = 0.3f))
                             }
                         } else if (lib.note.isNotEmpty() && !langs.isNullOrEmpty()) {
                             Spacer(Modifier.height(4.dp)); Text(lib.note, color = Pal.Warn, fontSize = Ts.SECONDARY.sp)
@@ -473,8 +473,8 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                     tabbed && !langs.isNullOrEmpty() -> "Nothing found for these languages yet. Try Refresh or pick more languages."
                     else -> "Open Catalog Selector from Options or Settings to choose what to show."
                 }
-                // Cached titles must never be hidden behind a spinner; the phoenix mark only when nothing is saved yet.
-                if (emptyMsg.startsWith("Loading")) PhoenixLoading(emptyMsg, Modifier.padding(hPad))
+                // Cached titles must never be hidden behind a spinner; the Bluey loader only when nothing is saved yet.
+                if (emptyMsg.startsWith("Loading")) BrandLoading(emptyMsg, Modifier.padding(hPad))
                 else EmptyState("Nothing here yet", emptyMsg, Modifier.padding(horizontal = hPad))
             }
             items(shelvesShown, key = { it.key }) { shelf ->
@@ -621,7 +621,7 @@ private fun Hero(repo: Repo, raw: Item, isTv: Boolean, hPad: Dp, playLabel: Stri
             }
         } else {
             Box(Modifier.fillMaxSize().background(
-                Brush.linearGradient(listOf(Color(0xFF141218), Color(0xFF2A2418), Color(0xFF0E0E12)))))
+                Brush.linearGradient(listOf(Color(0xFF0B1826), Color(0xFF12304F), Color(0xFF071018)))))
         }
         Box(Modifier.fillMaxSize().background(Color(0x4D000000)))
         Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Pal.Bg.copy(alpha = 0.92f), Pal.Bg.copy(alpha = 0.45f), Color.Transparent))))
@@ -642,7 +642,7 @@ private fun Hero(repo: Repo, raw: Item, isTv: Boolean, hPad: Dp, playLabel: Stri
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                             repeat(slides) { i ->
                                 Box(Modifier.size(if (i == slide) 10.dp else 7.dp).clip(RoundedCornerShape(50))
-                                    .background(if (i == slide) Pal.Gold else Pal.Dim.copy(alpha = 0.6f)))
+                                    .background(if (i == slide) Pal.Primary else Pal.Dim.copy(alpha = 0.6f)))
                             }
                         }
                     }
@@ -1012,7 +1012,7 @@ fun DetailScreen(repo: Repo, item: Item, play: (List<Item>, Int) -> Unit, onBack
         BackdropArt.distinct(meta?.backdrop, shownItem.img)?.let { url ->
             Poster(url, name, Modifier.fillMaxWidth().fillMaxHeight(if (isTv) 0.82f else 0.62f), ContentScale.Crop, initialsSize = 1)
         } ?: Box(Modifier.fillMaxWidth().fillMaxHeight(if (isTv) 0.82f else 0.62f).background(
-            Brush.verticalGradient(listOf(Color(0xFF1A1610), Pal.Bg))))
+            Brush.verticalGradient(listOf(Color(0xFF0E2238), Pal.Bg))))
         Box(Modifier.fillMaxSize().background(Color(0x4D000000)))
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.15f to Pal.Bg.copy(alpha = 0.35f), 0.7f to Pal.Bg)))
         val similar = remember(cur.key, cur.cat, repo.lib.version) {
@@ -1417,7 +1417,7 @@ fun LanguagesScreen(repo: Repo, tab: String, onBack: () -> Unit) {
             items(langs, key = { it.first }) { (l, n) ->
                 val on = l in sel
                 Row(Modifier.fillMaxWidth().focusCard({ save(if (on) sel - l else sel + l) }, scale = 1.02f)
-                    .background(if (on) Color(0x33E50914) else Pal.Soft).padding(horizontal = 14.dp, vertical = 10.dp),
+                    .background(if (on) Pal.Primary.copy(alpha = 0.22f) else Pal.Soft).padding(horizontal = 14.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically) {
                     Text(if (on) "☑" else "☐", color = Pal.Text, fontSize = Ts.TITLE.sp)
                     Spacer(Modifier.width(12.dp))

@@ -43,7 +43,7 @@ fun rememberMinute(): Long {
 @Composable
 fun ProgressLine(frac: Float, modifier: Modifier = Modifier) {
     Box(modifier.height(3.dp).clip(RoundedCornerShape(2.dp)).background(Color(0x33FFFFFF))) {
-        Box(Modifier.fillMaxHeight().fillMaxWidth(frac.coerceIn(0f, 1f)).background(Pal.Gold))
+        Box(Modifier.fillMaxHeight().fillMaxWidth(frac.coerceIn(0f, 1f)).background(Pal.Primary))
     }
 }
 
@@ -136,10 +136,10 @@ fun ChannelPanel(repo: Repo, list: List<Item>, playing: Int, title: String = "Ch
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             if (ch.num > 0) Text("${ch.num}", color = Pal.Dim, fontSize = Ts.CAPTION.sp, modifier = Modifier.widthIn(min = 34.dp))
-                            Text(ChannelTitle.pretty(ch.name), color = if (i == playing) Pal.Gold else Pal.Text, fontSize = Ts.HEAD.sp,
+                            Text(ChannelTitle.pretty(ch.name), color = if (i == playing) Pal.PrimaryText else Pal.Text, fontSize = Ts.HEAD.sp,
                                 fontWeight = if (f) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f))
-                            if (i == playing) Text("Playing", color = Pal.Gold, fontSize = Ts.CAPTION.sp, fontWeight = FontWeight.Bold)
+                            if (i == playing) Text("Playing", color = Pal.PrimaryText, fontSize = Ts.CAPTION.sp, fontWeight = FontWeight.Bold)
                         }
                         if (shown != null) {
                             val on = shown.isOn(t)
@@ -148,7 +148,7 @@ fun ChannelPanel(repo: Repo, list: List<Item>, playing: Int, title: String = "Ch
                             Text(label, color = if (f) Pal.Text else Pal.Dim, fontSize = Ts.CAPTION.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             if (on) ProgressLine(shown.progress(t), Modifier.fillMaxWidth().padding(top = 4.dp))
                             if (f && step > 0) Text(if (repo.hasReminder(ch, shown)) "OK: remove reminder" else "OK: remind me",
-                                color = Pal.Gold, fontSize = Ts.CAPTION.sp)
+                                color = Pal.PrimaryText, fontSize = Ts.CAPTION.sp)
                         }
                     }
                 }
@@ -386,7 +386,7 @@ fun GuidePanel(repo: Repo, ch: Item, onClose: () -> Unit) {
                             .padding(horizontal = 10.dp, vertical = 6.dp)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Text(if (on) "NOW" else hhmm(p.start), color = if (on) Pal.Gold else Pal.Dim, fontSize = Ts.CAPTION.sp,
+                            Text(if (on) "NOW" else hhmm(p.start), color = if (on) Pal.PrimaryText else Pal.Dim, fontSize = Ts.CAPTION.sp,
                                 fontWeight = if (on) FontWeight.Bold else FontWeight.Normal, modifier = Modifier.widthIn(min = 56.dp))
                             Text(p.title, color = Pal.Text, fontSize = Ts.HEAD.sp, fontWeight = if (f || on) FontWeight.SemiBold else FontWeight.Normal,
                                 maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
@@ -400,7 +400,7 @@ fun GuidePanel(repo: Repo, ch: Item, onClose: () -> Unit) {
                         }
                         if (f && p.desc.isNotBlank()) Text(p.desc, color = Pal.Dim, fontSize = Ts.CAPTION.sp, maxLines = 3, overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.padding(top = 4.dp))
-                        if (f && !on) Text(if (reminded) "OK: remove reminder" else "OK: remind me", color = Pal.Gold, fontSize = Ts.CAPTION.sp)
+                        if (f && !on) Text(if (reminded) "OK: remove reminder" else "OK: remind me", color = Pal.PrimaryText, fontSize = Ts.CAPTION.sp)
                     }
                 }
             }
@@ -427,7 +427,7 @@ fun LiveInfoBar(repo: Repo, ch: Item, pos: Int, count: Int, isTv: Boolean, modif
         verticalArrangement = Arrangement.spacedBy(if (isTv) 4.dp else 6.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (ch.num > 0) Text("${ch.num}", color = Pal.Gold, fontSize = Ts.HEAD.sp, fontWeight = FontWeight.Bold)
+            if (ch.num > 0) Text("${ch.num}", color = Pal.PrimaryText, fontSize = Ts.HEAD.sp, fontWeight = FontWeight.Bold)
             Text(ChannelTitle.pretty(ch.name), color = Color.White, fontSize = Ts.ROW.sp, fontWeight = FontWeight.SemiBold,
                 maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = if (isTv) Modifier.widthIn(max = 260.dp) else Modifier.weight(1f))
             if (isTv) {

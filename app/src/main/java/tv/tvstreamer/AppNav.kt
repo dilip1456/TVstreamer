@@ -39,11 +39,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 
-/** Phoenix mark only (no wordmark): the top bar on Home / Movies / Series / Live TV. Not focusable. */
+/** Bluey mark only (no wordmark): the top bar on Home / Movies / Series / Live TV. Not focusable. */
 @Composable
-fun PhoenixMark(modifier: Modifier = Modifier, size: Dp = Layout.LOGO_TV) {
+fun BlueyMark(modifier: Modifier = Modifier, size: Dp = Layout.LOGO_TV) {
     Image(
-        painterResource(R.drawable.ic_phoenix),
+        painterResource(R.drawable.ic_bluey),
         contentDescription = stringResource(R.string.app_name),
         modifier = modifier.size(size),
         contentScale = ContentScale.Fit
@@ -106,7 +106,7 @@ fun TopNavBar(current: String, tabs: List<TopTab>, rail: RailFocus?, onProfile: 
             .focusRestorer(),
         contentAlignment = Alignment.Center
     ) {
-        PhoenixMark(Modifier.align(Alignment.CenterStart), size = Layout.LOGO_TV)
+        BlueyMark(Modifier.align(Alignment.CenterStart), size = Layout.LOGO_TV)
         Row(horizontalArrangement = Arrangement.spacedBy(Layout.XS), verticalAlignment = Alignment.CenterVertically) {
             tabs.forEachIndexed { i, t ->
                 NavTab(t.label, t.onClick,
@@ -227,7 +227,7 @@ fun SideRail(current: RailEntry?, focus: RailFocus, onPick: (RailEntry) -> Unit,
 private fun RailItem(e: RailEntry, open: Boolean, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
     var f by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(12.dp)
-    val fg = when { f -> Pal.OnFocusPill; selected -> Pal.Gold; else -> Color(0xFFB8B8B8) }
+    val fg = when { f -> Pal.OnFocusPill; selected -> Pal.PrimaryText; else -> Color(0xFFB4C0CE) }
     Row(
         modifier.then(if (open) Modifier.width(212.dp) else Modifier)
             .onFocusChanged { f = it.isFocused }
@@ -244,7 +244,7 @@ private fun RailItem(e: RailEntry, open: Boolean, selected: Boolean, modifier: M
         }
         if (open) Text(e.label, color = fg, fontSize = (Ts.ROW + 2).sp, maxLines = 1,
             fontWeight = if (selected || f) FontWeight.Bold else FontWeight.Medium)
-        else if (selected) Box(Modifier.size(4.dp).clip(RoundedCornerShape(50)).background(Pal.Gold))
+        else if (selected) Box(Modifier.size(4.dp).clip(RoundedCornerShape(50)).background(Pal.Primary))
     }
 }
 

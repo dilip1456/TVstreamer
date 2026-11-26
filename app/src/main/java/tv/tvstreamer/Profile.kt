@@ -71,13 +71,13 @@ object NavIcons {
     val Person = icon("person", "M12,12c2.21,0 4,-1.79 4,-4s-1.79,-4 -4,-4 -4,1.79 -4,4 1.79,4 4,4zM12,14c-2.67,0 -8,1.34 -8,4v2h16v-2c0,-2.66 -5.33,-4 -8,-4z")
 }
 
-/** Google profile photo (circular), else gold initials, else a person icon. */
+/** Google profile photo (circular), else initials on brand blue, else a person icon. */
 @Composable
 fun Avatar(size: Dp, modifier: Modifier = Modifier) {
     val ctx = LocalContext.current
     val initials = (Cloud.name.ifEmpty { Cloud.email }).split(' ', '.', '@').filter { it.isNotBlank() }.take(2).joinToString("") { it.take(1).uppercase() }
-    Box(modifier.size(size).clip(CircleShape).background(if (Cloud.signedIn) Pal.Gold else Pal.Selected), contentAlignment = Alignment.Center) {
-        if (Cloud.signedIn && initials.isNotEmpty()) Text(initials, color = Color.Black, fontSize = (size.value * 0.4f).sp, fontWeight = FontWeight.Bold)
+    Box(modifier.size(size).clip(CircleShape).background(if (Cloud.signedIn) Pal.Primary else Pal.Selected), contentAlignment = Alignment.Center) {
+        if (Cloud.signedIn && initials.isNotEmpty()) Text(initials, color = Color.White, fontSize = (size.value * 0.4f).sp, fontWeight = FontWeight.Bold)
         else Icon(NavIcons.Person, null, tint = Pal.Text, modifier = Modifier.size(size * 0.62f))
         if (Cloud.signedIn && Cloud.photo.isNotEmpty())
             coil.compose.AsyncImage(Cloud.photo, "Profile photo", Images.get(ctx), Modifier.fillMaxSize().clip(CircleShape), contentScale = ContentScale.Crop)
@@ -103,13 +103,13 @@ fun tabOf(s: Screen): NavTab? = when (s) {
     is Screen.Play -> tabOf(s.back)
 }
 
-/** Floating bottom navigation for phones: rounded, elevated, black with gold selection. */
+/** Floating bottom navigation for phones: rounded, elevated, navy with blue selection. */
 @Composable
 fun BottomBar(current: NavTab?, onTab: (NavTab) -> Unit, modifier: Modifier = Modifier) {
     Row(
         modifier.navigationBarsPadding().padding(horizontal = 12.dp, vertical = 10.dp).fillMaxWidth().height(64.dp)
             .shadow(12.dp, RoundedCornerShape(24.dp)).clip(RoundedCornerShape(24.dp))
-            .background(Pal.Surface.copy(alpha = 0.96f)).border(1.dp, Pal.Gold.copy(alpha = 0.28f), RoundedCornerShape(24.dp)),
+            .background(Pal.Surface.copy(alpha = 0.96f)).border(1.dp, Pal.Primary.copy(alpha = 0.28f), RoundedCornerShape(24.dp)),
         verticalAlignment = Alignment.CenterVertically
     ) {
         NavTab.entries.forEach { t ->
@@ -119,12 +119,12 @@ fun BottomBar(current: NavTab?, onTab: (NavTab) -> Unit, modifier: Modifier = Mo
                     .semantics { selected = sel; contentDescription = t.label },
                 horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center
             ) {
-                Box(Modifier.clip(RoundedCornerShape(14.dp)).background(if (sel) Pal.Gold.copy(alpha = 0.18f) else Color.Transparent)
+                Box(Modifier.clip(RoundedCornerShape(14.dp)).background(if (sel) Pal.Primary.copy(alpha = 0.18f) else Color.Transparent)
                     .padding(horizontal = 14.dp, vertical = 3.dp), contentAlignment = Alignment.Center) {
-                    if (t == NavTab.PROFILE && Cloud.signedIn) Avatar(24.dp, if (sel) Modifier.border(1.5.dp, Pal.Gold, CircleShape) else Modifier)
-                    else Icon(t.icon, null, tint = if (sel) Pal.Gold else Pal.Dim, modifier = Modifier.size(24.dp))
+                    if (t == NavTab.PROFILE && Cloud.signedIn) Avatar(24.dp, if (sel) Modifier.border(1.5.dp, Pal.Primary, CircleShape) else Modifier)
+                    else Icon(t.icon, null, tint = if (sel) Pal.PrimaryText else Pal.Dim, modifier = Modifier.size(24.dp))
                 }
-                Text(t.label, color = if (sel) Pal.Gold else Pal.Dim, fontSize = Ts.CAPTION.sp,
+                Text(t.label, color = if (sel) Pal.PrimaryText else Pal.Dim, fontSize = Ts.CAPTION.sp,
                     fontWeight = if (sel) FontWeight.Bold else FontWeight.Medium, maxLines = 1)
             }
         }
@@ -137,7 +137,7 @@ fun AvatarButton(onClick: () -> Unit) {
     var f by remember { mutableStateOf(false) }
     Box(
         Modifier.onFocusChanged { f = it.isFocused }.clip(CircleShape)
-            .border(if (f) 3.dp else 0.dp, if (f) Pal.Gold else Color.Transparent, CircleShape)
+            .border(if (f) 3.dp else 0.dp, if (f) Pal.Primary else Color.Transparent, CircleShape)
             .clickable(onClick = onClick).padding(3.dp)
             .semantics { contentDescription = "Account menu" }
     ) { Avatar(34.dp) }

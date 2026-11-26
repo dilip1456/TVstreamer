@@ -4,27 +4,25 @@ import kotlin.math.PI
 import kotlin.math.sin
 
 /**
- * Pure timing for the Ashfire splash: ember → phoenix rise / wing flare → glow pulse → fade.
+ * Pure timing for the Bluey splash and loader: the wave-and-tail mark fades and settles in, then a soft blue glow
+ * behind it pulses on a [PULSE_PERIOD] loop until the app is ready, then everything fades.
  * No Compose, so it can be unit-tested. The overlay never holds the UI past [MAX_MS].
  */
 object SplashAnim {
-    const val EMBER_MS = 160
-    const val RISE_MS = 640
-    const val RISE_END = EMBER_MS + RISE_MS // 800
+    /** Mark fade-in and settle (scale 0.86 → 1). */
+    const val INTRO_MS = 600
     const val FADE_MS = 260
     const val MAX_MS = 1600
-    const val PULSE_PERIOD = 900
+    /** One glow pulse (in and out), shared by the splash and the in-place loader. */
+    const val PULSE_PERIOD = 1500
 
     data class Frame(
-        val emberAlpha: Float,
-        val emberScale: Float,
-        val birdAlpha: Float,
-        val birdScale: Float,
-        /** 1 = wings fully open; lower values tuck them in at the start of the rise. */
-        val wingFlare: Float,
-        /** 1 = still below rest; 0 = in place. */
-        val birdRise: Float,
+        val markAlpha: Float,
+        val markScale: Float,
+        /** 0..1 strength of the blue glow behind the mark (pulses while waiting). */
         val glowAlpha: Float,
+        /** Size of the glow relative to the mark (breathes with the pulse). */
+        val glowScale: Float,
         val wordmarkAlpha: Float,
         val scrimAlpha: Float,
         val done: Boolean,
@@ -37,58 +35,34 @@ object SplashAnim {
     fun frame(elapsedMs: Long, readyAtMs: Long?): Frame {
         val t = elapsedMs.coerceAtLeast(0L)
         val fadeAt = fadeStartMs(readyAtMs)
-        val fading = t >= fadeAt
-        val fadeU = if (fading) u(t, fadeAt, fadeAt + FADE_MS) else 0f
+        val fadeU = if (t >= fadeAt) u(t, fadeAt, fadeAt + FADE_MS) else 0f
         val done = t >= fadeAt + FADE_MS
+        val keep = 1f - fadeU
 
-        val emberIn = smooth(u(t, 0, EMBER_MS))
-        val emberOut = smooth(u(t, EMBER_MS, EMBER_MS + RISE_MS / 2))
-        val emberAlpha = (emberIn * (1f - emberOut) * (1f - fadeU))
-        val emberScale = lerp(0.35f, 1.15f, emberIn)
-
-        val riseU = smooth(u(t, EMBER_MS, RISE_END))
-        val birdAlpha = smooth(u(t, EMBER_MS / 2, EMBER_MS + RISE_MS * 2 / 3)) * (1f - fadeU)
-        val birdScale = lerp(0.55f, 1f, riseU)
-        val wingFlare = lerp(0.78f, 1f, riseU)
-        val birdRise = 1f - riseU
-
-        val glowBase = smooth(u(t, EMBER_MS + RISE_MS / 3, RISE_END))
-        val pulse = if (t >= RISE_END && !fading) 0.5f + 0.5f * sin(((t - RISE_END).toFloat() / PULSE_PERIOD) * 2f * PI.toFloat()).toFloat() else
-            if (fading) 1f else 0f
-        val glowAlpha = glowBase * lerp(0.35f, 0.85f, if (t >= RISE_END) pulse else 0f) * (1f - fadeU)
-
-        val wordmarkAlpha = smooth(u(t, RISE_END - 280, RISE_END)) * (1f - fadeU)
-        val scrimAlpha = 1f - fadeU
-
+        val intro = smooth(u(t, 0L, INTRO_MS.toLong()))
+        val pulse = loadingGlow(t)
+        val glowIn = smooth(u(t, INTRO_MS / 4L, INTRO_MS.toLong()))
         return Frame(
-            emberAlpha = emberAlpha,
-            emberScale = emberScale,
-            birdAlpha = birdAlpha,
-            birdScale = birdScale,
-            wingFlare = wingFlare,
-            birdRise = birdRise,
-            glowAlpha = glowAlpha,
-            wordmarkAlpha = wordmarkAlpha,
-            scrimAlpha = scrimAlpha,
+            markAlpha = intro * keep,
+            markScale = lerp(0.86f, 1f, intro),
+            glowAlpha = glowIn * lerp(0.45f, 1f, pulse) * keep,
+            glowScale = lerp(0.92f, 1.10f, pulse),
+            wordmarkAlpha = smooth(u(t, INTRO_MS / 2L, INTRO_MS + 150L)) * keep,
+            scrimAlpha = keep,
             done = done,
         )
     }
 
-    /** When the fade-out may start. The rise always finishes first; we never hold past [MAX_MS]. */
+    /** When the fade-out may start. The intro always finishes first; we never hold past [MAX_MS]. */
     fun fadeStartMs(readyAtMs: Long?): Long = when {
         readyAtMs == null -> MAX_MS.toLong()
-        else -> maxOf(RISE_END.toLong(), readyAtMs)
+        else -> maxOf(INTRO_MS.toLong(), minOf(readyAtMs, MAX_MS.toLong()))
     }
 
-    /** Soft glow amount (0..1) for the compact in-place loader. */
+    /** Soft glow amount (0..1) on a [PULSE_PERIOD] loop: 0.5 at the start, peaks a quarter of the way in. */
     fun loadingGlow(elapsedMs: Long): Float {
         val x = (elapsedMs.coerceAtLeast(0L).toFloat() / PULSE_PERIOD) * 2f * PI.toFloat()
-        return 0.5f + 0.5f * sin(x).toFloat()
-    }
-
-    private fun u(t: Long, start: Int, end: Int): Float {
-        if (end <= start) return if (t >= end) 1f else 0f
-        return ((t - start).toFloat() / (end - start).toFloat()).coerceIn(0f, 1f)
+        return 0.5f + 0.5f * sin(x)
     }
 
     private fun u(t: Long, start: Long, end: Long): Float {

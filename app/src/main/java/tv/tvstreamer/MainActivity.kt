@@ -302,7 +302,7 @@ fun App(repo: Repo) {
     val bannerKind = if (cur is Screen.Play) UpdateLogic.Banner.HIDDEN
         else UpdateLogic.banner(Updater.progress, Updater.busy, Updater.pending != null, Updater.status)
     // Cold-start brand overlay only. The screens (including Live TV) compose underneath and
-    // are not held up; the splash fades as soon as the short ember/rise has played.
+    // are not held up; the splash fades as soon as the short mark intro has played.
     var splash by remember { mutableStateOf(true) }
     var splashReady by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { splashReady = true }
@@ -370,7 +370,7 @@ fun App(repo: Repo) {
             if (AppUi.accountMenu && cur !is Screen.Play) AccountMenu(repo.store, go) { AppUi.accountMenu = false }
             }
         }
-        if (splash) PhoenixSplash(ready = splashReady) { splash = false }
+        if (splash) BrandSplash(ready = splashReady) { splash = false }
         }
     }
 }

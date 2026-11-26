@@ -190,7 +190,7 @@ fun searchAll(repo: Repo, q: String, scope: Scope, portal: Boolean = false, pers
     )
 }
 
-/** Floating gold search button, bottom-right. Focusable with the D-pad (Down from the last row, or Right). */
+/** Floating blue search button, bottom-right. Focusable with the D-pad (Down from the last row, or Right). */
 @Composable
 fun SearchFab(modifier: Modifier = Modifier, onClick: () -> Unit) {
     var f by remember { mutableStateOf(false) }
@@ -202,11 +202,11 @@ fun SearchFab(modifier: Modifier = Modifier, onClick: () -> Unit) {
             .onFocusChanged { f = it.isFocused }
             .then(if (f) Modifier.border(3.dp, Pal.Text, CircleShape) else Modifier)
             .clip(CircleShape)
-            .background(if (f) Pal.Highlight else Pal.Gold)
+            .background(if (f) Pal.Highlight else Pal.Primary)
             .clickable(onClick = onClick)
             .focusable(),
         contentAlignment = Alignment.Center
-    ) { androidx.compose.material3.Icon(RailIcons.Search, "Search", tint = Color.Black, modifier = Modifier.size(if (isTv) 26.dp else 24.dp)) }
+    ) { androidx.compose.material3.Icon(RailIcons.Search, "Search", tint = if (f) Pal.OnFocusPill else Color.White, modifier = Modifier.size(if (isTv) 26.dp else 24.dp)) }
 }
 
 @Composable
@@ -316,10 +316,10 @@ fun SearchOverlay(repo: Repo, st: SearchState, open: (Item) -> Unit, play: (List
                             shape = RoundedCornerShape(26.dp),
                             colors = androidx.compose.material3.TextFieldDefaults.colors(
                                 focusedContainerColor = Pal.Surface, unfocusedContainerColor = Pal.Surface,
-                                focusedTextColor = Pal.Text, unfocusedTextColor = Pal.Text, cursorColor = Pal.Gold,
+                                focusedTextColor = Pal.Text, unfocusedTextColor = Pal.Text, cursorColor = Pal.Primary,
                                 focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent),
                             modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
-                                .border(1.dp, Pal.Gold.copy(alpha = 0.45f), RoundedCornerShape(26.dp)).focusRequester(fieldFr)
+                                .border(1.dp, Pal.Primary.copy(alpha = 0.45f), RoundedCornerShape(26.dp)).focusRequester(fieldFr)
                         )
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             LazyRow(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(6.dp)) {

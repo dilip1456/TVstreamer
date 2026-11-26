@@ -70,7 +70,7 @@ fun UpdateBanner(store: Store, ctx: android.content.Context, modifier: Modifier 
                 LinearProgressIndicator(
                     progress = { if (kind == UpdateLogic.Banner.INSTALLING) 1f else (progress / 100f).coerceIn(0f, 1f) },
                     modifier = Modifier.fillMaxWidth().height(3.dp),
-                    color = Pal.Gold, trackColor = Pal.Dim.copy(alpha = 0.3f)
+                    color = Pal.Primary, trackColor = Pal.Dim.copy(alpha = 0.3f)
                 )
             } else if (kind == UpdateLogic.Banner.OFFER) {
                 Text("Install this version on the device.", color = Pal.Dim, fontSize = Ts.CAPTION.sp, maxLines = 1)

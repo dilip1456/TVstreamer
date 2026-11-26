@@ -271,9 +271,9 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
                     // 1.73: the download failed or timed out and nothing is saved: try again on request
                     if (LiveStatus.failed(repo.status)) EmptyState("Channels could not be loaded", msg, warn = true, action = "Retry",
                         onAction = { repo.status = "Downloading channel list…"; repo.refreshAll() })
-                    else PhoenixLoading(msg, Modifier.padding(top = Layout.L))
+                    else BrandLoading(msg, Modifier.padding(top = Layout.L))
                 }
-                !ready -> Box(Modifier.weight(1f)) { PhoenixLoading("Arranging channels…", Modifier.padding(top = Layout.L)) }   // laid out on Live TV's own thread (a moment)
+                !ready -> Box(Modifier.weight(1f)) { BrandLoading("Arranging channels…", Modifier.padding(top = Layout.L)) }   // laid out on Live TV's own thread (a moment)
                 sections.isEmpty() -> Box(Modifier.weight(1f)) {
                     when {
                         view == LiveModes.View.HIDDEN -> EmptyState("Nothing hidden", "Every channel in this list is shown.")
@@ -505,7 +505,7 @@ private fun TypeHeader(type: String, count: Int, folded: Boolean, tv: Boolean, m
             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
         Label("$count", Ts.SECONDARY, Pal.Dim)
         Spacer(Modifier.weight(1f))
-        Label(if (folded) "›" else "⌄", Ts.ROW, if (f) Pal.GoldText else Pal.Dim)
+        Label(if (folded) "›" else "⌄", Ts.ROW, if (f) Pal.PrimaryText else Pal.Dim)
     }
 }
 
@@ -532,7 +532,7 @@ private fun SectionHeader(s: LiveModes.Section, folded: Boolean, tv: Boolean, mo
             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
         Label("${s.rows.size}", Ts.CAPTION, Pal.Dim)
         Spacer(Modifier.weight(1f))
-        Label(if (folded) "›" else "⌄", Ts.SECONDARY, if (f) Pal.GoldText else Pal.Dim)
+        Label(if (folded) "›" else "⌄", Ts.SECONDARY, if (f) Pal.PrimaryText else Pal.Dim)
     }
 }
 
@@ -590,14 +590,14 @@ private fun ChannelRow(repo: Repo, ch: Item, on: Boolean, browseAll: Boolean, pl
             // from the list), language tag and a Playing badge
             if (checked != null) CheckDot(checked)
             Box(Modifier.widthIn(min = 32.dp), contentAlignment = Alignment.CenterEnd) {
-                if (ch.num > 0) Label("${ch.num}", Ts.SECONDARY, if (playing) Pal.GoldText else Pal.Dim)
+                if (ch.num > 0) Label("${ch.num}", Ts.SECONDARY, if (playing) Pal.PrimaryText else Pal.Dim)
             }
             Box(Modifier.size(if (tv) 58.dp else 52.dp, if (tv) 34.dp else 32.dp).clip(RoundedCornerShape(8.dp)).background(Pal.Card), contentAlignment = Alignment.Center) {
                 if (ch.img.isNotEmpty()) Poster(ch.img, name, Modifier.fillMaxSize().padding(5.dp), ContentScale.Fit, initialsSize = 12)
-                else Label(ChannelTitle.initials(name), Ts.CAPTION, Pal.GoldText)
+                else Label(ChannelTitle.initials(name), Ts.CAPTION, Pal.PrimaryText)
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                androidx.compose.material3.Text(name, color = if (playing) Pal.GoldText else Pal.Text, fontSize = Ts.ROW.sp,
+                androidx.compose.material3.Text(name, color = if (playing) Pal.PrimaryText else Pal.Text, fontSize = Ts.ROW.sp,
                     fontWeight = if (f || playing) FontWeight.SemiBold else FontWeight.Medium, maxLines = 1,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                 if (nowTitle != null) Label(nowTitle, Ts.SECONDARY, Pal.Dim)
@@ -658,8 +658,8 @@ private fun HideShowChip(shown: Boolean, tv: Boolean, onClick: () -> Unit, modif
             .popupOpener()
             .onFocusChanged { f = it.isFocused }
             .clip(shape)
-            .background(when { f -> Pal.Gold; !shown -> Pal.Soft2; else -> Pal.Soft })
-            .then(if (f) Modifier.border(2.dp, Pal.Gold, shape) else Modifier)
+            .background(when { f -> Pal.Focus; !shown -> Pal.Soft2; else -> Pal.Soft })
+            .then(if (f) Modifier.border(2.dp, Pal.Focus, shape) else Modifier)
             .combinedClickable(onClick = onClick)
             .padding(horizontal = if (tv) 12.dp else 10.dp, vertical = if (tv) 6.dp else 4.dp),
         contentAlignment = Alignment.Center
@@ -668,12 +668,12 @@ private fun HideShowChip(shown: Boolean, tv: Boolean, onClick: () -> Unit, modif
     }
 }
 
-/** Round check for Select mode: gold filled when selected, a soft ring otherwise. */
+/** Round check for Select mode: blue filled when selected, a soft ring otherwise. */
 @Composable
 private fun CheckDot(on: Boolean) {
-    val c by androidx.compose.animation.animateColorAsState(if (on) Pal.Gold else Color.Transparent, tween(160), label = "check")
-    Box(Modifier.size(22.dp).clip(RoundedCornerShape(11.dp)).background(c).border(2.dp, if (on) Pal.Gold else Pal.Dim, RoundedCornerShape(11.dp)),
-        contentAlignment = Alignment.Center) { if (on) Label("✓", Ts.SECONDARY, Color.Black) }
+    val c by androidx.compose.animation.animateColorAsState(if (on) Pal.Primary else Color.Transparent, tween(160), label = "check")
+    Box(Modifier.size(22.dp).clip(RoundedCornerShape(11.dp)).background(c).border(2.dp, if (on) Pal.Primary else Pal.Dim, RoundedCornerShape(11.dp)),
+        contentAlignment = Alignment.Center) { if (on) Label("✓", Ts.SECONDARY, Color.White) }
 }
 
 /** Slim Select-mode bar at the bottom: count and soft pill actions. */
@@ -718,7 +718,7 @@ fun NumBadge(num: Int, modifier: Modifier = Modifier) {
     }
 }
 
-/** Rounded logo tile (search results): logo (or initials), number badge, ★ when in a mode, gold ring when playing. */
+/** Rounded logo tile (search results): logo (or initials), number badge, ★ when in a mode, blue ring when playing. */
 @Composable
 fun LiveTile(ch: Item, fav: Boolean, playing: Boolean, checked: Boolean, tv: Boolean, onClick: () -> Unit, onMenu: () -> Unit) {
     val shape = RoundedCornerShape(Radii.row)
@@ -726,15 +726,15 @@ fun LiveTile(ch: Item, fav: Boolean, playing: Boolean, checked: Boolean, tv: Boo
     Column {
         Box(Modifier.fillMaxWidth().aspectRatio(16f / 10f).focusCard(onClick, onMenu, { Keys.focused = ch }, scale = 1.06f, shape = shape)
             .background(Pal.Card, shape)
-            .then(if (playing) Modifier.border(2.dp, Pal.Gold, shape) else Modifier)) {
+            .then(if (playing) Modifier.border(2.dp, Pal.Primary, shape) else Modifier)) {
             if (ch.img.isNotEmpty()) Poster(ch.img, name, Modifier.fillMaxSize().padding(if (tv) 14.dp else 10.dp), ContentScale.Fit, initialsSize = if (tv) 26 else 20)
-            else Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Label(ChannelTitle.initials(name), if (tv) Ts.DISPLAY else Ts.TITLE, Pal.GoldText) }
+            else Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Label(ChannelTitle.initials(name), if (tv) Ts.DISPLAY else Ts.TITLE, Pal.PrimaryText) }
             NumBadge(ch.num, Modifier.align(Alignment.TopStart).padding(5.dp))
-            if (fav) Label("★", Ts.HEAD, Pal.Gold, Modifier.align(Alignment.TopEnd).padding(5.dp))
-            if (checked) Box(Modifier.fillMaxSize().background(Color(0x66000000)), contentAlignment = Alignment.Center) { Label("✓", Ts.TITLE, Pal.Gold) }
+            if (fav) Label("★", Ts.HEAD, Pal.Highlight, Modifier.align(Alignment.TopEnd).padding(5.dp))
+            if (checked) Box(Modifier.fillMaxSize().background(Color(0x66000000)), contentAlignment = Alignment.Center) { Label("✓", Ts.TITLE, Color.White) }
         }
         Spacer(Modifier.height(5.dp))
-        Label(name, Ts.SECONDARY, if (playing) Pal.GoldText else Pal.Text2, maxLines = if (tv) 1 else 2)
+        Label(name, Ts.SECONDARY, if (playing) Pal.PrimaryText else Pal.Text2, maxLines = if (tv) 1 else 2)
     }
 }
 

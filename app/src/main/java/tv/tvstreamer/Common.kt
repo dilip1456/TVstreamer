@@ -73,63 +73,74 @@ object Theme {
  * MaterialTheme colour scheme built from it in [AppTheme]), so a rebrand is a palette swap here plus the logo drawables.
  */
 object Brand {
-    /** Main brand hue (logo #D4AF37): focus rings, highlights, selected states. */
-    const val PRIMARY = 0xFFD4AF37
+    /** Main brand hue (Bluey blue #1E7AED): highlights, selected states, primary buttons. */
+    const val PRIMARY = 0xFF1E7AED
     /** Brand hue for text on a light background (darker so it stays readable). */
-    const val PRIMARY_ON_LIGHT = 0xFF7A5C00
-    /** Warm glow behind the logo (splash / loader). */
-    const val GLOW = 0xFFF2B028
-    /** Soft highlight (favourite star, search hint). */
-    const val HIGHLIGHT = 0xFFFFD54F
-    /** Call-to-action fill (Play, primary buttons) and the LIVE dot. */
-    const val ACTION = 0xFFE50914
+    const val PRIMARY_ON_LIGHT = 0xFF0B4FA8
+    /** Soft light blue (#B7DBFF): favourite star, search hint, secondary highlights. */
+    const val ACCENT = 0xFFB7DBFF
+    /** Focus ring around the focused card / button (#5CB6FF). */
+    const val FOCUS = 0xFF5CB6FF
+    /** Soft blue glow behind the logo (splash / loader). */
+    const val GLOW = 0xFF3D9BFF
+    /** Call-to-action fill (Play, primary buttons, progress): the brand blue. */
+    const val ACTION = PRIMARY
+    /** LIVE badge only: the one place red stays, because "live" reads as red on every TV app. */
+    const val LIVE = 0xFFE5484D
+    /** App background (#071018), raised surfaces (#0E1C2C) and main text (#F4F8FC) in the dark theme. */
+    const val BG = 0xFF071018
+    const val SURFACE = 0xFF0E1C2C
+    const val CARD = 0xFF142536
+    const val TEXT = 0xFFF4F8FC
     /** Dark tint of the brand hue (top-of-page wash, focused row fill). */
-    const val WASH = 0xFF15110C
-    const val FOCUS_FILL_DARK = 0xFF2A2414
-    const val FOCUS_FILL_LIGHT = 0xFFFFF1C4
-    const val CHIP_DARK = 0xFF5A4A12
-    const val CHIP_LIGHT = 0xFFF1DE9C
+    const val WASH = 0xFF0A1A2C
+    const val FOCUS_FILL_DARK = 0xFF15304D
+    const val FOCUS_FILL_LIGHT = 0xFFDCEBFF
+    const val CHIP_DARK = 0xFF1B4A80
+    const val CHIP_LIGHT = 0xFFC4DEFF
 }
 
 /** Colours for the current theme. Video / poster overlays keep fixed dark colours. */
 object Pal {
     private fun pick(dark: Long, light: Long) = Color(if (Theme.dark) dark else light)
-    val Bg get() = pick(0xFF08080C, 0xFFF5F5F8)
-    val Surface get() = pick(0xFF12121A, 0xFFFFFFFF)
-    val Card get() = pick(0xFF1A1A22, 0xFFE6E6EC)
+    val Bg get() = pick(Brand.BG, 0xFFF4F7FB)
+    val Surface get() = pick(Brand.SURFACE, 0xFFFFFFFF)
+    val Card get() = pick(Brand.CARD, 0xFFE3EAF3)
     val Accent = Color(Brand.ACTION)
     /** Brand colour: focus borders and highlights. */
-    val Gold = Color(Brand.PRIMARY)
+    val Primary = Color(Brand.PRIMARY)
     /** Brand colour for text (darker in light mode so it stays readable). */
-    val GoldText get() = pick(Brand.PRIMARY, Brand.PRIMARY_ON_LIGHT)
+    val PrimaryText get() = pick(0xFF5CB6FF, Brand.PRIMARY_ON_LIGHT)
     val Glow = Color(Brand.GLOW)
-    val Highlight = Color(Brand.HIGHLIGHT)
+    val Highlight = Color(Brand.ACCENT)
+    /** LIVE badge red. */
+    val Live = Color(Brand.LIVE)
     /** Faint brand-tinted outline for panels and bars. */
-    val Outline = Color(Brand.PRIMARY).copy(alpha = 0.13f)
+    val Outline = Color(Brand.PRIMARY).copy(alpha = 0.16f)
     /** Focused menu tab / side-menu entry: a light pill with dark text (same in both themes). */
-    val FocusPill = Color(0xF2F5F0E6)
-    val OnFocusPill = Color(0xFF141414)
+    val FocusPill = Color(0xF2F4F8FC)
+    val OnFocusPill = Color(0xFF071018)
     /** Dimmed backdrop behind dialogs and menus. */
     val Scrim = Color(0xB3000000)
-    val Focus = Gold
-    val Dim get() = pick(0xFF9AA0B5, 0xFF555B6B)
+    val Focus = Color(Brand.FOCUS)
+    val Dim get() = pick(0xFF9AA8BA, 0xFF52606F)
     val Warn get() = pick(0xFFFFB74D, 0xFFA04F00)
     val Error get() = pick(0xFFFF8A80, 0xFFC62828)
     /** Main text, secondary text, descriptions. */
-    val Text get() = pick(0xFFFFFFFF, 0xFF141418)
-    val Text2 get() = pick(0xFFE0E0E0, 0xFF2A2A33)
-    val Desc get() = pick(0xFFDDDDDD, 0xFF3A3A44)
+    val Text get() = pick(Brand.TEXT, 0xFF0E1620)
+    val Text2 get() = pick(0xFFDCE4EE, 0xFF26303C)
+    val Desc get() = pick(0xFFD6DEE8, 0xFF36414E)
     /** Subtle fills for rows / buttons. */
     val Soft get() = pick(0x22FFFFFF, 0x12000000)
     val Soft2 get() = pick(0x33FFFFFF, 0x1C000000)
-    val Selected get() = pick(0xFF3A3A48, 0xFFD5D5E0)
-    val Field get() = pick(0xFF1A1A22, 0xFFEBEBF1)
-    val FieldFocus get() = pick(0xFF1E1E26, 0xFFE2E2EA)
-    val Row get() = pick(0xFF1E1E26, 0xFFFFFFFF)
+    val Selected get() = pick(0xFF22384F, 0xFFD3E2F3)
+    val Field get() = pick(0xFF12243A, 0xFFE8EEF5)
+    val FieldFocus get() = pick(0xFF183048, 0xFFDDE7F2)
+    val Row get() = pick(0xFF12243A, 0xFFFFFFFF)
     val FocusBg get() = pick(Brand.FOCUS_FILL_DARK, Brand.FOCUS_FILL_LIGHT)
     val WarnBox get() = pick(0xFF2A1F1A, 0xFFFFEEDC)
     val ChipSel get() = pick(Brand.CHIP_DARK, Brand.CHIP_LIGHT)
-    val Shimmer get() = pick(0xFF383844, 0xFFF0F0F5)
+    val Shimmer get() = pick(0xFF1F3550, 0xFFEAF0F7)
 }
 
 /**
@@ -140,11 +151,11 @@ object Pal {
 fun AppTheme(content: @Composable () -> Unit) {
     val dark = Theme.dark
     val scheme = if (dark) androidx.compose.material3.darkColorScheme(
-        primary = Pal.Gold, onPrimary = Color.Black, secondary = Pal.Accent, onSecondary = Color.White,
+        primary = Pal.Primary, onPrimary = Color.White, secondary = Pal.Accent, onSecondary = Color.White,
         background = Pal.Bg, onBackground = Pal.Text, surface = Pal.Surface, onSurface = Pal.Text,
         surfaceVariant = Pal.Card, onSurfaceVariant = Pal.Dim, outline = Pal.Outline, error = Pal.Error, scrim = Pal.Scrim
     ) else androidx.compose.material3.lightColorScheme(
-        primary = Pal.GoldText, onPrimary = Color.White, secondary = Pal.Accent, onSecondary = Color.White,
+        primary = Pal.PrimaryText, onPrimary = Color.White, secondary = Pal.Accent, onSecondary = Color.White,
         background = Pal.Bg, onBackground = Pal.Text, surface = Pal.Surface, onSurface = Pal.Text,
         surfaceVariant = Pal.Card, onSurfaceVariant = Pal.Dim, outline = Pal.Outline, error = Pal.Error, scrim = Pal.Scrim
     )
@@ -176,7 +187,7 @@ fun isTvDevice(ctx: Context): Boolean {
 }
 
 /**
- * Focusable + clickable card for D-pad and touch: grows and gets a soft gold glow when focused.
+ * Focusable + clickable card for D-pad and touch: grows and gets a soft blue focus ring when focused.
  * Long press or the remote's Menu key fires onMenu. No blur / drop-shadow (cheap on Fire TV).
  */
 fun Modifier.focusCard(
@@ -231,13 +242,13 @@ fun NavTab(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, sel
     }
 }
 
-/** Soft gold wash behind TV / catalog headers (static gradient, no blur). */
+/** Soft blue wash behind TV / catalog headers (static gradient, no blur). */
 @Composable
 fun CinematicWash(modifier: Modifier = Modifier) {
     if (!Theme.dark) return
     Box(
         modifier.fillMaxWidth().height(440.dp).background(
-            Brush.verticalGradient(listOf(Color(Brand.WASH), Pal.Gold.copy(alpha = 0.08f), Color.Transparent))
+            Brush.verticalGradient(listOf(Color(Brand.WASH), Pal.Primary.copy(alpha = 0.08f), Color.Transparent))
         )
     )
 }
@@ -249,7 +260,7 @@ object Motion {
     fun colorSpec(): androidx.compose.animation.core.TweenSpec<Color> = spec()
 }
 
-/** Compact pill / text button (the "Fix match" style) with a filled gold focus state. Used for every action button in the app. */
+/** Compact pill / text button (the "Fix match" style) with a filled light-blue focus state. Used for every action button in the app. */
 @Composable
 fun PillButton(
     text: String,
@@ -264,7 +275,7 @@ fun PillButton(
 ) {
     var f by remember { mutableStateOf(false) }
     val target = when {
-        f -> Pal.Gold
+        f -> Pal.Focus
         primary -> Pal.Accent
         selected -> Pal.Selected
         else -> Pal.Soft2
@@ -283,7 +294,7 @@ fun PillButton(
             .padding(horizontal = if (compact) 12.dp else 16.dp, vertical = if (compact) 6.dp else 8.dp),
         contentAlignment = Alignment.Center
     ) {
-        val fg = if (f) Color.Black else if (primary) Color.White else Pal.Text
+        val fg = if (f) Pal.OnFocusPill else if (primary) Color.White else Pal.Text
         androidx.compose.foundation.layout.Row(verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp)) {
             if (icon != null) androidx.compose.material3.Icon(icon, null, tint = fg, modifier = Modifier.size((size + 4).dp))

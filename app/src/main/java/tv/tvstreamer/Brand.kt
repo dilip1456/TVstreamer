@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -25,6 +24,7 @@ import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
@@ -36,7 +36,7 @@ import androidx.compose.ui.unit.sp
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * Phoenix mark plus the swappable wordmark. To rename the app, change
+ * Bluey mark plus the swappable wordmark. To rename the app, change
  * [R.string.app_name] and [R.drawable.ic_wordmark] together.
  * Sized for a 24–32 dp top bar on TV and phone. Not focusable.
  */
@@ -49,7 +49,7 @@ fun BrandMark(modifier: Modifier = Modifier, height: Dp = 28.dp) {
         horizontalArrangement = Arrangement.spacedBy(height * 0.28f)
     ) {
         Image(
-            painterResource(R.drawable.ic_phoenix),
+            painterResource(R.drawable.ic_bluey),
             contentDescription = null,
             modifier = Modifier.height(height).width(height),
             contentScale = ContentScale.Fit
@@ -63,38 +63,55 @@ fun BrandMark(modifier: Modifier = Modifier, height: Dp = 28.dp) {
     }
 }
 
-/** Compact in-place loader for empty catalog states. Pulses; does not block navigation. */
+/** Soft round blue glow (radial fade to transparent) drawn behind the mark. No blur, so it is cheap on Fire TV. */
 @Composable
-fun PhoenixLoading(message: String, modifier: Modifier = Modifier) {
+private fun BrandGlow(size: Dp, strength: Float) {
+    Box(
+        Modifier.size(size).graphicsLayer { alpha = strength.coerceIn(0f, 1f) }.background(
+            Brush.radialGradient(
+                0f to Pal.Glow.copy(alpha = 0.62f),
+                0.45f to Pal.Glow.copy(alpha = 0.26f),
+                1f to Color.Transparent
+            ),
+            CircleShape
+        )
+    )
+}
+
+/** Compact in-place loader for empty catalog states: the mark with a pulsing blue glow. Does not block navigation. */
+@Composable
+fun BrandLoading(message: String, modifier: Modifier = Modifier) {
     var elapsed by remember { mutableLongStateOf(0L) }
     LaunchedEffect(Unit) {
         val origin = withFrameMillis { it }
         while (true) elapsed = withFrameMillis { it } - origin
     }
     val glow = SplashAnim.loadingGlow(elapsed)
+    val tv = rememberIsTv()
+    val mark = if (tv) 56.dp else 48.dp
     Column(modifier, horizontalAlignment = Alignment.Start) {
-        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(64.dp)) {
-            Box(
-                Modifier.size((36 + 12 * glow).dp).clip(CircleShape)
-                    .background(Pal.Glow.copy(alpha = 0.16f + 0.24f * glow))
-            )
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(mark * 1.6f)) {
+            BrandGlow(mark * (1.25f + 0.30f * glow), 0.45f + 0.55f * glow)
             Image(
-                painterResource(R.drawable.ic_phoenix),
+                painterResource(R.drawable.ic_bluey),
                 contentDescription = stringResource(R.string.app_name),
-                modifier = Modifier.size(52.dp).graphicsLayer { alpha = 0.85f + 0.15f * glow },
+                modifier = Modifier.size(mark).graphicsLayer {
+                    val s = 0.97f + 0.03f * glow
+                    scaleX = s; scaleY = s
+                },
                 contentScale = ContentScale.Fit
             )
         }
-        Text(message, color = Pal.Dim, fontSize = Ts.ROW.sp, modifier = Modifier.padding(top = 8.dp), maxLines = 3)
+        Text(message, color = Pal.Dim, fontSize = Ts.ROW.sp, modifier = Modifier.padding(top = 4.dp), maxLines = 3)
     }
 }
 
 /**
  * Cold-start overlay. Screens underneath (including Live TV) keep loading.
- * Ember → rise and flare → pulse if still waiting → fade once ready, capped at [SplashAnim.MAX_MS].
+ * Mark fades and settles in, the glow behind it pulses while waiting, then it fades once ready, capped at [SplashAnim.MAX_MS].
  */
 @Composable
-fun PhoenixSplash(ready: Boolean, onDone: () -> Unit) {
+fun BrandSplash(ready: Boolean, onDone: () -> Unit) {
     var elapsed by remember { mutableLongStateOf(0L) }
     val readyAt = remember { AtomicLong(-1L) }
     LaunchedEffect(ready) {
@@ -115,37 +132,23 @@ fun PhoenixSplash(ready: Boolean, onDone: () -> Unit) {
     val at = readyAt.get().let { if (it >= 0L) it else null }
     val frame = SplashAnim.frame(elapsed, at)
     val tv = rememberIsTv()
-    val bird = if (tv) 200.dp else 132.dp
+    val mark = if (tv) 200.dp else 132.dp
     Box(
-        Modifier.fillMaxSize().graphicsLayer { alpha = frame.scrimAlpha }.background(Color(0xFF0A0A0A)),
+        Modifier.fillMaxSize().graphicsLayer { alpha = frame.scrimAlpha }.background(Color(Brand.BG)),
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(contentAlignment = Alignment.Center, modifier = Modifier.size(bird * 1.25f)) {
-                Box(
-                    Modifier
-                        .size(bird * (0.16f + 0.20f * frame.emberScale))
-                        .graphicsLayer { alpha = maxOf(frame.emberAlpha, frame.glowAlpha * 0.55f) }
-                        .clip(CircleShape)
-                        .background(Pal.Glow.copy(alpha = 0.7f))
-                )
-                Box(
-                    Modifier
-                        .size(bird * (0.70f + 0.20f * frame.glowAlpha))
-                        .graphicsLayer { alpha = frame.glowAlpha * 0.40f }
-                        .clip(CircleShape)
-                        .background(Pal.Glow.copy(alpha = 0.35f))
-                )
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.size(mark * 1.6f)) {
+                BrandGlow(mark * 1.45f * frame.glowScale, frame.glowAlpha)
                 Image(
-                    painterResource(R.drawable.ic_phoenix),
+                    painterResource(R.drawable.ic_bluey_hero),
                     contentDescription = stringResource(R.string.app_name),
                     modifier = Modifier
-                        .size(bird)
-                        .offset(y = bird * 0.22f * frame.birdRise)
+                        .size(mark)
                         .graphicsLayer {
-                            alpha = frame.birdAlpha
-                            scaleX = frame.birdScale * frame.wingFlare
-                            scaleY = frame.birdScale
+                            alpha = frame.markAlpha
+                            scaleX = frame.markScale
+                            scaleY = frame.markScale
                         },
                     contentScale = ContentScale.Fit
                 )
@@ -154,8 +157,8 @@ fun PhoenixSplash(ready: Boolean, onDone: () -> Unit) {
                 painterResource(R.drawable.ic_wordmark),
                 contentDescription = stringResource(R.string.app_name),
                 modifier = Modifier
-                    .padding(top = if (tv) 22.dp else 14.dp)
-                    .height(if (tv) 36.dp else 24.dp)
+                    .padding(top = if (tv) 6.dp else 4.dp)
+                    .height(if (tv) 40.dp else 28.dp)
                     .graphicsLayer { alpha = frame.wordmarkAlpha },
                 contentScale = ContentScale.Fit
             )

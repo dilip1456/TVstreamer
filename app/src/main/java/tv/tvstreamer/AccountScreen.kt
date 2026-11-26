@@ -100,7 +100,7 @@ fun AccountScreen(repo: Repo, onReady: () -> Unit) {
         Label("Sign in with Google to keep favourites, hidden items, languages, sorting, Live TV settings, remote buttons " +
             "and Continue watching the same on your TV and phone. They are saved in your own Google Drive, " +
             "in a place only TVstreamer can read.", Ts.SECONDARY, ADIM, maxLines = 20)
-        if (note.isNotEmpty()) Label(note, body, Pal.GoldText, maxLines = 20)
+        if (note.isNotEmpty()) Label(note, body, Pal.PrimaryText, maxLines = 20)
         noteErr?.let { ErrorBox(it.message ?: "", it.hint, it.link, body) { u -> link(u) } }
 
         if (Cloud.signedIn) {
@@ -185,7 +185,7 @@ private fun ErrorBox(msg: String, hint: String, link: String, body: Int, open: (
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(msg, color = AWARN, fontSize = body.sp, lineHeight = (body + 5).sp)
                 if (hint.isNotEmpty()) Text("What to do: $hint", color = Pal.Text, fontSize = body.sp, lineHeight = (body + 5).sp)
-                if (link.isNotEmpty()) Text(link, color = Pal.GoldText, fontSize = Ts.SECONDARY.sp)
+                if (link.isNotEmpty()) Text(link, color = Pal.PrimaryText, fontSize = Ts.SECONDARY.sp)
             }
         }
         if (link.isNotEmpty()) PillButton("Open this page ↗", { open(link) })
@@ -204,7 +204,7 @@ private fun Troubleshooting(body: Int, open: (String) -> Unit) {
         "6. Still stuck? Remove TVstreamer's access at myaccount.google.com/connections and sign in again. In Testing mode Google signs you out every 7 days; Publish the app to stop that." to GoogleErrors.PERMISSIONS_URL,
     )
     Column(Modifier.fillMaxWidth().background(Pal.Field, RoundedCornerShape(Radii.field)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Label("Troubleshooting checklist", Ts.TITLE, Pal.GoldText, maxLines = 2)
+        Label("Troubleshooting checklist", Ts.TITLE, Pal.PrimaryText, maxLines = 2)
         steps.forEach { (t, u) ->
             Text(t, color = Pal.Text, fontSize = body.sp, lineHeight = (body + 5).sp)
             if (u.isNotEmpty()) PillButton("Open ↗  ${u.removePrefix("https://")}", { open(u) })
@@ -220,7 +220,7 @@ private fun SignInCode(c: Google.DeviceCode, tv: Boolean, openLink: () -> Unit) 
             Label("On your phone or computer go to", Ts.ROW, ADIM)
             Label(c.url.removePrefix("https://"), if (tv) 26 else 22, Pal.Text, maxLines = 2)
             Label("and enter this code:", Ts.ROW, ADIM)
-            Text(c.userCode, color = Pal.GoldText, fontSize = if (tv) 40.sp else 32.sp, fontWeight = FontWeight.Bold, letterSpacing = 4.sp)
+            Text(c.userCode, color = Pal.PrimaryText, fontSize = if (tv) 40.sp else 32.sp, fontWeight = FontWeight.Bold, letterSpacing = 4.sp)
             Label("Choose your Google account, press Continue, and tick the Google Drive box before pressing Continue again. " +
                 "This page updates by itself.", if (tv) 16 else 14, ADIM, maxLines = 6)
             PillButton("Open the page on this device ↗", openLink)

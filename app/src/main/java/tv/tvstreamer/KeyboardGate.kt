@@ -17,7 +17,7 @@ import kotlinx.coroutines.delay
 
 /**
  * TV: a text field that never opens the on-screen keyboard just because the D-pad moved onto it. Focus lands on
- * an outer frame (gold outline); OK / click starts editing: only then the field itself takes focus and the keyboard
+ * an outer frame (blue outline); OK / click starts editing: only then the field itself takes focus and the keyboard
  * opens. Moving off the field ends editing. Phones (and [enabled] = false) get the plain field.
  * [modifier] (size, focus requesters) goes on the outer frame; [field] gets the modifier for the TextField itself.
  */
@@ -36,7 +36,7 @@ fun KeyboardGate(modifier: Modifier = Modifier, enabled: Boolean = rememberIsTv(
     Box(
         modifier
             .onFocusChanged { outerFocused = it.isFocused }
-            .then(if (outerFocused) Modifier.border(2.dp, Pal.Gold, shape) else Modifier)
+            .then(if (outerFocused) Modifier.border(2.dp, Pal.Primary, shape) else Modifier)
             .clickable { editing = true }
     ) {
         field(

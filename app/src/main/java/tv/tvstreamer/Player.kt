@@ -961,7 +961,7 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
             val n = nextEp
             Column(
                 Modifier.align(Alignment.BottomEnd).padding(if (isTv) 40.dp else 20.dp).widthIn(max = 420.dp)
-                    .background(Color(0xEE15151C), RoundedCornerShape(14.dp)).padding(18.dp),
+                    .background(Color(0xEE0E1C2C), RoundedCornerShape(14.dp)).padding(18.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text("Next episode in ${upNextIn}s", color = Color.White, fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold)
@@ -978,7 +978,7 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
         if (err.isNotEmpty() && !controls) {
             Row(
                 Modifier.align(Alignment.BottomCenter).padding(bottom = if (isTv) 36.dp else 20.dp, start = 16.dp, end = 16.dp)
-                    .widthIn(max = 720.dp).background(Color(0xE6141419), RoundedCornerShape(Radii.row))
+                    .widthIn(max = 720.dp).background(Color(0xE60E1C2C), RoundedCornerShape(Radii.row))
                     .padding(horizontal = 18.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)
             ) {
@@ -1131,7 +1131,7 @@ fun ChoiceDialog(title: String, opts: List<Pair<String, () -> Unit>>, focusKey: 
 @Composable
 fun MenuEntry(label: String, onClick: () -> Unit, modifier: Modifier = Modifier, dim: Boolean = false) {
     var f by remember { mutableStateOf(false) }
-    val bg by androidx.compose.animation.animateColorAsState(if (f) Pal.Gold else Color.Transparent, Motion.colorSpec(), label = "menuBg")
+    val bg by androidx.compose.animation.animateColorAsState(if (f) Pal.Focus else Color.Transparent, Motion.colorSpec(), label = "menuBg")
     Box(
         modifier.fillMaxWidth().popupOpener().onFocusChanged { f = it.isFocused }
             .clip(RoundedCornerShape(Radii.row))
@@ -1282,7 +1282,7 @@ private fun Controls(
                     Text(if (dur > 0) fmt(dur) else "--:--", color = Color.White, fontSize = Ts.HEAD.sp)
                 }
             } else {
-                Text("● LIVE", color = Pal.Accent, fontSize = Ts.HEAD.sp, fontWeight = FontWeight.Bold)
+                Text("● LIVE", color = Pal.Live, fontSize = Ts.HEAD.sp, fontWeight = FontWeight.Bold)
             }
             if (barPos == "bottom") {
                 Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) { opts(false) }
@@ -1345,7 +1345,7 @@ private fun TvControls(
                     Text(if (dur > 0) fmt(dur) else "--:--", color = Color.White, fontSize = Ts.ROW.sp)
                 }
             } else {
-                Text("● LIVE", color = Pal.Accent, fontSize = Ts.ROW.sp, fontWeight = FontWeight.Bold)
+                Text("● LIVE", color = Pal.Live, fontSize = Ts.ROW.sp, fontWeight = FontWeight.Bold)
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 if (list.size > 1) CtrlButton(Ic.Prev, if (live) "Previous channel" else "Previous", onPrev)

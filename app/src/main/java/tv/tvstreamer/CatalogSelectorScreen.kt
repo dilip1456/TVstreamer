@@ -159,9 +159,9 @@ private fun StepDots(step: Int, tv: Boolean, modifier: Modifier) {
             val cur = i == step
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier.alpha(if (cur) 1f else 0.55f)) {
-                Box(Modifier.size(22.dp).clip(RoundedCornerShape(11.dp)).background(if (i <= step) Pal.Gold else Pal.Soft2),
+                Box(Modifier.size(22.dp).clip(RoundedCornerShape(11.dp)).background(if (i <= step) Pal.Primary else Pal.Soft2),
                     contentAlignment = Alignment.Center) {
-                    Text("${i + 1}", color = if (i <= step) Color.Black else Pal.Text, fontSize = Ts.CAPTION.sp, fontWeight = FontWeight.Bold)
+                    Text("${i + 1}", color = if (i <= step) Color.White else Pal.Text, fontSize = Ts.CAPTION.sp, fontWeight = FontWeight.Bold)
                 }
                 if (tv || cur) Text(n, color = if (cur) Pal.Text else Pal.Dim, fontSize = Ts.SECONDARY.sp,
                     fontWeight = if (cur) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1)
@@ -237,11 +237,11 @@ private fun SectionColumn(
 ) {
     val shape = RoundedCornerShape(Radii.panel)
     Column(modifier.clip(shape).background(Pal.Surface.copy(alpha = 0.72f))
-        .border(1.dp, Pal.Gold.copy(alpha = 0.18f), shape).padding(10.dp)) {
+        .border(1.dp, Pal.Primary.copy(alpha = 0.18f), shape).padding(10.dp)) {
         val (n, total) = CatalogSelector.tally(groups, on)
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.fillMaxWidth().padding(start = 4.dp, bottom = 8.dp)) {
-            Text(title.uppercase(), color = Pal.GoldText, fontSize = Ts.HEAD.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.6.sp)
+            Text(title.uppercase(), color = Pal.PrimaryText, fontSize = Ts.HEAD.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.6.sp)
             Text("$n / $total", color = Pal.Dim, fontSize = Ts.SECONDARY.sp, modifier = Modifier.weight(1f), maxLines = 1)
             if (!summary && groups.isNotEmpty()) {
                 PillButton("All", { onAll(groups, true) }, compact = true, size = Ts.SECONDARY)
@@ -268,8 +268,8 @@ private fun SectionColumn(
 private fun Tile(title: String, sub: String, on: Boolean, modifier: Modifier, onClick: () -> Unit) {
     val shape = RoundedCornerShape(Radii.card)
     Row(modifier.fillMaxWidth().focusCard(onClick, scale = 1.03f, shape = shape)
-        .background(if (on) Pal.Gold.copy(alpha = 0.18f) else Pal.Soft, shape)
-        .then(if (on) Modifier.border(1.dp, Pal.Gold.copy(alpha = 0.6f), shape) else Modifier)
+        .background(if (on) Pal.Primary.copy(alpha = 0.18f) else Pal.Soft, shape)
+        .then(if (on) Modifier.border(1.dp, Pal.Primary.copy(alpha = 0.6f), shape) else Modifier)
         .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Check(on)
@@ -298,9 +298,9 @@ private fun CheckRow(title: String, count: String, on: Boolean, depth: Int, modi
 
 @Composable
 private fun Check(on: Boolean) {
-    Box(Modifier.size(22.dp).clip(RoundedCornerShape(6.dp)).background(if (on) Pal.Gold else Color.Transparent)
-        .border(2.dp, if (on) Pal.Gold else Pal.Dim.copy(alpha = 0.7f), RoundedCornerShape(6.dp)),
+    Box(Modifier.size(22.dp).clip(RoundedCornerShape(6.dp)).background(if (on) Pal.Primary else Color.Transparent)
+        .border(2.dp, if (on) Pal.Primary else Pal.Dim.copy(alpha = 0.7f), RoundedCornerShape(6.dp)),
         contentAlignment = Alignment.Center) {
-        if (on) Text("✓", color = Color.Black, fontSize = Ts.SECONDARY.sp, fontWeight = FontWeight.Bold)
+        if (on) Text("✓", color = Color.White, fontSize = Ts.SECONDARY.sp, fontWeight = FontWeight.Bold)
     }
 }
