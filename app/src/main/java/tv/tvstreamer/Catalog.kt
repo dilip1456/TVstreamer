@@ -409,7 +409,7 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
 
                 // TV / tablet menu (Netflix style, 1.91): phoenix only on the left, text tabs centred, profile on the right.
                 // The focused tab is a soft light pill, the current one bold. Left / Right stay inside the menu, Down goes
-                // to the page. Settings, Preferences, Update and Exit live in the profile menu.
+                // to the page. Settings and Exit live in the profile menu.
                 if (!AppUi.phoneNav) {
                     val tabCount = tabs.size + 1
                     val tabFrs = remember(tabCount) { List(tabCount) { FocusRequester() } }
