@@ -21,6 +21,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -40,13 +41,82 @@ import androidx.compose.ui.zIndex
 
 /** Phoenix mark only (no wordmark): the top bar on Home / Movies / Series / Live TV. Not focusable. */
 @Composable
-fun PhoenixMark(modifier: Modifier = Modifier, size: Dp = 34.dp) {
+fun PhoenixMark(modifier: Modifier = Modifier, size: Dp = Layout.LOGO_TV) {
     Image(
         painterResource(R.drawable.ic_phoenix),
         contentDescription = stringResource(R.string.app_name),
         modifier = modifier.size(size),
         contentScale = ContentScale.Fit
     )
+}
+
+/**
+ * One spacing / layout scale (1.99). TV keeps content inside the title-safe area (about 5 % of a 1080p screen:
+ * 48 dp at the sides, 27 dp at the top); phones use tighter margins.
+ */
+object Layout {
+    val TV_SIDE = 48.dp
+    val TV_TOP = 27.dp
+    val PHONE_SIDE = 14.dp
+    val PHONE_TOP = 10.dp
+    /** Compact logo in the top-left corner. */
+    val LOGO_TV = 26.dp
+    val LOGO_PHONE = 24.dp
+    /** Gaps: XS 4, S 8, M 12, L 16, XL 24, XXL 32. */
+    val XS = 4.dp
+    val S = 8.dp
+    val M = 12.dp
+    val L = 16.dp
+    val XL = 24.dp
+    val XXL = 32.dp
+    fun side(tv: Boolean) = if (tv) TV_SIDE else PHONE_SIDE
+}
+
+/** One entry of the TV top menu. [icon]: drawn instead of the label (the label is still read out). */
+class TopTab(val key: String, val label: String, val icon: ImageVector? = null, val onClick: () -> Unit)
+
+/** The TV top menu entries, the same on every screen that shows the menu. */
+fun topTabs(go: (Screen) -> Unit, onSearch: () -> Unit): List<TopTab> = listOf(
+    TopTab("search", "Search", RailIcons.Search, onSearch),
+    TopTab("home", "Home") { go(Screen.Home) },
+    TopTab("movies", "Movies") { go(Screen.MoviesTab) },
+    TopTab("series", "TV Shows") { go(Screen.SeriesTab) },
+    TopTab("live", "Live TV") { go(Screen.Live) }
+)
+
+/**
+ * TV / tablet top menu (Netflix style), shared by Home, Movies, TV Shows and Live TV: compact logo top-left, tabs
+ * centred, profile on the right. Left / Right stay inside the bar; Left on the first tab opens the side menu [rail]
+ * (Right there comes back to that tab); Down goes to the page. [tabModifier] adds per-tab focus bookkeeping.
+ */
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
+@Composable
+fun TopNavBar(current: String, tabs: List<TopTab>, rail: RailFocus?, onProfile: () -> Unit, modifier: Modifier = Modifier,
+              tabModifier: (String) -> Modifier = { Modifier }) {
+    val count = tabs.size + 1
+    val frs = remember(count) { List(count) { FocusRequester() } }
+    var ix by remember { mutableIntStateOf(-1) }
+    Box(
+        modifier.fillMaxWidth().heightIn(min = 44.dp)
+            .menuRow({ ix }, { count }, onLeftEdge = rail?.let { r -> { r.content = frs[0]; r.enter() } }) { n ->
+                ix = n
+                runCatching { frs.getOrNull(n)?.requestFocus() }
+            }
+            .onFocusChanged { if (!it.hasFocus) ix = -1 }
+            .focusRestorer(),
+        contentAlignment = Alignment.Center
+    ) {
+        PhoenixMark(Modifier.align(Alignment.CenterStart), size = Layout.LOGO_TV)
+        Row(horizontalArrangement = Arrangement.spacedBy(Layout.XS), verticalAlignment = Alignment.CenterVertically) {
+            tabs.forEachIndexed { i, t ->
+                NavTab(t.label, t.onClick,
+                    Modifier.focusRequester(frs[i]).onFocusChanged { if (it.isFocused) ix = i }.then(tabModifier(t.key)),
+                    selected = t.key == current, icon = t.icon)
+            }
+        }
+        Box(Modifier.align(Alignment.CenterEnd).focusRequester(frs[tabs.size])
+            .onFocusChanged { if (it.hasFocus) ix = tabs.size }) { AvatarButton(onProfile) }
+    }
 }
 
 /** Closes the app (Exit in the account / options menus and the TV side menu). */
@@ -157,12 +227,12 @@ fun SideRail(current: RailEntry?, focus: RailFocus, onPick: (RailEntry) -> Unit,
 private fun RailItem(e: RailEntry, open: Boolean, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
     var f by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(12.dp)
-    val fg = when { f -> Color(0xFF141414); selected -> Pal.Gold; else -> Color(0xFFB8B8B8) }
+    val fg = when { f -> Pal.OnFocusPill; selected -> Pal.Gold; else -> Color(0xFFB8B8B8) }
     Row(
         modifier.then(if (open) Modifier.width(212.dp) else Modifier)
             .onFocusChanged { f = it.isFocused }
             .clip(shape)
-            .background(if (f) Color(0xF2F5F0E6) else Color.Transparent)
+            .background(if (f) Pal.FocusPill else Color.Transparent)
             .clickable(onClick = onClick)
             .semantics { contentDescription = e.label }
             .padding(horizontal = 10.dp, vertical = 9.dp),

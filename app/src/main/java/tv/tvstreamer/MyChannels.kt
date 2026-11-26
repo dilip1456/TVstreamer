@@ -37,7 +37,7 @@ fun NameDialog(title: String, initial: String, confirm: String, onDone: (String)
     LaunchedEffect(Unit) { delay(80); runCatching { fr.requestFocus() } }
     PopupFrame(onClose) {
         Column(
-            Modifier.widthIn(min = 300.dp, max = 480.dp).background(Pal.Surface.copy(alpha = 0.98f), RoundedCornerShape(Radii.panel)).border(1.dp, Color(0x22D4AF37), RoundedCornerShape(Radii.panel))
+            Modifier.widthIn(min = 300.dp, max = 480.dp).background(Pal.Surface.copy(alpha = 0.98f), RoundedCornerShape(Radii.panel)).border(1.dp, Pal.Outline, RoundedCornerShape(Radii.panel))
                 .padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {

@@ -76,7 +76,7 @@ fun PhoenixLoading(message: String, modifier: Modifier = Modifier) {
         Box(contentAlignment = Alignment.Center, modifier = Modifier.size(64.dp)) {
             Box(
                 Modifier.size((36 + 12 * glow).dp).clip(CircleShape)
-                    .background(Color(0xFFF2B028).copy(alpha = 0.16f + 0.24f * glow))
+                    .background(Pal.Glow.copy(alpha = 0.16f + 0.24f * glow))
             )
             Image(
                 painterResource(R.drawable.ic_phoenix),
@@ -127,14 +127,14 @@ fun PhoenixSplash(ready: Boolean, onDone: () -> Unit) {
                         .size(bird * (0.16f + 0.20f * frame.emberScale))
                         .graphicsLayer { alpha = maxOf(frame.emberAlpha, frame.glowAlpha * 0.55f) }
                         .clip(CircleShape)
-                        .background(Color(0xFFF2B028).copy(alpha = 0.7f))
+                        .background(Pal.Glow.copy(alpha = 0.7f))
                 )
                 Box(
                     Modifier
                         .size(bird * (0.70f + 0.20f * frame.glowAlpha))
                         .graphicsLayer { alpha = frame.glowAlpha * 0.40f }
                         .clip(CircleShape)
-                        .background(Color(0xFFF2B028).copy(alpha = 0.35f))
+                        .background(Pal.Glow.copy(alpha = 0.35f))
                 )
                 Image(
                     painterResource(R.drawable.ic_phoenix),
@@ -160,5 +160,19 @@ fun PhoenixSplash(ready: Boolean, onDone: () -> Unit) {
                 contentScale = ContentScale.Fit
             )
         }
+    }
+}
+
+/**
+ * Shared empty / error state (1.99): a short title, one line of help and an optional action, left-aligned with the
+ * page content. Used wherever a list has nothing to show, so every screen says it the same way.
+ */
+@Composable
+fun EmptyState(title: String, message: String = "", modifier: Modifier = Modifier, warn: Boolean = false,
+               action: String? = null, onAction: (() -> Unit)? = null) {
+    Column(modifier.padding(vertical = Layout.L), verticalArrangement = Arrangement.spacedBy(Layout.S)) {
+        Text(title, color = if (warn) Pal.Warn else Pal.Text, fontSize = Ts.TITLE.sp, maxLines = 2)
+        if (message.isNotEmpty()) Text(message, color = Pal.Dim, fontSize = Ts.ROW.sp, maxLines = 4, modifier = Modifier.widthIn(max = 640.dp))
+        if (action != null && onAction != null) Box(Modifier.padding(top = Layout.XS)) { PillButton(action, onAction, primary = true, size = Ts.HEAD) }
     }
 }

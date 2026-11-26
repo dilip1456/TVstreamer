@@ -121,7 +121,7 @@ fun CatalogSelectorScreen(repo: Repo, go: (Screen) -> Unit) {
                     ButtonFlow {
                         PillButton((if (mode == LiveModes.DEFAULT) "Default" else mode) + "  ▾", { modes = true },
                             selected = true, compact = true, size = Ts.HEAD)
-                        PillButton("🌐  " + CatalogSelector.langLabel(savedLangs), { goStep(0) }, compact = true, size = Ts.HEAD)
+                        PillButton(CatalogSelector.langLabel(savedLangs), { goStep(0) }, compact = true, size = Ts.HEAD)
                     }
                     Spacer(Modifier.height(10.dp))
                     Columns(columns, tv, firstFr, summary = false, on = ::on,
@@ -129,7 +129,7 @@ fun CatalogSelectorScreen(repo: Repo, go: (Screen) -> Unit) {
                         onAll = { gs, v -> repo.setGroupsOn(gs.map { it.key to it.title }, v) })
                 }
                 else -> Column(Modifier.fillMaxSize()) {
-                    Text("🌐  " + CatalogSelector.langLabel(savedLangs) + "   ·   " +
+                    Text(CatalogSelector.langLabel(savedLangs) + "   ·   " +
                         CatalogSelector.SECTIONS.joinToString("   ·   ") { s -> "$s ${summary[s].orEmpty().count { on(it.key) }}" },
                         color = Pal.Dim, fontSize = Ts.SECONDARY.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.padding(bottom = 10.dp))

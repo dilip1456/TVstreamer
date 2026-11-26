@@ -59,7 +59,7 @@ fun UpdateBanner(store: Store, ctx: android.content.Context, modifier: Modifier 
         modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)
             .clipBar()
             .background(Pal.Surface)
-            .border(1.dp, Color(0x22D4AF37), RoundedCornerShape(Radii.row))
+            .border(1.dp, Pal.Outline, RoundedCornerShape(Radii.row))
             .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)

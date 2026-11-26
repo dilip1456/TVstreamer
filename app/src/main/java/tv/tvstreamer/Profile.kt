@@ -170,7 +170,7 @@ fun AccountMenu(store: Store, go: (Screen) -> Unit, onClose: () -> Unit) {
             if (Cloud.signedIn) Row1(if (Cloud.busy) "Syncing…" else "Sync Now" + syncAgo(), { Cloud.syncNow() })
             if (!Cloud.signedIn) Row1("Sign In with Google", { onClose(); go(Screen.Account) })
             if (msg.isNotEmpty()) Label(msg, Ts.HEAD, Pal.Warn, maxLines = 3)
-            Row1("⏻  Exit " + stringResource(R.string.app_name), { onClose(); exitApp(ctx) })
+            Row1("Exit " + stringResource(R.string.app_name), { onClose(); exitApp(ctx) })
             Row1("Close", onClose)
         }
     }

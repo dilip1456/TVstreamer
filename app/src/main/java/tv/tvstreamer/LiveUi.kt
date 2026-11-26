@@ -73,7 +73,7 @@ fun InfoDialog(title: String, text: String, onClose: () -> Unit) {
     val fr = remember { FocusRequester() }
     LaunchedEffect(Unit) { delay(60); runCatching { fr.requestFocus() } }
     PopupFrame(onClose) {
-        Column(Modifier.widthIn(min = 320.dp, max = 620.dp).background(Pal.Surface, RoundedCornerShape(Radii.panel)).border(1.dp, Color(0x22D4AF37), RoundedCornerShape(Radii.panel)).padding(22.dp),
+        Column(Modifier.widthIn(min = 320.dp, max = 620.dp).background(Pal.Surface, RoundedCornerShape(Radii.panel)).border(1.dp, Pal.Outline, RoundedCornerShape(Radii.panel)).padding(22.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(title, color = Pal.Text, fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold)
             Text(text, color = Pal.Dim, fontSize = Ts.SECONDARY.sp, modifier = Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()))
@@ -101,7 +101,7 @@ fun ChannelPanel(repo: Repo, list: List<Item>, playing: Int, title: String = "Ch
             .collect { repo.epg.want(it) }
     }
     PopupFrame(onClose, alignment = Alignment.CenterStart, scrim = Color(0x26000000)) {
-        Column(Modifier.padding(horizontal = 20.dp).fillMaxHeight(0.84f).width(360.dp).clip(RoundedCornerShape(Radii.panel)).background(Pal.Surface.copy(alpha = 0.94f)).border(1.dp, Color(0x22D4AF37), RoundedCornerShape(Radii.panel)).padding(vertical = 14.dp)) {
+        Column(Modifier.padding(horizontal = 20.dp).fillMaxHeight(0.84f).width(360.dp).clip(RoundedCornerShape(Radii.panel)).background(Pal.Surface.copy(alpha = 0.94f)).border(1.dp, Pal.Outline, RoundedCornerShape(Radii.panel)).padding(vertical = 14.dp)) {
             Text(title, color = Pal.Text, fontSize = Ts.ROW.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 18.dp))
             Text("OK play · ◀ ▶ later shows", color = Pal.Dim, fontSize = Ts.CAPTION.sp, modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp))
             LazyColumn(state = state, contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -139,7 +139,7 @@ fun ChannelPanel(repo: Repo, list: List<Item>, playing: Int, title: String = "Ch
                             Text(ChannelTitle.pretty(ch.name), color = if (i == playing) Pal.Gold else Pal.Text, fontSize = Ts.HEAD.sp,
                                 fontWeight = if (f) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f))
-                            if (i == playing) Text("● NOW", color = Pal.Gold, fontSize = Ts.CAPTION.sp, fontWeight = FontWeight.Bold)
+                            if (i == playing) Text("Playing", color = Pal.Gold, fontSize = Ts.CAPTION.sp, fontWeight = FontWeight.Bold)
                         }
                         if (shown != null) {
                             val on = shown.isOn(t)
@@ -191,7 +191,7 @@ fun ChannelMenu(repo: Repo, ch: Item, @Suppress("UNUSED_PARAMETER") folder: Stri
     val on = repo.isOn(ch)
     val next = Epg.next(repo.epg.guide[ch.id]?.progs, System.currentTimeMillis())
     ChoiceDialog(ChannelTitle.pretty(ch.name), buildList {
-        if (!inPlayer && onPlay != null) add("▶  Play" to { onClose(); onPlay() })
+        if (!inPlayer && onPlay != null) add("Play" to { onClose(); onPlay() })
         add(when {
             mode == LiveModes.DEFAULT -> if (on) "Hide channel" else "Show channel again"
             on -> "Remove from \"$mode\""
@@ -204,7 +204,7 @@ fun ChannelMenu(repo: Repo, ch: Item, @Suppress("UNUSED_PARAMETER") folder: Stri
             toast(ctx, if (set) "Reminder set for ${hhmm(next.start)}" else "Reminder removed"); onClose()
         })
         add("Rename channel" to { page = "rename" })
-        if (repo.isRenamed(ch)) add("Reset name (${repo.portalName(ch)})" to { repo.renameChannel(ch, null); onClose() })
+        if (repo.isRenamed(ch)) add("Reset name to ${repo.portalName(ch)}" to { repo.renameChannel(ch, null); onClose() })
         add("Channel info" to { page = "info" })
         if (!inPlayer && onPlay != null) add("Play with a fresh link" to { onClose(); onPlay() })
         addAll(extra)
@@ -277,7 +277,7 @@ fun ModePicker(repo: Repo, ch: Item, onClose: () -> Unit) {
             val inIt = f.items(n).any { it.key == ch.key }
             add("${if (inIt) "☑" else "☐"}  $n" to { if (inIt) repo.removeFromFolder(n, listOf(ch)) else repo.addToFolder(n, listOf(ch)) })
         }
-        add("＋  New mode…" to { naming = true })
+        add("New mode" to { naming = true })
     }, focusKey = "modes" + f.names.size, onClose = onClose)
 }
 
@@ -317,13 +317,13 @@ fun ModeMenu(repo: Repo, current: List<Item>, onClose: () -> Unit) {
     }
     val cur = repo.mode()
     ChoiceDialog("Mode", buildList {
-        add((if (cur == LiveModes.DEFAULT) "✓  " else "     ") + "Default (everything not hidden)" to { repo.selectMode(LiveModes.DEFAULT); onClose() })
-        add((if (cur == LiveModes.PASSWORD) "✓  " else "     ") + "Password (locked only)" to { repo.selectMode(LiveModes.PASSWORD); onClose() })
+        add((if (cur == LiveModes.DEFAULT) "✓  " else "     ") + "Default: every channel not hidden" to { repo.selectMode(LiveModes.DEFAULT); onClose() })
+        add((if (cur == LiveModes.PASSWORD) "✓  " else "     ") + "Password: locked channels only" to { repo.selectMode(LiveModes.PASSWORD); onClose() })
         repo.modes.forEach { m ->
-            add((if (cur == m) "✓  " else "     ") + "$m  (${repo.folders.channelItems(m).size})" to { repo.selectMode(m); onClose() })
+            add((if (cur == m) "✓  " else "     ") + "$m  ·  ${repo.folders.channelItems(m).size}" to { repo.selectMode(m); onClose() })
         }
-        add("＋  New mode…" to { page = "new" })
-        repo.modes.forEach { m -> add("✎  Edit \"$m\"…" to { target = m; page = "edit" }) }
+        add("New mode" to { page = "new" })
+        repo.modes.forEach { m -> add("Edit $m" to { target = m; page = "edit" }) }
     }, focusKey = "modes" + repo.modes.size, onClose = onClose)
 }
 
@@ -335,7 +335,7 @@ fun LanguagePicker(repo: Repo, langs: List<Pair<String, Int>>, onClose: () -> Un
         add((if (sel == null) "☑" else "☐") + "  All languages" to { repo.chooseLiveLangs(null) })
         langs.forEach { (l, n) ->
             val on = sel?.contains(l) == true
-            add("${if (on) "☑" else "☐"}  $l  ($n)" to {
+            add("${if (on) "☑" else "☐"}  $l  ·  $n" to {
                 val base = sel ?: emptySet()
                 repo.chooseLiveLangs(if (on) base - l else base + l)
             })
@@ -358,7 +358,7 @@ fun GuidePanel(repo: Repo, ch: Item, onClose: () -> Unit) {
     val loaded = repo.epg.guide[ch.id] != null
     LaunchedEffect(progs.isNotEmpty()) { delay(80); runCatching { first.requestFocus() } }
     PopupFrame(onClose, alignment = Alignment.CenterEnd, scrim = Color(0x26000000)) {
-        Column(Modifier.padding(horizontal = 20.dp).fillMaxHeight(0.84f).width(380.dp).clip(RoundedCornerShape(Radii.panel)).background(Pal.Surface.copy(alpha = 0.94f)).border(1.dp, Color(0x22D4AF37), RoundedCornerShape(Radii.panel)).padding(vertical = 14.dp)) {
+        Column(Modifier.padding(horizontal = 20.dp).fillMaxHeight(0.84f).width(380.dp).clip(RoundedCornerShape(Radii.panel)).background(Pal.Surface.copy(alpha = 0.94f)).border(1.dp, Pal.Outline, RoundedCornerShape(Radii.panel)).padding(vertical = 14.dp)) {
             Text(ChannelTitle.pretty(ch.name), color = Pal.Text, fontSize = Ts.ROW.sp, fontWeight = FontWeight.SemiBold, maxLines = 1,
                 overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 18.dp))
             Text("Schedule  ·  OK on a later show: remind me", color = Pal.Dim, fontSize = Ts.CAPTION.sp, modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp))

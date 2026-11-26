@@ -66,10 +66,7 @@ class MainActivity : ComponentActivity() {
         if (!isLeanback(this)) requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         if (savedInstanceState == null) handleIntent(intent)
         setContent {
-            MaterialTheme(
-                colorScheme = if (Theme.dark) darkColorScheme(primary = Pal.Accent, background = Pal.Bg, surface = Pal.Surface, onPrimary = Color.White)
-                    else lightColorScheme(primary = Pal.Accent, background = Pal.Bg, surface = Pal.Surface, onPrimary = Color.White)
-            ) {
+            AppTheme {
                 Theme.systemDark = androidx.compose.foundation.isSystemInDarkTheme()
                 App(repo)
             }

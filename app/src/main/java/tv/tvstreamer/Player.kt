@@ -968,7 +968,7 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
                 if (n != null) Text(listOf(n.season, n.name).filter { it.isNotBlank() }.joinToString(" · "), color = Pal.Dim, fontSize = Ts.HEAD.sp,
                     maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    PillButton("▶  Play now", { nextEp?.let { playEpisode(it, finished = true) } }, Modifier.focusRequester(upNextFr), primary = true)
+                    PillButton("Play now", { nextEp?.let { playEpisode(it, finished = true) } }, Modifier.focusRequester(upNextFr), primary = true, icon = Ic.Play)
                     PillButton("Cancel", { upNextCancelled = item.key; touch() })
                 }
             }
@@ -1075,7 +1075,7 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
                     add("Subtitles" to { dialog = "subs" })
                     add("Picture: Fit / Fill / Zoom" to { dialog = "aspect" })
                     if (phone) add((if (landscape) "Exit fullscreen" else "Fullscreen") to { toggleLandscape(); dialog = null })
-                    if (!isTv && !live) add("Move options bar (now: $barPos)" to { barPos = BarFit.nextPos(barPos); repo.store.barPos = barPos; dialog = null })
+                    if (!isTv && !live) add("Move options bar: now $barPos" to { barPos = BarFit.nextPos(barPos); repo.store.barPos = barPos; dialog = null })
                     add((if (live) "Not working? Retry link" else "Reload stream") to { autoRetries = 0; linkFrom = 0; attempt++; dialog = null })
                     if (err.isNotEmpty() || live) add("Stream details" to { dialog = "details" })
                 }
@@ -1107,11 +1107,11 @@ fun ChoiceDialog(title: String, opts: List<Pair<String, () -> Unit>>, focusKey: 
             Modifier.padding(end = 48.dp).widthIn(min = 252.dp, max = 340.dp).heightIn(max = 440.dp)
                 .clip(RoundedCornerShape(Radii.panel))
                 .background(Pal.Surface.copy(alpha = 0.94f))
-                .border(1.dp, Color(0x22D4AF37), RoundedCornerShape(Radii.panel))
+                .border(1.dp, Pal.Outline, RoundedCornerShape(Radii.panel))
                 .padding(horizontal = 10.dp, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
-            Text(title, color = Pal.Dim, fontSize = Ts.SECONDARY.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            Text(title, color = Pal.Text2, fontSize = Ts.HEAD.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp))
             Spacer(Modifier.height(4.dp))
             LazyColumn(verticalArrangement = Arrangement.spacedBy(1.dp)) {
@@ -1357,7 +1357,7 @@ private fun TvControls(
                 Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
                     OptionsBar(buildList {
                         if (hasAudio || !live) add(BarAction("audio", Ic.Audio, "Audio", { onDialog("audio") }))
-                        add(BarAction("subs", Ic.Subtitles, if (hasSubs) "Subtitles" else "Subtitles (none)", { onDialog("subs") }))
+                        add(BarAction("subs", Ic.Subtitles, if (hasSubs) "Subtitles" else "No subtitles", { onDialog("subs") }))
                         add(BarAction("aspect", Ic.Aspect, "Picture: " + aspect.replaceFirstChar { it.uppercase() }, { onDialog("aspect") }))
                         if (onFullscreen != null) add(BarAction("fs", if (landscape) Ic.FullscreenExit else Ic.Fullscreen,
                             if (landscape) "Exit fullscreen" else "Fullscreen", onFullscreen))

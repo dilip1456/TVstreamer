@@ -199,7 +199,7 @@ fun whenText(t: Long): String {
  * instead of letting Compose's 2D focus search drop down into the page. Down is not consumed.
  * [index] is the focused item (-1: none).
  */
-fun Modifier.menuRow(index: () -> Int, count: () -> Int, onMove: (Int) -> Unit = {}): Modifier = onPreviewKeyEvent {
+fun Modifier.menuRow(index: () -> Int, count: () -> Int, onLeftEdge: (() -> Unit)? = null, onMove: (Int) -> Unit = {}): Modifier = onPreviewKeyEvent {
     if (it.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
     val i = index()
     if (i < 0) return@onPreviewKeyEvent false
@@ -209,6 +209,8 @@ fun Modifier.menuRow(index: () -> Int, count: () -> Int, onMove: (Int) -> Unit =
         Key.DirectionUp -> TabNav.Dir.UP
         else -> return@onPreviewKeyEvent false
     }
+    // 1.99: Left on the leftmost tab opens the TV side menu (when the screen has one)
+    if (TabNav.opensRail(i, dir, onLeftEdge != null)) { onLeftEdge?.invoke(); return@onPreviewKeyEvent true }
     val next = TabNav.move(i, count(), dir)
     if (next != i && next != TabNav.CONTENT) onMove(next)
     true

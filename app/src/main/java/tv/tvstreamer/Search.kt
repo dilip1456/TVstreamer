@@ -202,11 +202,11 @@ fun SearchFab(modifier: Modifier = Modifier, onClick: () -> Unit) {
             .onFocusChanged { f = it.isFocused }
             .then(if (f) Modifier.border(3.dp, Pal.Text, CircleShape) else Modifier)
             .clip(CircleShape)
-            .background(if (f) Color(0xFFF3D97A) else Pal.Gold)
+            .background(if (f) Pal.Highlight else Pal.Gold)
             .clickable(onClick = onClick)
             .focusable(),
         contentAlignment = Alignment.Center
-    ) { Text("🔍", fontSize = if (isTv) 24.sp else 22.sp, color = Color.Black) }
+    ) { androidx.compose.material3.Icon(RailIcons.Search, "Search", tint = Color.Black, modifier = Modifier.size(if (isTv) 26.dp else 24.dp)) }
 }
 
 @Composable
@@ -305,7 +305,7 @@ fun SearchOverlay(repo: Repo, st: SearchState, open: (Item) -> Unit, play: (List
                             value = st.query, onValueChange = onType, singleLine = true,
                             textStyle = androidx.compose.ui.text.TextStyle(fontSize = Ts.ROW.sp),
                             placeholder = { Text(hint, fontSize = Ts.ROW.sp, color = Pal.Dim, maxLines = 1) },
-                            leadingIcon = { Text("🔍", fontSize = Ts.ROW.sp) },
+                            leadingIcon = { androidx.compose.material3.Icon(RailIcons.Search, null, tint = Pal.Dim, modifier = Modifier.size(20.dp)) },
                             trailingIcon = if (st.query.isNotEmpty()) ({
                                 Box(Modifier.clip(CircleShape).clickable { st.query = ""; runCatching { fieldFr.requestFocus() } }.padding(10.dp)) {
                                     Text("✕", color = Pal.Dim, fontSize = Ts.ROW.sp)
@@ -334,7 +334,7 @@ fun SearchOverlay(repo: Repo, st: SearchState, open: (Item) -> Unit, play: (List
                             KeyboardGate(Modifier.weight(1f).focusRequester(fieldFr), shape = RoundedCornerShape(28.dp)) { inner ->
                                 TextField(
                                     value = st.query, onValueChange = onType, singleLine = true,
-                                    placeholder = { Text(hint + "  (OK to type)") },
+                                    placeholder = { Text(hint + "  ·  OK to type") },
                                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                                     keyboardActions = KeyboardActions(onSearch = { kb?.hide(); runCatching { firstResFr.requestFocus() } }),
                                     modifier = inner.fillMaxWidth().clip(RoundedCornerShape(28.dp))
@@ -344,7 +344,7 @@ fun SearchOverlay(repo: Repo, st: SearchState, open: (Item) -> Unit, play: (List
                             PillButton(if (voice.listening) "■" else "🎤", { if (voice.listening) voice.stop() else voice.start() }, selected = voice.listening, size = Ts.HEAD)
                             if (Gemini.enabled) { Spacer(Modifier.width(8.dp)); PillButton("✨ Ask AI", askAi, size = Ts.HEAD) }
                             Spacer(Modifier.width(8.dp))
-                            PillButton("✕  Close", { voice.stop(); st.open = false }, size = Ts.HEAD)
+                            PillButton("Close", { voice.stop(); st.open = false }, size = Ts.HEAD)
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Scope.entries.forEach { s -> PillButton(s.label, { st.scope = s }, selected = st.scope == s, size = Ts.HEAD) }

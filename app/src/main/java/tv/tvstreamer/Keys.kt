@@ -132,7 +132,7 @@ object Keys {
     fun longOf(code: Int) = long[code] ?: Act.DEFAULT
 
     fun name(code: Int): String = when (code) {
-        KeyEvent.KEYCODE_MENU -> "Menu (☰)"
+        KeyEvent.KEYCODE_MENU -> "Menu"
         KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> "Play / Pause"
         KeyEvent.KEYCODE_MEDIA_REWIND -> "Rewind"
         KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> "Fast forward"
@@ -185,7 +185,7 @@ fun RemoteScreen(onBack: () -> Unit) {
                         "Holding Menu adds or removes the focused / playing title from favorites; a short Menu press still opens the options menu.",
                         color = Pal.Dim, fontSize = Ts.SECONDARY.sp)
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        PillButton(if (learning) "Press a button on the remote…" else "＋  Learn a button", { learnMsg = ""; learning = true }, Modifier.focusRequester(firstFr), primary = true)
+                        PillButton(if (learning) "Press a button on the remote…" else "Learn a button", { learnMsg = ""; learning = true }, Modifier.focusRequester(firstFr), primary = true)
                         PillButton("Reset to defaults", { Keys.reset(); learnMsg = "Defaults restored" })
                     }
                     if (learnMsg.isNotEmpty()) Text(learnMsg, color = Pal.Warn, fontSize = Ts.HEAD.sp)
@@ -200,7 +200,7 @@ fun RemoteScreen(onBack: () -> Unit) {
             }
             item {
                 Column(Modifier.padding(top = 16.dp).background(Pal.Field, RoundedCornerShape(Radii.field)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("About the app buttons (Netflix, Prime Video, Hulu …)", color = Pal.Text, fontSize = Ts.ROW.sp, fontWeight = FontWeight.SemiBold)
+                    Text("About the app buttons: Netflix, Prime Video, Hulu and others", color = Pal.Text, fontSize = Ts.ROW.sp, fontWeight = FontWeight.SemiBold)
                     Text("Those shortcut buttons are handled by Fire TV itself, so apps usually never see them and they can't be learned here. " +
                         "If you press one while TVStreamer is open and nothing shows up above, that's why. " +
                         "To make a remote shortcut button open TVStreamer, use Fire TV's own setting on supported remotes: " +

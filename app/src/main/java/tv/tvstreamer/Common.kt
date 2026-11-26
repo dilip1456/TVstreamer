@@ -15,6 +15,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -65,17 +68,49 @@ object Theme {
     fun next(m: String) = when (m) { "dark" -> "light"; "light" -> "system"; else -> "dark" }
 }
 
+/**
+ * Brand palette (1.99): the only place the brand hues live. Every screen reads them through [Pal] (and the
+ * MaterialTheme colour scheme built from it in [AppTheme]), so a rebrand is a palette swap here plus the logo drawables.
+ */
+object Brand {
+    /** Main brand hue (logo #D4AF37): focus rings, highlights, selected states. */
+    const val PRIMARY = 0xFFD4AF37
+    /** Brand hue for text on a light background (darker so it stays readable). */
+    const val PRIMARY_ON_LIGHT = 0xFF7A5C00
+    /** Warm glow behind the logo (splash / loader). */
+    const val GLOW = 0xFFF2B028
+    /** Soft highlight (favourite star, search hint). */
+    const val HIGHLIGHT = 0xFFFFD54F
+    /** Call-to-action fill (Play, primary buttons) and the LIVE dot. */
+    const val ACTION = 0xFFE50914
+    /** Dark tint of the brand hue (top-of-page wash, focused row fill). */
+    const val WASH = 0xFF15110C
+    const val FOCUS_FILL_DARK = 0xFF2A2414
+    const val FOCUS_FILL_LIGHT = 0xFFFFF1C4
+    const val CHIP_DARK = 0xFF5A4A12
+    const val CHIP_LIGHT = 0xFFF1DE9C
+}
+
 /** Colours for the current theme. Video / poster overlays keep fixed dark colours. */
 object Pal {
     private fun pick(dark: Long, light: Long) = Color(if (Theme.dark) dark else light)
     val Bg get() = pick(0xFF08080C, 0xFFF5F5F8)
     val Surface get() = pick(0xFF12121A, 0xFFFFFFFF)
     val Card get() = pick(0xFF1A1A22, 0xFFE6E6EC)
-    val Accent = Color(0xFFE50914)
-    /** Brand gold (logo #D4AF37): focus borders and highlights. */
-    val Gold = Color(0xFFD4AF37)
-    /** Gold for text (darker in light mode so it stays readable). */
-    val GoldText get() = pick(0xFFD4AF37, 0xFF7A5C00)
+    val Accent = Color(Brand.ACTION)
+    /** Brand colour: focus borders and highlights. */
+    val Gold = Color(Brand.PRIMARY)
+    /** Brand colour for text (darker in light mode so it stays readable). */
+    val GoldText get() = pick(Brand.PRIMARY, Brand.PRIMARY_ON_LIGHT)
+    val Glow = Color(Brand.GLOW)
+    val Highlight = Color(Brand.HIGHLIGHT)
+    /** Faint brand-tinted outline for panels and bars. */
+    val Outline = Color(Brand.PRIMARY).copy(alpha = 0.13f)
+    /** Focused menu tab / side-menu entry: a light pill with dark text (same in both themes). */
+    val FocusPill = Color(0xF2F5F0E6)
+    val OnFocusPill = Color(0xFF141414)
+    /** Dimmed backdrop behind dialogs and menus. */
+    val Scrim = Color(0xB3000000)
     val Focus = Gold
     val Dim get() = pick(0xFF9AA0B5, 0xFF555B6B)
     val Warn get() = pick(0xFFFFB74D, 0xFFA04F00)
@@ -91,10 +126,38 @@ object Pal {
     val Field get() = pick(0xFF1A1A22, 0xFFEBEBF1)
     val FieldFocus get() = pick(0xFF1E1E26, 0xFFE2E2EA)
     val Row get() = pick(0xFF1E1E26, 0xFFFFFFFF)
-    val FocusBg get() = pick(0xFF2A2414, 0xFFFFF1C4)
+    val FocusBg get() = pick(Brand.FOCUS_FILL_DARK, Brand.FOCUS_FILL_LIGHT)
     val WarnBox get() = pick(0xFF2A1F1A, 0xFFFFEEDC)
-    val ChipSel get() = pick(0xFF5A4A12, 0xFFF1DE9C)
+    val ChipSel get() = pick(Brand.CHIP_DARK, Brand.CHIP_LIGHT)
     val Shimmer get() = pick(0xFF383844, 0xFFF0F0F5)
+}
+
+/**
+ * App-wide MaterialTheme (1.99): colour scheme and type scale come from [Pal] / [Brand] and [Ts], so Material
+ * components (text fields, progress bars, dialogs) pick up the same palette as the custom views.
+ */
+@Composable
+fun AppTheme(content: @Composable () -> Unit) {
+    val dark = Theme.dark
+    val scheme = if (dark) androidx.compose.material3.darkColorScheme(
+        primary = Pal.Gold, onPrimary = Color.Black, secondary = Pal.Accent, onSecondary = Color.White,
+        background = Pal.Bg, onBackground = Pal.Text, surface = Pal.Surface, onSurface = Pal.Text,
+        surfaceVariant = Pal.Card, onSurfaceVariant = Pal.Dim, outline = Pal.Outline, error = Pal.Error, scrim = Pal.Scrim
+    ) else androidx.compose.material3.lightColorScheme(
+        primary = Pal.GoldText, onPrimary = Color.White, secondary = Pal.Accent, onSecondary = Color.White,
+        background = Pal.Bg, onBackground = Pal.Text, surface = Pal.Surface, onSurface = Pal.Text,
+        surfaceVariant = Pal.Card, onSurfaceVariant = Pal.Dim, outline = Pal.Outline, error = Pal.Error, scrim = Pal.Scrim
+    )
+    fun st(size: Int, w: FontWeight) = androidx.compose.ui.text.TextStyle(fontSize = size.sp, fontWeight = w)
+    val type = androidx.compose.material3.Typography(
+        displaySmall = st(Ts.DISPLAY, FontWeight.Bold),
+        headlineSmall = st(Ts.TITLE, FontWeight.Bold),
+        titleMedium = st(Ts.HEAD, FontWeight.SemiBold),
+        bodyLarge = st(Ts.ROW, FontWeight.Normal),
+        bodyMedium = st(Ts.SECONDARY, FontWeight.Normal),
+        labelSmall = st(Ts.CAPTION, FontWeight.Medium)
+    )
+    androidx.compose.material3.MaterialTheme(colorScheme = scheme, typography = type, content = content)
 }
 
 /** True on Fire TV / Android TV (or a large screen), false on phones. */
@@ -130,9 +193,7 @@ fun Modifier.focusCard(
         .popupOpener()
         .onFocusChanged { if (it.isFocused != f) { f = it.isFocused; if (f) onFocused?.invoke() } }
         .graphicsLayer { scaleX = s; scaleY = s }
-        .then(if (ring > 0.01f) Modifier
-            .border(8.dp, Pal.Focus.copy(alpha = 0.16f * ring), shape)
-            .border(2.dp, Pal.Focus.copy(alpha = 0.95f * ring), shape) else Modifier)
+        .focusRing(ring, shape)
         .clip(shape)
         .onKeyEvent { e ->
             if (onMenu != null && e.type == KeyEventType.KeyUp && e.key == Key.Menu) { onMenu(); true } else false
@@ -140,22 +201,32 @@ fun Modifier.focusCard(
         .combinedClickable(onClick = onClick, onLongClick = onMenu)
 }
 
+/** The app's one focus look (1.99): a soft brand-coloured glow plus a crisp ring. [amount] 0 = none … 1 = focused. */
+fun Modifier.focusRing(amount: Float, shape: Shape): Modifier =
+    if (amount > 0.01f) this
+        .border(8.dp, Pal.Focus.copy(alpha = 0.16f * amount), shape)
+        .border(2.dp, Pal.Focus.copy(alpha = 0.95f * amount), shape)
+    else this
+
 /** Top menu tab (Netflix style): plain text; focused = soft light pill (animated), current tab = bold white. */
 @Composable
-fun NavTab(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, selected: Boolean = false) {
+fun NavTab(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, selected: Boolean = false, icon: ImageVector? = null) {
     var f by remember { mutableStateOf(false) }
-    val bg by androidx.compose.animation.animateColorAsState(if (f) Color(0xF2F5F0E6) else Color.Transparent, Motion.colorSpec(), label = "tabBg")
-    val fg by androidx.compose.animation.animateColorAsState(when { f -> Color(0xFF141414); selected -> Pal.Text; else -> Pal.Dim }, Motion.colorSpec(), label = "tabFg")
+    val bg by androidx.compose.animation.animateColorAsState(if (f) Pal.FocusPill else Color.Transparent, Motion.colorSpec(), label = "tabBg")
+    val fg by androidx.compose.animation.animateColorAsState(when { f -> Pal.OnFocusPill; selected -> Pal.Text; else -> Pal.Dim }, Motion.colorSpec(), label = "tabFg")
     Box(
         modifier.popupOpener()
             .onFocusChanged { f = it.isFocused }
             .clip(RoundedCornerShape(50))
             .background(bg)
             .combinedClickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 7.dp),
+            .semantics { contentDescription = text }
+            .padding(horizontal = if (icon != null) 12.dp else 16.dp, vertical = 7.dp),
         contentAlignment = Alignment.Center
     ) {
-        Text(text, color = fg, fontSize = Ts.ROW.sp, fontWeight = if (selected || f) FontWeight.SemiBold else FontWeight.Medium,
+        // Icon-only tab (Search): the label is read out but not drawn
+        if (icon != null) androidx.compose.material3.Icon(icon, null, tint = fg, modifier = Modifier.size(20.dp))
+        else Text(text, color = fg, fontSize = Ts.ROW.sp, fontWeight = if (selected || f) FontWeight.SemiBold else FontWeight.Medium,
             letterSpacing = 0.2.sp, maxLines = 1)
     }
 }
@@ -166,7 +237,7 @@ fun CinematicWash(modifier: Modifier = Modifier) {
     if (!Theme.dark) return
     Box(
         modifier.fillMaxWidth().height(440.dp).background(
-            Brush.verticalGradient(listOf(Color(0xFF15110C), Pal.Gold.copy(alpha = 0.08f), Color.Transparent))
+            Brush.verticalGradient(listOf(Color(Brand.WASH), Pal.Gold.copy(alpha = 0.08f), Color.Transparent))
         )
     )
 }
@@ -188,7 +259,8 @@ fun PillButton(
     selected: Boolean = false,
     size: Int = Ts.HEAD,
     compact: Boolean = false,
-    onMenu: (() -> Unit)? = null
+    onMenu: (() -> Unit)? = null,
+    icon: ImageVector? = null
 ) {
     var f by remember { mutableStateOf(false) }
     val target = when {
@@ -211,9 +283,14 @@ fun PillButton(
             .padding(horizontal = if (compact) 12.dp else 16.dp, vertical = if (compact) 6.dp else 8.dp),
         contentAlignment = Alignment.Center
     ) {
-        Text(text, color = if (f) Color.Black else if (primary) Color.White else Pal.Text, fontSize = size.sp,
-            fontWeight = if (primary || selected) FontWeight.Bold else FontWeight.Medium, maxLines = 1,
-            overflow = TextOverflow.Ellipsis)
+        val fg = if (f) Color.Black else if (primary) Color.White else Pal.Text
+        androidx.compose.foundation.layout.Row(verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp)) {
+            if (icon != null) androidx.compose.material3.Icon(icon, null, tint = fg, modifier = Modifier.size((size + 4).dp))
+            Text(text, color = fg, fontSize = size.sp,
+                fontWeight = if (primary || selected) FontWeight.Bold else FontWeight.Medium, maxLines = 1,
+                overflow = TextOverflow.Ellipsis)
+        }
     }
 }
 
@@ -296,6 +373,9 @@ object Ic {
             .build()
 
     val Play = icon("Play", "M8,5v14l11,-7z")
+    val Check = icon("Check", "M9,16.17L4.83,12l-1.42,1.41L9,19 21,7l-1.41,-1.41z")
+    val Add = icon("Add", "M19,13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z")
+    val Restart = icon("Restart", "M12,5V1L7,6l5,5V7c3.31,0 6,2.69 6,6s-2.69,6 -6,6 -6,-2.69 -6,-6H4c0,4.42 3.58,8 8,8s8,-3.58 8,-8 -3.58,-8 -8,-8z")
     val Pause = icon("Pause", "M6,19h4V5H6v14zm8,-14v14h4V5h-4z")
     val Next = icon("Next", "M6,18l8.5,-6L6,6v12zM16,6v12h2V6h-2z")
     val Prev = icon("Prev", "M6,6h2v12H6zm3.5,6l8.5,6V6z")
