@@ -190,9 +190,9 @@ fun App(repo: Repo) {
             is Screen.Grid -> s.back
             is Screen.Pool -> s.back
             is Screen.Languages -> s.back
-            Screen.Remote -> if (AppUi.phoneNav) Screen.Profile else Screen.Settings
-            Screen.Account -> if (AppUi.phoneNav) Screen.Profile else Screen.Settings
-            Screen.Categories -> if (AppUi.phoneNav) Screen.Profile else Screen.Home
+            Screen.Remote -> Screen.Settings
+            Screen.Account -> Screen.Settings
+            Screen.Categories -> if (AppUi.phoneNav) Screen.Settings else Screen.Home
             else -> Screen.Home
         }
         if (s === fromSearch) { search.open = true; fromSearch = null }
@@ -297,7 +297,7 @@ fun App(repo: Repo) {
                     Screen.Categories -> CategoriesScreen(repo, go)
                     Screen.Remote -> RemoteScreen { back() }
                     Screen.Account -> AccountScreen(repo) { screen = Screen.Home; tick++ }
-                    Screen.Profile -> ProfileScreen(repo, go)
+                    Screen.Profile -> SettingsScreen(repo, go)   // the old Preferences screen is merged into Settings
                     is Screen.Languages -> LanguagesScreen(repo, s.tab) { back() }
                     is Screen.Detail -> DetailScreen(repo, s.item, play, { back() }, tick, s.focusEp, go)
                     is Screen.Grid -> GridScreen(repo, s.cat, open, play)
