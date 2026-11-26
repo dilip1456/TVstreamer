@@ -105,22 +105,22 @@ fun AccountScreen(repo: Repo, onReady: () -> Unit) {
 
         if (Cloud.signedIn) {
             Column(Modifier.fillMaxWidth().background(Pal.Field, RoundedCornerShape(Radii.field)).padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Label("Signed in as ${Cloud.email.ifEmpty { "(email not shared)" }}", Ts.TITLE, Pal.Text, maxLines = 3)
+                Label("Signed in as ${Cloud.email.ifEmpty { "email not shared" }}", Ts.TITLE, Pal.Text, maxLines = 3)
                 Label("Status: " + (if (Cloud.busy) "Syncing..." else Cloud.status.ifEmpty { "Signed in" }), body, ADIM, maxLines = 4)
                 Label("Last synced: " + if (Cloud.lastSync > 0) DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(Cloud.lastSync)) else "never", body, ADIM, maxLines = 2)
                 Label("Stored in: " + if (Cloud.space == DriveSpace.APPDATA) "hidden app folder in your Google Drive" else "the file ${Google.FILE_NAME} in your Google Drive", Ts.SECONDARY, ADIM, maxLines = 3)
             }
             if (Cloud.error.isNotEmpty()) ErrorBox(Cloud.error, Cloud.errorHint, Cloud.errorLink, body) { u -> link(u) }
-            Buttons(listOf("Sync now" to { Cloud.syncNow(); note = ""; noteErr = null },
-                "Sign out" to { Cloud.signOut(); note = "Signed out. Data on this device is kept." }), Modifier.focusRequester(firstFr))
-            Row1((if (secrets) "☑" else "☐") + "  Also sync portal login and API keys", {
+            Buttons(listOf("Sync Now" to { Cloud.syncNow(); note = ""; noteErr = null },
+                "Sign Out" to { Cloud.signOut(); note = "Signed out. Data on this device is kept." }), Modifier.focusRequester(firstFr))
+            Row1((if (secrets) "☑" else "☐") + "  Sync Portal Login and API Keys", {
                 secrets = !secrets; Cloud.changeSyncSecrets(secrets)
                 note = if (secrets) "Portal login and API keys will sync." else "Portal login and API keys will be removed from the cloud copy."
             })
             Label("Portal URL, MAC, serial, locked-section password and TMDB/OMDb keys are kept in your own Google Drive " +
-                "(private to your account), so a new device is ready right after sign-in. " +
-                "A Google client of your own (Advanced) is never synced.", Ts.SECONDARY, ADIM, maxLines = 20)
-            if (!confirmDelete) PillButton("Delete cloud data…", { confirmDelete = true })
+                "private to your account, so a new device is ready right after sign-in. " +
+                "A Google client of your own is never synced.", Ts.SECONDARY, ADIM, maxLines = 20)
+            if (!confirmDelete) PillButton("Delete Cloud Data", { confirmDelete = true })
             else Column(Modifier.fillMaxWidth().background(Pal.WarnBox, RoundedCornerShape(Radii.field)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Label("Delete the synced copy from your Google Drive and sign this device out? Data on this device stays. " +
                     "Sign your other devices out first, or they will upload their copy again.", body, AWARN, maxLines = 20)
@@ -131,9 +131,9 @@ fun AccountScreen(repo: Repo, onReady: () -> Unit) {
             val c = code
             if (c != null) {
                 SignInCode(c, tv) { link(c.url) }
-                PillButton("Cancel sign-in", { signing = false })
+                PillButton("Cancel Sign-In", { signing = false })
             } else {
-                PillButton(if (signing) "Starting..." else "Sign in with Google", { if (!signing) signing = true }, Modifier.focusRequester(firstFr), primary = true)
+                PillButton(if (signing) "Starting…" else "Sign In with Google", { if (!signing) signing = true }, Modifier.focusRequester(firstFr), primary = true)
                 if (Cloud.error.isNotEmpty() && noteErr == null) ErrorBox(Cloud.error, Cloud.errorHint, Cloud.errorLink, body) { u -> link(u) }
             }
         }
@@ -141,7 +141,7 @@ fun AccountScreen(repo: Repo, onReady: () -> Unit) {
         Spacer(Modifier.height(6.dp))
         if (!Cloud.signedIn && GoogleClient.builtIn.usable) Label("Tip: on the Google page, choose your account, press Continue, and tick the " +
             "Google Drive box (\"…its own configuration data…\") before pressing Continue again.", Ts.SECONDARY, ADIM, maxLines = 6)
-        if (!advanced) PillButton("Advanced: use my own Google client…", { advanced = true })
+        if (!advanced) PillButton("Use My Own Google Client", { advanced = true })
         else {
             Label("Advanced: your own Google client", Ts.TITLE, maxLines = 2)
             Label(when {
@@ -151,9 +151,9 @@ fun AccountScreen(repo: Repo, onReady: () -> Unit) {
                 else -> "This copy of the app was built without a Google client. Enter an \"OAuth client\" (type \"TVs and Limited " +
                     "Input devices\") from your own Google Cloud project, or install the official release. Steps are in the README."
             }, Ts.SECONDARY, ADIM, maxLines = 20)
-            FieldWithLink({ SettingField("Google OAuth Client ID (…apps.googleusercontent.com)", cid, multiLine = true) { cid = it } },
+            FieldWithLink({ SettingField("Google OAuth Client ID", cid, multiLine = true) { cid = it } },
                 "Open Google Cloud ↗") { link(Google.CONSOLE_URL) }
-            SettingField("Google OAuth Client secret", secret, password = true) { secret = it }
+            SettingField("Google OAuth Client Secret", secret, password = true) { secret = it }
             Buttons(listOf("Save client" to { keyboard?.hide(); Cloud.clientId = cid; Cloud.clientSecret = secret
                     note = if (cid.isBlank()) "Saved: using the built-in client." else "Saved. Sign out and in again to switch clients." },
                 (if (Cloud.clientId.isNotEmpty() && GoogleClient.builtIn.usable) "Use built-in client" else "Hide") to {
