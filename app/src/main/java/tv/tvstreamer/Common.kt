@@ -5,7 +5,12 @@ package tv.tvstreamer
 import android.content.Context
 import android.content.pm.PackageManager
 import android.content.res.Configuration
+import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -44,7 +49,6 @@ import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.ContentScale
 import coil.ImageLoader
@@ -198,8 +202,8 @@ fun Modifier.focusCard(
     shape: Shape = RoundedCornerShape(14.dp)
 ): Modifier = composed {
     var f by remember { mutableStateOf(false) }
-    val s by animateFloatAsState(if (f) scale else 1f, Motion.spec(), label = "focusScale")
-    val ring by animateFloatAsState(if (f) 1f else 0f, Motion.spec(), label = "focusRing")
+    val s by animateFloatAsState(if (f) scale else 1f, Motion.focusSpec(), label = "focusScale")
+    val ring by animateFloatAsState(if (f) 1f else 0f, Motion.focusSpec(), label = "focusRing")
     this
         .popupOpener()
         .onFocusChanged { if (it.isFocused != f) { f = it.isFocused; if (f) onFocused?.invoke() } }
@@ -253,10 +257,13 @@ fun CinematicWash(modifier: Modifier = Modifier) {
     )
 }
 
-/** One motion language for focus and transitions: ~180 ms ease (cheap on Fire TV: no blur, no shadows). */
+/** One motion language for focus and transitions. Scroll is a 280 ms ease; focus scale / glow uses a spring. */
 object Motion {
     const val MS = 180
-    fun <T> spec(): androidx.compose.animation.core.TweenSpec<T> = androidx.compose.animation.core.tween(MS, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+    const val SCROLL_MS = 280
+    fun <T> spec(): androidx.compose.animation.core.TweenSpec<T> = tween(MS, easing = FastOutSlowInEasing)
+    fun <T> scrollSpec(): AnimationSpec<T> = tween(SCROLL_MS, easing = FastOutSlowInEasing)
+    fun <T> focusSpec(): AnimationSpec<T> = spring(dampingRatio = 0.78f, stiffness = Spring.StiffnessMediumLow)
     fun colorSpec(): androidx.compose.animation.core.TweenSpec<Color> = spec()
 }
 

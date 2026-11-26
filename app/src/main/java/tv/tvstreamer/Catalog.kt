@@ -3,6 +3,15 @@
 package tv.tvstreamer
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -208,6 +217,7 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
     val recent = remember(tick) { repo.store.list("recent").filter { repo.listOk(it.locked) }.map(repo::named) }
     var menu by remember { mutableStateOf<Pair<Shelf, Item?>?>(null) }
     var listPick by remember { mutableStateOf<Item?>(null) }
+    var listPickBefore by remember { mutableStateOf<List<String>?>(null) }
     var sortMenu by remember { mutableStateOf(false) }
     var clearHist by remember { mutableStateOf(false) }
     var pageMenu by remember { mutableStateOf(false) }
@@ -254,13 +264,8 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
             }
             add(Shelf("cont", "Continue watching", c.map { it.first }, "vod", progress = prog))
         }
-        // My List / Favorite channels are spliced on in composition so a toggle does not rebuild every row.
-        // 1.97: titles added to a watchlist or marked watched leave the row too; once everything was reviewed the
-        // row stays with just the Refresh Suggestions tile
-        if (Gemini.enabled) {
-            val left = Ai.visibleFor(repo).filter { repo.listOk(it.locked) && wantItem(it) }
-            if (left.isNotEmpty() || Ai.hadAny) add(Shelf("ai", "Suggested for you", left, "vod"))
-        }
+        // Suggested for you is spliced on in composition (like My List) so a Like / Already Watched
+        // does not rebuild every Home row.
         if (mode == "home") {
             if (recent.isNotEmpty()) add(Shelf("recent", "Recent channels", recent, "itv"))
         }
@@ -273,11 +278,12 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
     }
 
 
-    // Gemini "Suggested for you": cached for 12 h; refreshed (debounced) when the key, history, votes or library changes. Quiet without a key.
+    // Gemini "Suggested for you": load the cache at once; auto-refresh only when the cache is older than 12 h
+    // or missing (not on each Like / Already Watched / library page). Quiet without a key.
     LaunchedEffect(Gemini.key) { Ai.loadCache(repo) }
-    LaunchedEffect(Gemini.key, tick, lib.version, Ai.feedback) {
+    LaunchedEffect(Gemini.key, lib.hasData) {
         if (!Gemini.enabled) return@LaunchedEffect
-        delay(4000)
+        delay(1500)
         Ai.refreshSuggested(repo)
     }
 
@@ -289,12 +295,20 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
     // Channel hide keys (ch:) must not rebuild movie/series rows; only group / VOD hides change the catalog.
     val catalogHideSig = remember(repo.hidden) { repo.hidden.filter { it.startsWith("vod:") || it.startsWith("grp:") }.toSet() }
     val coreShelves by produceState(shelfMemo[memoKey] ?: emptyList(), mode, cont, recent, langShelves, lib.version, catalogHideSig,
-        repo.vodCats, repo.vodOrder, Ai.suggested, Ai.feedback, Ai.hadAny, repo.favs, repo.userLists, Gemini.enabled, showAdult, homeLangs, langs, rowErrs, repo.liveMode, repo.folders) {
+        repo.vodCats, repo.vodOrder, repo.favs, repo.userLists, Gemini.enabled, showAdult, homeLangs, langs, rowErrs, repo.liveMode, repo.folders) {
         val built = withContext(Dispatchers.Default) { runCatching { buildShelves() }.getOrNull() }
         if (built != null) { value = built; shelfMemo[memoKey] = built }
         shelvesReady = true
     }
-    val shelves = remember(coreShelves, repo.favs, repo.userLists, repo.myListName, showAdult, mode) {
+    // Splice Suggested for you here so feedback only updates that row (stable key "ai"), not every shelf.
+    val aiShelf = remember(Ai.suggested, Ai.feedback, Ai.hadAny, repo.favs, repo.userLists, showAdult, mode, Gemini.enabled) {
+        if (!Gemini.enabled) null
+        else {
+            val left = Ai.visibleFor(repo).filter { repo.listOk(it.locked) && wantItem(it) }
+            if (left.isNotEmpty() || Ai.hadAny) Shelf("ai", "Suggested for you", left, "vod") else null
+        }
+    }
+    val shelves = remember(coreShelves, repo.favs, repo.userLists, repo.myListName, showAdult, mode, aiShelf) {
         val favVod = repo.favs.filter { repo.listOk(it.locked) && it.kind == "vod" && lib.wantItem(it, mode) }
         // 1.97: each watchlist the user made is its own row, right after My List
         val userRows = repo.userLists.mapNotNull { l ->
@@ -307,7 +321,7 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
             coreShelves.filter { it.key == "cont" }.forEach { add(it) }
             if (favVod.isNotEmpty()) add(Shelf("fav", repo.myListName, favVod, "vod"))
             addAll(userRows)
-            coreShelves.filter { it.key == "ai" }.forEach { add(it) }
+            aiShelf?.let { add(it) }
             if (favCh.isNotEmpty()) add(Shelf("favc", "Favorite channels", favCh, "itv"))
             coreShelves.filter { it.key == "recent" }.forEach { add(it) }
             addAll(coreShelves.filter { it.key !in skip && it.key !in headIds })
@@ -371,6 +385,26 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
 
     val hPad = if (isTv) 48.dp else 14.dp
     val state = remember(mode) { repo.listStates.getOrPut(screenKey) { LazyListState() } }
+    var topBarFocused by remember { mutableStateOf(false) }
+    var railFocused by remember { mutableStateOf(false) }
+    val topBarVisible by remember { derivedStateOf { TvChrome.topBarVisible(state.firstVisibleItemIndex, state.firstVisibleItemScrollOffset, topBarFocused, railFocused) } }
+    val railAvailable = TvChrome.railAvailable(isTv && railOn, topBarVisible)
+    val railPad by animateDpAsState(if (railAvailable) RAIL_W - 32.dp else 0.dp, tween(Motion.SCROLL_MS), label = "railPad")
+    val firstLoad = FirstLoad.of(
+        FirstLoad.Kind.HOME,
+        hasPortal = repo.store.portal.isNotBlank() && repo.store.mac.isNotBlank(),
+        hasChannels = repo.channels.isNotEmpty(),
+        hasCatalog = lib.hasData,
+        localReading = repo.localReading,
+        liveFetching = repo.liveFetching,
+        liveStatus = repo.status,
+        channelCount = repo.channels.size,
+        catalogLoading = lib.loading,
+        catalogDone = lib.done,
+        catalogTotal = lib.total,
+        catalogSize = lib.size,
+        catalogStopped = lib.stopped,
+    )
     // Back leaves the tab in one press (no wasted "focus the top menu first" step). Up still reaches the tabs.
     Box(Modifier.fillMaxSize().background(Pal.Bg).onKeyEvent { e ->
         // Options / Menu on the remote: page context menu (languages, sort). Cards that handle Menu keep their own.
@@ -380,32 +414,46 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
     }) {
         // Soft cinematic wash at the top (static gradient, no blur — cheap on Fire TV). Not a second copy of the hero art.
         CinematicWash()
-        if (railOn) SideRail(when (mode) { "movies" -> RailEntry.MOVIES; "series" -> RailEntry.SERIES; else -> RailEntry.HOME }, railFocus, { e ->
-            when (e) {
-                RailEntry.SEARCH -> go(Screen.Search)
-                RailEntry.HOME -> go(Screen.Home)
-                RailEntry.MOVIES -> go(Screen.MoviesTab)
-                RailEntry.SERIES -> go(Screen.SeriesTab)
-                RailEntry.LIVE -> go(Screen.Live)
-                RailEntry.EXIT -> exitApp(ctx)
-            }
-        }, Modifier.align(Alignment.CenterStart))
-        // The top menu is pinned (1.53): it stays on screen while the page scrolls beneath it
-        Column(Modifier.fillMaxSize().padding(start = if (railOn) RAIL_W - 32.dp else 0.dp)) {
-            Column(Modifier.fillMaxWidth().padding(start = hPad, end = hPad, top = if (isTv) Layout.TV_TOP else Layout.PHONE_TOP, bottom = if (isTv) Layout.S else 6.dp)) {
-                // Phone: compact Bluey mark only (no name) on the left, profile on the right; the tabs are the bottom bar
-                if (AppUi.phoneNav) Row(Modifier.fillMaxWidth().padding(bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        // Side rail only while the top bar is hidden (Netflix-style). At the top there is no rail at all.
+        AnimatedVisibility(
+            visible = railAvailable,
+            enter = slideInHorizontally(tween(Motion.SCROLL_MS)) { -it } + fadeIn(tween(Motion.SCROLL_MS)),
+            exit = slideOutHorizontally(tween(Motion.SCROLL_MS)) { -it } + fadeOut(tween(Motion.SCROLL_MS)),
+            modifier = Modifier.align(Alignment.CenterStart)
+        ) {
+            SideRail(when (mode) { "movies" -> RailEntry.MOVIES; "series" -> RailEntry.SERIES; else -> RailEntry.HOME }, railFocus, { e ->
+                when (e) {
+                    RailEntry.SEARCH -> go(Screen.Search)
+                    RailEntry.HOME -> go(Screen.Home)
+                    RailEntry.MOVIES -> go(Screen.MoviesTab)
+                    RailEntry.SERIES -> go(Screen.SeriesTab)
+                    RailEntry.LIVE -> go(Screen.Live)
+                    RailEntry.EXIT -> exitApp(ctx)
+                }
+            }, Modifier.onFocusChanged { railFocused = it.hasFocus })
+        }
+        Column(Modifier.fillMaxSize().padding(start = railPad)) {
+            if (AppUi.phoneNav) Column(Modifier.fillMaxWidth().padding(start = hPad, end = hPad, top = Layout.PHONE_TOP, bottom = 6.dp)) {
+                Row(Modifier.fillMaxWidth().padding(bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     BlueyMark(size = Layout.LOGO_PHONE)
                     Spacer(Modifier.weight(1f))
                     AvatarButton { AppUi.accountMenu = true }
                 }
-                // TV / tablet menu (shared with Live TV, 1.99): compact Bluey mark top-left, tabs centred, profile right.
-                // Left on the first tab opens the side menu; Down goes to the page. Settings and Exit live in the profile menu.
-                if (!AppUi.phoneNav) TopNavBar(mode, topTabs(go) { go(Screen.Search) }, if (railOn) railFocus else null, { AppUi.accountMenu = true }) { k ->
-                    when (k) {
-                        mode -> Modifier.focusRequester(navFr).onFocusChanged { if (it.isFocused) repo.lastFocus[screenKey] = "nav" }
-                        "search" -> Modifier.focusRequester(searchFr).onFocusChanged { if (it.isFocused) repo.lastFocus[screenKey] = "search" }
-                        else -> Modifier
+            }
+            AnimatedVisibility(
+                visible = !isTv || topBarVisible,
+                enter = slideInVertically(tween(Motion.SCROLL_MS)) { -it } + fadeIn(tween(Motion.SCROLL_MS)),
+                exit = slideOutVertically(tween(Motion.SCROLL_MS)) { -it } + fadeOut(tween(Motion.SCROLL_MS))
+            ) {
+                if (!AppUi.phoneNav) Column(Modifier.fillMaxWidth().padding(start = hPad, end = hPad, top = Layout.TV_TOP, bottom = Layout.S)
+                    .onFocusChanged { topBarFocused = it.hasFocus }) {
+                    // Left on the first tab opens the side menu only once the page has been scrolled (rail available).
+                    TopNavBar(mode, topTabs(go) { go(Screen.Search) }, if (railAvailable) railFocus else null, { AppUi.accountMenu = true }) { k ->
+                        when (k) {
+                            mode -> Modifier.focusRequester(navFr).onFocusChanged { if (it.isFocused) repo.lastFocus[screenKey] = "nav" }
+                            "search" -> Modifier.focusRequester(searchFr).onFocusChanged { if (it.isFocused) repo.lastFocus[screenKey] = "search" }
+                            else -> Modifier
+                        }
                     }
                 }
             }
@@ -449,7 +497,7 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                                 color = Pal.Dim, fontSize = Ts.SECONDARY.sp)
                         }
                     }
-                    if (repo.status.isNotEmpty()) { Spacer(Modifier.height(8.dp)); Text(repo.status, color = Pal.Warn, fontSize = Ts.ROW.sp, maxLines = 5) }
+                    if (repo.status.isNotEmpty() && !firstLoad.visible) { Spacer(Modifier.height(8.dp)); Text(repo.status, color = Pal.Warn, fontSize = Ts.ROW.sp, maxLines = 5) }
                     if (updateMsg.isNotEmpty()) { Spacer(Modifier.height(6.dp)); Text(updateMsg, color = Pal.Warn, fontSize = Ts.HEAD.sp, maxLines = 4) }
                 }
             }
@@ -460,30 +508,28 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                     onInfo = { open(hero) },
                     playModifier = Modifier.onFocusChanged { if (it.isFocused) { repo.lastFocus[screenKey] = "hero"; railFocus.content = null } },
                     heroModifier = Modifier.focusRequester(heroFr).onFocusChanged { if (it.isFocused) repo.lastFocus[screenKey] = "hero" }
-                        .focusProperties { up = navFr },
+                        .focusProperties { up = if (topBarVisible) navFr else FocusRequester.Default },
                     slide = heroIx, slides = slides.size, onTouch = { heroTouched = System.currentTimeMillis() },
                     onStep = { d -> heroTouched = System.currentTimeMillis(); heroIx = (heroIx + d).mod(slides.size.coerceAtLeast(1)) })
             }
-            // Cached titles must never be hidden behind a spinner; "Loading…" only when nothing is saved yet
-            if (shelves.isEmpty() && repo.status.isEmpty() && !(lib.hasData && !shelvesReady)) item(key = "empty") {
+            // Cached titles must never be hidden behind a spinner; the first-load panel only when nothing is saved yet
+            if (firstLoad.visible && shelves.isEmpty()) item(key = "empty") {
+                FirstLoadPanel(firstLoad, onStop = { lib.stop() }, Modifier.padding(hPad), onResume = { lib.resume() })
+            } else if (shelves.isEmpty() && repo.status.isEmpty() && !(lib.hasData && !shelvesReady)) item(key = "empty") {
                 val emptyMsg = when {
-                    repo.vodCats.isEmpty() && !lib.hasData -> "Loading your portal…"
-                    !shelvesReady && !lib.hasData -> "Loading…"
-                    tabbed && !langs.isNullOrEmpty() && lib.loading && !lib.hasData -> "Loading…"
                     tabbed && !langs.isNullOrEmpty() -> "Nothing found for these languages yet. Try Refresh or pick more languages."
                     else -> "Open Catalog Selector from Options or Settings to choose what to show."
                 }
-                // Cached titles must never be hidden behind a spinner; the Bluey loader only when nothing is saved yet.
-                if (emptyMsg.startsWith("Loading")) BrandLoading(emptyMsg, Modifier.padding(hPad))
-                else EmptyState("Nothing here yet", emptyMsg, Modifier.padding(horizontal = hPad))
+                EmptyState("Nothing here yet", emptyMsg, Modifier.padding(horizontal = hPad))
             }
             items(shelvesShown, key = { it.key }) { shelf ->
                 // Lazy: a category's items are requested only when its row is composed (scrolled into view)
                 if (shelf.cat != null && shelf.loading) LaunchedEffect(shelf.key) { repo.loadRow(shelf.cat) }
                 ShelfRow(repo, screenKey, shelf, isTv, hPad,
-                    onLeftEdge = if (railOn) ({ railFocus.enter() }) else null,
+                    onLeftEdge = if (railAvailable) ({ railFocus.enter() }) else null,
                     onCardFocus = { railFocus.content = it },
                     listViewport = { state.layoutInfo.viewportSize.height },
+                    listState = state,
                     onOpen = { it ->
                         when {
                             it.kind == "itv" -> play(shelf.items, shelf.items.indexOfFirst { x -> x.key == it.key }.coerceAtLeast(0))
@@ -512,12 +558,14 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                     }
                     if (item.kind == "vod" && !item.isEpisode() && shelf.key != "cont") add("Details" to { menu = null; open(item) })
                     if (shelf.key == "ai") {
-                        // Suggestions (1.97): Already Watched, Like, Dislike, Add to Watchlist, Add to Other List
-                        add(AiSuggest.WATCHED to { Ai.markWatched(repo, item); contVer++; menu = null; toast(ctx, "Marked as watched") })
+                        // Suggestions: Already Watched, Like, Dislike, Add to Watchlist. Each removes this one card
+                        // in place and moves focus; none of them asks Gemini or rebuilds Home.
+                        add(AiSuggest.WATCHED to { Ai.markWatched(repo, item, moveFocus = true); contVer++; menu = null; toast(ctx, "Marked as watched") })
                         AiFeedback.menuItems(Ai.voteOf(item)).forEach { (label, vote) ->
-                            add(label to { Ai.toggleVote(repo, item, vote); menu = null })
+                            add(label to { Ai.toggleVote(repo, item, vote, moveFocus = true); menu = null })
                         }
-                        addAll(watchlistOptions(repo, item, ctx, { menu = null }) { menu = null; listPick = item })
+                        val aiBefore = Ai.visibleFor(repo)
+                        addAll(watchlistOptions(repo, item, ctx, { Ai.noteRemoval(aiBefore, item); Ai.drop(repo, item); menu = null }) { menu = null; listPickBefore = aiBefore.map { it.key }; listPick = item })
                     } else {
                         if (item.kind == "itv") add((if (repo.isFav(item)) "Remove from My Channels" else "Add to My Channels") to { repo.toggleFav(item); menu = null })
                         else addAll(watchlistOptions(repo, item, ctx, { menu = null }) { menu = null; listPick = item })
@@ -568,7 +616,13 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
             } ?: shelf.title
             ChoiceDialog(title, opts, focusKey = shelf.key + (item?.key ?: "")) { menu = null }
         }
-        listPick?.let { li -> WatchlistPicker(repo, li.takeIf { it !== WATCHLIST_MANAGER }) { listPick = null } }
+        listPick?.let { li -> WatchlistPicker(repo, li.takeIf { it !== WATCHLIST_MANAGER }) {
+            val rec = listPickBefore
+            listPick = null; listPickBefore = null
+            if (li !== WATCHLIST_MANAGER && rec != null && repo.listedKeys().contains(li.key)) {
+                Ai.pendingFocus = AiSuggest.focusAfterRemoval(rec, li.key); Ai.drop(repo, li)
+            }
+        } }
         if (clearHist) {
             ChoiceDialog("Clear All Watch History?", listOf(
                 "Clear All History" to { repo.store.clearHistory(); heroMemo.clear(); clearHist = false; contVer++; toast(ctx, "Watch history cleared") },
@@ -673,7 +727,7 @@ fun MetaLine(item: Item, meta: Meta? = null) {
 @Composable
 private fun ShelfRow(repo: Repo, screen: String, shelf: Shelf, isTv: Boolean, hPad: Dp, onOpen: (Item) -> Unit, onMenu: (Item?) -> Unit, onSeeAll: (() -> Unit)?,
                      onLeftEdge: (() -> Unit)? = null, onCardFocus: (FocusRequester) -> Unit = {}, listViewport: () -> Int = { 0 },
-                     onRefresh: (() -> Unit)? = null) {
+                     listState: LazyListState? = null, onRefresh: (() -> Unit)? = null) {
     // Reaching the end of a row fetches a little more (that row's category, or the row's language)
     val onEnd: () -> Unit = {
         shelf.cat?.let { repo.lib.moreInCat(it.id) } ?: shelf.pool?.let { p -> repo.lib.more(p.tab, setOf(p.lang)) }
@@ -684,11 +738,25 @@ private fun ShelfRow(repo: Repo, screen: String, shelf: Shelf, isTv: Boolean, hP
     val shown = remember(shelf.items) { shelf.items.distinctBy { it.key }.take(ROW_LIMIT) }
     // Focused card in this row (-1: none) and how many cards there are, so the row's ends never hand focus to another row
     var focusIx by remember(shelf.key) { mutableIntStateOf(-1) }
-    val cardPivot = if (isTv) Modifier.pivotInList(vertical = false, pivot = hPad, viewport = { state.layoutInfo.viewportSize.width }) else Modifier
+    val frs = remember(shelf.key) { mutableMapOf<String, FocusRequester>() }
+    fun frOf(k: String) = frs.getOrPut(k) { FocusRequester() }
+    fun cardPivot(i: Int) = if (isTv) Modifier.pivotInList(vertical = false, state = state, index = { i }) else Modifier
     val hasSeeAll = onSeeAll != null && shelf.items.isNotEmpty()
     val cardCount = shown.size + (if (hasSeeAll) 1 else 0) + (if (onRefresh != null) 1 else 0)
-    // TV: the focused row glides to the same height and the focused card to the row's start (Netflix-style pivot)
-    val pivot = if (isTv) Modifier.pivotInList(vertical = true, pivot = 12.dp, viewport = listViewport) else Modifier
+    // TV: the focused card stays ~12 % in from the left; the focused row stays ~12 % down from the top
+    val pivot = if (isTv && listState != null) Modifier.pivotInList(vertical = true, state = listState, key = shelf.key) else Modifier
+    // After a suggestion is reviewed, move focus to the next (or previous) card, or the Refresh tile
+    LaunchedEffect(shown.map { it.key }, onRefresh != null, Ai.pendingFocus) {
+        if (shelf.key != "ai") return@LaunchedEffect
+        val target = Ai.pendingFocus ?: return@LaunchedEffect
+        Ai.pendingFocus = null
+        kotlinx.coroutines.delay(16)
+        when (target) {
+            is AiSuggest.FocusAfter.Item -> runCatching { frOf(target.key).requestFocus() }
+            AiSuggest.FocusAfter.Refresh -> runCatching { frOf("__refresh__").requestFocus() }
+            AiSuggest.FocusAfter.None -> {}
+        }
+    }
     Column(Modifier.then(pivot).padding(top = if (isTv) 22.dp else 12.dp)) {
         Row(Modifier.padding(horizontal = hPad), verticalAlignment = Alignment.CenterVertically) {
             // Touch: tapping the row title opens the whole category. TV: the "See all" tile at the row's end does
@@ -741,9 +809,10 @@ private fun ShelfRow(repo: Repo, screen: String, shelf: Shelf, isTv: Boolean, hP
             }
             itemsIndexed(shown, key = { _, it -> it.key }) { i, it ->
                 val k = "${shelf.key}|${it.key}"
-                val fr = remember { FocusRequester() }
+                val fr = frOf(it.key)
                 RestoreFocus(repo, screen, k, fr)
-                val track = cardPivot.focusRequester(fr).onFocusChanged { f -> if (f.hasFocus) { focusIx = i; onCardFocus(fr) } }
+                val track = cardPivot(i).then(if (isTv) Modifier.animateItemPlacement() else Modifier)
+                    .focusRequester(fr).onFocusChanged { f -> if (f.hasFocus) { focusIx = i; onCardFocus(fr) } }
                 if (shelf.kind == "itv") {
                     ChannelTile(it, tileW, repo.isFav(it), track, { onOpen(it) }, { onMenu(it) }) { repo.focusItem(screen, k); Keys.focused = it }
                 } else {
@@ -754,11 +823,12 @@ private fun ShelfRow(repo: Repo, screen: String, shelf: Shelf, isTv: Boolean, hP
             if (onSeeAll != null && shelf.items.isNotEmpty()) {
                 item(key = "seeall") {
                     LaunchedEffect(shelf.key) { onEnd() }
-                    val sfr = remember { FocusRequester() }
+                    val sfr = frOf("__seeall__")
                     Box(
-                        cardPivot.width(if (shelf.kind == "itv") tileW else posterW).aspectRatio(if (shelf.kind == "itv") 16f / 9f else 2f / 3f).focusRequester(sfr)
+                        cardPivot(shown.size).then(if (isTv) Modifier.animateItemPlacement() else Modifier)
+                            .width(if (shelf.kind == "itv") tileW else posterW).aspectRatio(if (shelf.kind == "itv") 16f / 9f else 2f / 3f).focusRequester(sfr)
                             .onFocusChanged { f -> if (f.hasFocus) { focusIx = shown.size; onCardFocus(sfr) } }
-                            .focusCard(onSeeAll).background(Pal.Card),
+                            .focusCard(onSeeAll, scale = if (isTv) FocusPivot.CARD_SCALE else 1.06f).background(Pal.Card),
                         contentAlignment = Alignment.Center
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -773,13 +843,14 @@ private fun ShelfRow(repo: Repo, screen: String, shelf: Shelf, isTv: Boolean, hP
                 // Suggested for you (1.97): Refresh Suggestions at the row's end; when every suggestion was reviewed
                 // (watched, added to a list or disliked) it is the only, wider tile with a short note
                 item(key = "refresh") {
-                    val rfr = remember { FocusRequester() }
+                    val rfr = frOf("__refresh__")
                     val all = shown.isEmpty()
                     val busy = Ai.refreshing
                     Box(
-                        cardPivot.width(if (all) posterW * 2 + 16.dp else posterW).aspectRatio(if (all) 4f / 3f else 2f / 3f).focusRequester(rfr)
-                            .onFocusChanged { f -> if (f.hasFocus) { focusIx = shown.size; onCardFocus(rfr) } }
-                            .focusCard({ if (!busy) onRefresh() }).background(if (all) Pal.Accent.copy(alpha = 0.22f) else Pal.Card),
+                        cardPivot(shown.size + (if (hasSeeAll) 1 else 0)).then(if (isTv) Modifier.animateItemPlacement() else Modifier)
+                            .width(if (all) posterW * 2 + 16.dp else posterW).aspectRatio(if (all) 4f / 3f else 2f / 3f).focusRequester(rfr)
+                            .onFocusChanged { f -> if (f.hasFocus) { focusIx = shown.size + (if (hasSeeAll) 1 else 0); onCardFocus(rfr) } }
+                            .focusCard({ if (!busy) onRefresh() }, scale = if (isTv) FocusPivot.CARD_SCALE else 1.06f).background(if (all) Pal.Accent.copy(alpha = 0.22f) else Pal.Card),
                         contentAlignment = Alignment.Center
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -813,7 +884,8 @@ fun PosterCard(raw: Item, width: Dp, progress: Float?, modifier: Modifier, onCli
     val tv = !AppUi.phoneNav
     var focused by remember { mutableStateOf(false) }
     Column(Modifier.width(width)) {
-        Box(modifier.fillMaxWidth().aspectRatio(2f / 3f).onFocusChanged { focused = it.hasFocus }.focusCard(onClick, onMenu, onFocused)) {
+        Box(modifier.fillMaxWidth().aspectRatio(2f / 3f).onFocusChanged { focused = it.hasFocus }
+            .focusCard(onClick, onMenu, onFocused, scale = if (tv) FocusPivot.CARD_SCALE else 1.06f)) {
             Poster(item.img, name, Modifier.fillMaxSize())
             val tag = when {
                 item.isSeries -> "SERIES"
@@ -860,7 +932,7 @@ fun PosterCard(raw: Item, width: Dp, progress: Float?, modifier: Modifier, onCli
 @Composable
 fun ChannelTile(item: Item, width: Dp, fav: Boolean, modifier: Modifier, onClick: () -> Unit, onMenu: () -> Unit, onFocused: () -> Unit = {}) {
     Column(Modifier.width(width)) {
-        Box(modifier.fillMaxWidth().aspectRatio(16f / 9f).focusCard(onClick, onMenu, onFocused).background(Pal.Card)) {
+        Box(modifier.fillMaxWidth().aspectRatio(16f / 9f).focusCard(onClick, onMenu, onFocused, scale = if (!AppUi.phoneNav) FocusPivot.CARD_SCALE else 1.06f).background(Pal.Card)) {
             Poster(item.img, item.name, Modifier.fillMaxSize().padding(if (item.img.isNotEmpty()) 10.dp else 0.dp), ContentScale.Fit)
             if (item.num > 0) Text("${item.num}", color = Color.White, fontSize = Ts.CAPTION.sp,
                 modifier = Modifier.align(Alignment.BottomStart).padding(5.dp).background(Color(0xAA000000), RoundedCornerShape(3.dp)).padding(horizontal = 4.dp))

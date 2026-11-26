@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Window background shown from the first frame (before Compose, and on Fire TV / API < 31
+     where the Android 12 SplashScreen API is not used). Navy fill + centred Bluey mark, so
+     the cold start is never a blank solid-colour screen. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/ic_launcher_background" />
+    <item
+        android:width="200dp"
+        android:height="200dp"
+        android:gravity="center">
+        <bitmap
+            android:antialias="true"
+            android:gravity="center"
+            android:src="@drawable/ic_bluey_hero" />
+    </item>
+</layer-list>

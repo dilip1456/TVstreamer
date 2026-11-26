@@ -94,6 +94,26 @@ class AiSuggestTest {
         assertEquals(listOf("vod:2", "vod:3", "vod:4"), k2)
     }
 
+    @Test fun remainingAlsoDropsLikedTitles() {
+        val a = item("1")
+        val liked = AiFeedback.toggle(AiFeedbackState(), a.key, "Title 1 (2001)", AiVote.LIKED)
+        assertEquals(emptyList<String>(), AiSuggest.remaining(listOf(a, item("2")), liked, emptySet(), emptySet()).filter { it.key == a.key }.map { it.key })
+        assertEquals(listOf("vod:2"), AiSuggest.remaining(listOf(a, item("2")), liked, emptySet(), emptySet()).map { it.key })
+    }
+
+    @Test fun focusMovesToTheNextItemOrThePreviousWhenLast() {
+        val keys = listOf("a", "b", "c", "d")
+        assertEquals(AiSuggest.FocusAfter.Item("c"), AiSuggest.focusAfterRemoval(keys, "b"))
+        assertEquals(AiSuggest.FocusAfter.Item("b"), AiSuggest.focusAfterRemoval(keys, "a"))
+        assertEquals(AiSuggest.FocusAfter.Item("b"), AiSuggest.focusAfterRemoval(listOf("a", "b", "c"), "c"))
+        assertEquals(AiSuggest.FocusAfter.Item("a"), AiSuggest.focusAfterRemoval(listOf("a", "b"), "b"))
+        assertEquals(AiSuggest.FocusAfter.None, AiSuggest.focusAfterRemoval(listOf("a", "b"), "missing"))
+    }
+
+    @Test fun lastReviewedItemFocusesTheRefreshTile() {
+        assertEquals(AiSuggest.FocusAfter.Refresh, AiSuggest.focusAfterRemoval(listOf("only"), "only"))
+    }
+
     @Test fun categoryRefreshWaitsTenMinutes() {
         assertEquals(0L, CatRefresh.wait(0L, 1000L))
         assertEquals(CatRefresh.GAP_MS - 1000L, CatRefresh.wait(5000L, 6000L))

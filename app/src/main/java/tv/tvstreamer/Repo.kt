@@ -357,9 +357,10 @@ class Repo(private val ctx: Context) {
     fun unhideAllTitles() { hidden = hidden.filterNot { it.startsWith("title:") }.toSet(); store.hidden = hidden; lib.version++ }
     /** Watched = played to the end (kept in the resume list at 100 %, so it leaves Continue watching). */
     fun isWatched(i: Item): Boolean { val (p, d) = store.resumeInfo(i); return d > 0 && p >= d * 0.95 }
-    fun setWatched(i: Item, on: Boolean) {
+    fun setWatched(i: Item, on: Boolean, bumpLibrary: Boolean = true) {
         if (on) { val d = store.resumeInfo(i).second.takeIf { it > 0 } ?: 1L; store.saveResume(i, d, d) } else store.removeResume(i.key)
-        lib.version++
+        // Suggestions use bumpLibrary = false so Already Watched does not rebuild every Home row.
+        if (bumpLibrary) lib.version++
     }
     fun hiddenChannelCount() = hidden.count { it.startsWith("ch:") }
     fun unhideAllChannels() { hidden = hidden.filterNot { it.startsWith("ch:") }.toSet(); store.hidden = hidden }

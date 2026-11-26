@@ -5,6 +5,11 @@ import android.content.Context
 import android.content.ContextWrapper
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -87,7 +92,7 @@ fun topTabs(go: (Screen) -> Unit, onSearch: () -> Unit): List<TopTab> = listOf(
 /**
  * TV / tablet top menu (Netflix style), shared by Home, Movies, TV Shows and Live TV: compact logo top-left, tabs
  * centred, profile on the right. Left / Right stay inside the bar; Left on the first tab opens the side menu [rail]
- * (Right there comes back to that tab); Down goes to the page. [tabModifier] adds per-tab focus bookkeeping.
+ * only when the rail is available (the page has been scrolled and the top bar is hidden). Down goes to the page.
  */
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
@@ -249,36 +254,85 @@ private fun RailItem(e: RailEntry, open: Boolean, selected: Boolean, modifier: M
 }
 
 /**
- * Netflix-style focus pivot (1.92). D-pad focus moves normally scroll the list only as far as needed, so the focused
- * row ends up at the top on one press and at the bottom on the next. These responders hand the list a viewport-sized
- * rect that starts [pivot] before this row / card, so the list always glides the focused one to the same place.
- * Near the list's ends it simply stops scrolling (the list cannot go past its start or end).
- * [viewport] is the scrolling list's visible length in px along its axis (0 = not laid out yet: default behaviour).
+ * Apple TV / Netflix-style focus pivot (1.99.3). The focused card stays at a fixed offset from the
+ * leading edge (about 12 %, clamped to 10–15 %), and the row slides smoothly under it.
+ * Near the list's ends scrolling simply stops (the list cannot go past its start or end).
  */
 object FocusPivot {
+    const val RATIO = 0.12f
+    const val MIN_RATIO = 0.10f
+    const val MAX_RATIO = 0.15f
+    const val SCROLL_MS = Motion.SCROLL_MS
+    /** Focused poster / channel-tile scale on TV rows. */
+    const val CARD_SCALE = 1.08f
+
+    fun pivotPx(viewport: Float, ratio: Float = RATIO): Float {
+        if (viewport <= 0f) return 0f
+        return viewport * ratio.coerceIn(MIN_RATIO, MAX_RATIO)
+    }
+
     /** Rect (along one axis) the parent list should bring into view: [start] - [pivot] … that + [viewport]. */
     fun span(start: Float, pivot: Float, viewport: Float): Pair<Float, Float> = (start - pivot) to (start - pivot + viewport)
+
+    /** Pixels the list should scroll so the item whose viewport offset is [itemOffset] lands at [pivot]. */
+    fun scrollBy(itemOffset: Float, pivot: Float): Float = itemOffset - pivot
+
+    fun offsetOf(state: LazyListState, index: Int): Float? =
+        state.layoutInfo.visibleItemsInfo.firstOrNull { it.index == index }?.offset?.toFloat()
+
+    fun offsetOfKey(state: LazyListState, key: Any): Float? =
+        state.layoutInfo.visibleItemsInfo.firstOrNull { it.key == key }?.offset?.toFloat()
 }
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-fun Modifier.pivotInList(vertical: Boolean, pivot: Dp, viewport: () -> Int): Modifier = composed {
-    val density = androidx.compose.ui.platform.LocalDensity.current
-    val pivotPx = with(density) { pivot.toPx() }
-    val responder = remember(vertical, pivotPx) {
+fun Modifier.pivotInList(
+    vertical: Boolean,
+    state: LazyListState,
+    index: () -> Int = { -1 },
+    key: Any? = null,
+    ratio: Float = FocusPivot.RATIO,
+): Modifier = composed {
+    val scope = rememberCoroutineScope()
+    val job = remember(state) { arrayOfNulls<Job>(1) }
+    fun viewport(): Int {
+        val s = state.layoutInfo.viewportSize
+        return if (vertical) s.height else s.width
+    }
+    fun itemOffset(): Float? = if (key != null) FocusPivot.offsetOfKey(state, key) else FocusPivot.offsetOf(state, index())
+    fun runScroll() {
+        val vp = viewport()
+        val src = itemOffset() ?: return
+        val d = FocusPivot.scrollBy(src, FocusPivot.pivotPx(vp.toFloat(), ratio))
+        if (kotlin.math.abs(d) < 1f) return
+        job[0]?.cancel()
+        job[0] = scope.launch {
+            runCatching { state.animateScrollBy(d, Motion.scrollSpec()) }
+        }
+    }
+    val responder = remember(vertical, state, ratio, key) {
         object : androidx.compose.foundation.relocation.BringIntoViewResponder {
             override fun calculateRectForParent(localRect: androidx.compose.ui.geometry.Rect): androidx.compose.ui.geometry.Rect {
                 val vp = viewport().toFloat()
                 if (vp <= 0f) return localRect
-                return if (vertical) {
-                    val (a, b) = FocusPivot.span(0f, pivotPx, vp)
-                    androidx.compose.ui.geometry.Rect(localRect.left, a, localRect.right, b)
-                } else {
-                    val (a, b) = FocusPivot.span(0f, pivotPx, vp)
-                    androidx.compose.ui.geometry.Rect(a, localRect.top, b, localRect.bottom)
-                }
+                val pivot = FocusPivot.pivotPx(vp, ratio)
+                val (a, b) = FocusPivot.span(0f, pivot, vp)
+                return if (vertical) androidx.compose.ui.geometry.Rect(localRect.left, a, localRect.right, b)
+                else androidx.compose.ui.geometry.Rect(a, localRect.top, b, localRect.bottom)
             }
-            override suspend fun bringChildIntoView(localRect: () -> androidx.compose.ui.geometry.Rect?) {}
+            override suspend fun bringChildIntoView(localRect: () -> androidx.compose.ui.geometry.Rect?) {
+                val vp = viewport()
+                val src = itemOffset() ?: return
+                val d = FocusPivot.scrollBy(src, FocusPivot.pivotPx(vp.toFloat(), ratio))
+                if (kotlin.math.abs(d) < 1f) return
+                job[0]?.cancel()
+                // Same ScrollableState animation: a new focus (held key at 110 ms) cancels this and starts again,
+                // so steps never queue up. After we settle at the pivot the parent list has nothing left to jump.
+                try { state.animateScrollBy(d, Motion.scrollSpec()) }
+                catch (e: CancellationException) { throw e }
+            }
         }
     }
-    this.bringIntoViewResponder(responder)
+    this
+        .onFocusChanged { f -> if (f.hasFocus || f.isFocused) runScroll() }
+        .bringIntoViewResponder(responder)
 }

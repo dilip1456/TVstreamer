@@ -40,6 +40,8 @@ object Ai {
     /** The row had suggestions at some point (so an empty row means "all reviewed", not "nothing yet"). */
     var hadAny by mutableStateOf(false)
         private set
+    /** After a Like / Dislike / Already Watched / Add to Watchlist, the row moves focus here. Cleared once consumed. */
+    var pendingFocus by mutableStateOf<AiSuggest.FocusAfter?>(null)
     @Volatile private var busy = false
     @Volatile private var lastTry = 0L
     @Volatile private var lastTrySig = ""
@@ -70,24 +72,39 @@ object Ai {
     private fun favorites(repo: Repo): List<String> = repo.watchLists.flatMap { it.items }.filter { it.kind == "vod" }.map { titleOf(it) }.distinct()
 
     /**
-     * What the Home row shows: suggestions not disliked, not in a watchlist and not watched yet. When this is
-     * empty but [suggested] is not, everything was reviewed and the row offers Refresh Suggestions.
+     * What the Home row shows: suggestions not liked or disliked, not in a watchlist and not watched yet. When this is
+     * empty but suggestions were shown, the row offers Refresh Suggestions (it does not auto-refresh).
      */
     fun visibleFor(repo: Repo, items: List<Item> = suggested): List<Item> {
         val seen = runCatching { repo.store.history().map { it.key }.toSet() }.getOrDefault(emptySet())
         return AiSuggest.remaining(items, feedback, repo.listedKeys(), seen)
     }
 
-    /** Already Watched on a suggestion: marked watched (watch history, so Gemini counts it) and out of the row. */
-    fun markWatched(repo: Repo, item: Item) {
-        repo.setWatched(item, true)
+    /** Record where focus should go after [item] leaves the row that [visibleBefore] describes. */
+    fun noteRemoval(visibleBefore: List<Item>, item: Item) {
+        pendingFocus = AiSuggest.focusAfterRemoval(visibleBefore.map { it.key }, item.key)
+    }
+
+    /**
+     * Run [action] (Like, Already Watched, add to a list, …) and take [item] out of the row in place.
+     * Does not ask Gemini and does not invalidate the cached suggestions.
+     */
+    fun review(repo: Repo, item: Item, moveFocus: Boolean = false, action: () -> Unit) {
+        val before = visibleFor(repo)
+        action()
+        if (moveFocus) noteRemoval(before, item)
         drop(repo, item)
     }
 
-    /** Takes [item] out of the saved row (watched, added to a list). */
+    /** Already Watched on a suggestion: marked watched (watch history, so Gemini counts it) and out of the row. */
+    fun markWatched(repo: Repo, item: Item, moveFocus: Boolean = true) {
+        review(repo, item, moveFocus) { repo.setWatched(item, true, bumpLibrary = false) }
+    }
+
+    /** Takes [item] out of the saved row (watched, added to a list, liked or disliked). Keeps the cache fresh. */
     fun drop(repo: Repo, item: Item) {
         val kept = suggested.filter { it.key != item.key }
-        if (kept.size != suggested.size) { suggested = kept; persistSuggested(repo, sig(repo), stamped = false) }
+        if (kept.size != suggested.size) { suggested = kept; persistSuggested(repo, keepStamp = true) }
     }
 
     fun voteOf(item: Item): AiVote = AiFeedback.voteOf(feedback, item)
@@ -102,15 +119,11 @@ object Ai {
      * Toggle Like or Dislike on [item]. Disliked titles leave the suggestion row immediately
      * and stay out of later Gemini picks; both lists are sent as preference signals in the prompt.
      */
-    fun toggleVote(repo: Repo, item: Item, want: AiVote) {
+    fun toggleVote(repo: Repo, item: Item, want: AiVote, moveFocus: Boolean = false) {
         loadFeedback(repo)
-        feedback = AiFeedback.toggle(feedback, item.key, titleOf(item), want)
-        repo.store.cacheWrite(AiFeedback.FILE, AiFeedback.toJson(feedback))
-        val kept = AiFeedback.visible(suggested, feedback)
-        if (kept != suggested) {
-            suggested = kept
-            // Stale timestamp so the next refresh (triggered by the new feedback sig) asks Gemini again.
-            persistSuggested(repo, sig(repo), stamped = false)
+        review(repo, item, moveFocus) {
+            feedback = AiFeedback.toggle(feedback, item.key, titleOf(item), want)
+            repo.store.cacheWrite(AiFeedback.FILE, AiFeedback.toJson(feedback))
         }
     }
 
@@ -121,10 +134,18 @@ object Ai {
         return (w.take(20) + "|" + f.take(20) + "|" + liked.take(20) + "|" + disliked.take(20)).hashCode().toString()
     }
 
-    private fun persistSuggested(repo: Repo, signature: String, stamped: Boolean) {
+    /**
+     * Writes the current row to disk. [keepStamp] preserves the existing timestamp and signature so a Like /
+     * Already Watched cannot look like a stale cache and trigger a Gemini call. A real refresh passes [signature]
+     * and keepStamp = false to stamp a new time.
+     */
+    private fun persistSuggested(repo: Repo, signature: String? = null, keepStamp: Boolean = false) {
+        val prev = repo.store.cacheRead(CACHE)?.let { runCatching { JSONObject(it) }.getOrNull() }
+        val t = if (keepStamp) (prev?.optLong("t") ?: 0L) else System.currentTimeMillis()
+        val sig = if (keepStamp) (prev?.optString("sig") ?: "") else (signature ?: sig(repo))
         repo.store.cacheWrite(CACHE, JSONObject()
-            .put("t", if (stamped) System.currentTimeMillis() else 0L)
-            .put("sig", signature)
+            .put("t", t)
+            .put("sig", sig)
             .put("items", JSONArray().also { a -> suggested.forEach { a.put(it.toJson()) } })
             .put("shown", JSONArray(shownKeys))
             .put("shownTitles", JSONArray(shownTitles))
@@ -147,7 +168,11 @@ object Ai {
         if (suggested.isNotEmpty()) hadAny = true
     }
 
-    /** Asks Gemini for new suggestions when the cache is old or the history / favourites / votes changed. Never throws. */
+    /**
+     * Asks Gemini for new suggestions. Automatic calls only run when the cache is older than [TTL_MS] or missing;
+     * a Like, Dislike, Already Watched or Add to Watchlist never triggers this. Pass [force] from Refresh Suggestions.
+     * Never throws.
+     */
     suspend fun refreshSuggested(repo: Repo, force: Boolean = false) {
         if (!Gemini.enabled) { suggested = emptyList(); return }
         loadCache(repo)
@@ -155,12 +180,13 @@ object Ai {
         val w = watched(repo); val f = favorites(repo)
         val liked = AiFeedback.likedTitles(feedback)
         val disliked = AiFeedback.dislikedTitles(feedback)
-        if (w.isEmpty() && f.isEmpty() && liked.isEmpty()) return
+        if (w.isEmpty() && f.isEmpty() && liked.isEmpty() && !force) return
         val signature = sig(repo)
         val cache = repo.store.cacheRead(CACHE)?.let { runCatching { JSONObject(it) }.getOrNull() }
-        val fresh = cache != null && cache.optString("sig") == signature && System.currentTimeMillis() - cache.optLong("t") < TTL_MS
+        val age = if (cache != null) System.currentTimeMillis() - cache.optLong("t") else Long.MAX_VALUE
+        val fresh = cache != null && cache.optLong("t") > 0L && age < TTL_MS && suggested.isNotEmpty()
         if (fresh && !force) return
-        if (!force && signature == lastTrySig && System.currentTimeMillis() - lastTry < RETRY_MS) return
+        if (!force && lastTrySig.isNotEmpty() && System.currentTimeMillis() - lastTry < RETRY_MS) return
         busy = true; refreshing = true
         try {
             val lib = withContext(Dispatchers.Default) { library(repo) }
@@ -176,7 +202,7 @@ object Ai {
                 suggested = items
                 val (k, t) = AiSuggest.remember(shownKeys, shownTitles, old + items, ::titleOf, MAX_SHOWN)
                 shownKeys = k; shownTitles = t; hadAny = true
-                persistSuggested(repo, signature, stamped = true)
+                persistSuggested(repo, signature, keepStamp = false)
                 lastError = ""
             } else lastError = if (force) "No new suggestions right now. Try again later." else ""
             lastTry = System.currentTimeMillis(); lastTrySig = signature

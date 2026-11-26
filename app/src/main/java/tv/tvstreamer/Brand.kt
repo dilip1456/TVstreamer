@@ -7,12 +7,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -177,5 +179,32 @@ fun EmptyState(title: String, message: String = "", modifier: Modifier = Modifie
         Text(title, color = if (warn) Pal.Warn else Pal.Text, fontSize = Ts.TITLE.sp, maxLines = 2)
         if (message.isNotEmpty()) Text(message, color = Pal.Dim, fontSize = Ts.ROW.sp, maxLines = 4, modifier = Modifier.widthIn(max = 640.dp))
         if (action != null && onAction != null) Box(Modifier.padding(top = Layout.XS)) { PillButton(action, onAction, primary = true, size = Ts.HEAD) }
+    }
+}
+
+/**
+ * First-launch / empty-cache state (1.99.3): Bluey mark with a pulsing glow, a short explanation,
+ * a real progress bar (determinate when a total is known) and the existing Stop button.
+ */
+@Composable
+fun FirstLoadPanel(state: FirstLoad.State, onStop: () -> Unit, modifier: Modifier = Modifier, onResume: (() -> Unit)? = null) {
+    if (!state.visible) return
+    Column(modifier.padding(vertical = Layout.L), verticalArrangement = Arrangement.spacedBy(Layout.S)) {
+        BrandLoading(state.title, Modifier)
+        if (state.message.isNotEmpty()) Text(state.message, color = Pal.Dim, fontSize = Ts.ROW.sp, maxLines = 3, modifier = Modifier.widthIn(max = 640.dp))
+        val frac = state.fraction
+        if (frac != null) LinearProgressIndicator(
+            progress = { frac },
+            modifier = Modifier.fillMaxWidth(0.55f).height(4.dp),
+            color = Pal.Primary,
+            trackColor = Pal.Dim.copy(alpha = 0.3f)
+        ) else LinearProgressIndicator(
+            modifier = Modifier.fillMaxWidth(0.55f).height(4.dp),
+            color = Pal.Primary,
+            trackColor = Pal.Dim.copy(alpha = 0.3f)
+        )
+        if (state.detail.isNotEmpty()) Text(state.detail, color = Pal.Text2, fontSize = Ts.SECONDARY.sp, maxLines = 2)
+        if (state.canStop) Box(Modifier.padding(top = Layout.XS)) { PillButton("Stop", onStop, primary = true, size = Ts.HEAD) }
+        else if (state.stopped && onResume != null) Box(Modifier.padding(top = Layout.XS)) { PillButton("Resume", onResume, primary = true, size = Ts.HEAD) }
     }
 }

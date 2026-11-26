@@ -3,6 +3,13 @@
 package tv.tvstreamer
 
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -108,6 +115,26 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
     val state = remember {
         repo.listStates.getOrPut("live152") { repo.liveView.let { androidx.compose.foundation.lazy.LazyListState(it.index, it.offset) } }
     }
+    var topBarFocused by remember { mutableStateOf(false) }
+    var railFocused by remember { mutableStateOf(false) }
+    val topBarVisible by remember { derivedStateOf { TvChrome.topBarVisible(state.firstVisibleItemIndex, state.firstVisibleItemScrollOffset, topBarFocused, railFocused) } }
+    val railAvailable = TvChrome.railAvailable(tv && rail, topBarVisible)
+    val railPad by animateDpAsState(if (railAvailable) RAIL_W - 32.dp else 0.dp, tween(Motion.SCROLL_MS), label = "liveRailPad")
+    val firstLoad = FirstLoad.of(
+        FirstLoad.Kind.LIVE,
+        hasPortal = repo.store.portal.isNotBlank() && repo.store.mac.isNotBlank(),
+        hasChannels = repo.channels.isNotEmpty(),
+        hasCatalog = repo.lib.hasData,
+        localReading = repo.localReading,
+        liveFetching = repo.liveFetching,
+        liveStatus = repo.status,
+        channelCount = repo.channels.size,
+        catalogLoading = repo.lib.loading,
+        catalogDone = repo.lib.done,
+        catalogTotal = repo.lib.total,
+        catalogSize = repo.lib.size,
+        catalogStopped = repo.lib.stopped,
+    )
     var focusKey by remember { mutableStateOf(repo.liveView.focus) }
     fun saveView() = repo.saveLiveView(LiveView(view, state.firstVisibleItemIndex, state.firstVisibleItemScrollOffset, focusKey))
     LaunchedEffect(view) { saveView() }
@@ -121,7 +148,7 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
     val railFocus = remember { RailFocus() }
     val actionFr = remember { FocusRequester() }
     SideEffect { railFocus.fallback = actionFr }
-    val toRail = if (rail) Modifier.focusProperties { left = railFocus.reqs.getValue(RailEntry.LIVE) } else Modifier
+    val toRail = if (railAvailable) Modifier.focusProperties { left = railFocus.reqs.getValue(RailEntry.LIVE) } else Modifier
     val playingFr = remember { FocusRequester() }
     val restoreFr = remember { FocusRequester() }   // the last focused channel when nothing played yet
     val firstFr = remember { FocusRequester() }
@@ -304,6 +331,7 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
                     // 1.73: the download failed or timed out and nothing is saved: try again on request
                     if (LiveStatus.failed(repo.status)) EmptyState("Channels could not be loaded", msg, warn = true, action = "Retry",
                         onAction = { repo.status = "Downloading channel list…"; repo.refreshAll() })
+                    else if (firstLoad.visible) FirstLoadPanel(firstLoad, onStop = { repo.lib.stop() }, Modifier.padding(top = Layout.L), onResume = { repo.lib.resume() })
                     else BrandLoading(msg, Modifier.padding(top = Layout.L))
                 }
                 !ready -> Box(Modifier.weight(1f)) { BrandLoading("Arranging channels…", Modifier.padding(top = Layout.L)) }   // laid out on Live TV's own thread (a moment)
@@ -350,6 +378,7 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
                                     val first = ch.key == firstVisibleKey
                                     ChannelRow(repo, ch, r.on, browseAll, ch.key == repo.nowPlaying, tv, sel?.let { ch.key in it },
                                         Modifier
+                                            .then(if (tv) Modifier.pivotInList(vertical = true, state = state, key = "${s.key}|${ch.key}") else Modifier)
                                             .then(if (ch.key == repo.nowPlaying) Modifier.focusRequester(playingFr)
                                                 else if (ch.key == focusKey) Modifier.focusRequester(restoreFr) else Modifier)
                                             .onFocusChanged { if (it.isFocused) { focusKey = ch.key; focusSec = s.key; onHeader = false; railFocus.content = if (ch.key == repo.nowPlaying) playingFr else restoreFr } }
@@ -398,19 +427,33 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
         else false
     }) {
         // No top wash here: the list's pinned headers sit on the plain page colour
-        SideRail(RailEntry.LIVE, railFocus, { e ->
-            when (e) {
-                RailEntry.SEARCH -> onSearch()
-                RailEntry.HOME -> go(Screen.Home)
-                RailEntry.MOVIES -> go(Screen.MoviesTab)
-                RailEntry.SERIES -> go(Screen.SeriesTab)
-                RailEntry.LIVE -> runCatching { railFocus.leave() }
-                RailEntry.EXIT -> exitApp(ctx)
+        AnimatedVisibility(
+            visible = railAvailable,
+            enter = slideInHorizontally(tween(Motion.SCROLL_MS)) { -it } + fadeIn(tween(Motion.SCROLL_MS)),
+            exit = slideOutHorizontally(tween(Motion.SCROLL_MS)) { -it } + fadeOut(tween(Motion.SCROLL_MS)),
+            modifier = Modifier.align(Alignment.CenterStart)
+        ) {
+            SideRail(RailEntry.LIVE, railFocus, { e ->
+                when (e) {
+                    RailEntry.SEARCH -> onSearch()
+                    RailEntry.HOME -> go(Screen.Home)
+                    RailEntry.MOVIES -> go(Screen.MoviesTab)
+                    RailEntry.SERIES -> go(Screen.SeriesTab)
+                    RailEntry.LIVE -> runCatching { railFocus.leave() }
+                    RailEntry.EXIT -> exitApp(ctx)
+                }
+            }, Modifier.onFocusChanged { railFocused = it.hasFocus })
+        }
+        Column(Modifier.fillMaxSize().padding(start = railPad)) {
+            AnimatedVisibility(
+                visible = topBarVisible,
+                enter = slideInVertically(tween(Motion.SCROLL_MS)) { -it } + fadeIn(tween(Motion.SCROLL_MS)),
+                exit = slideOutVertically(tween(Motion.SCROLL_MS)) { -it } + fadeOut(tween(Motion.SCROLL_MS))
+            ) {
+                TopNavBar("live", topTabs(go, onSearch), if (railAvailable) railFocus else null, { AppUi.accountMenu = true },
+                    Modifier.padding(start = Layout.TV_SIDE, end = Layout.TV_SIDE, top = Layout.TV_TOP, bottom = Layout.S)
+                        .onFocusChanged { topBarFocused = it.hasFocus })
             }
-        }, Modifier.align(Alignment.CenterStart))
-        Column(Modifier.fillMaxSize().padding(start = RAIL_W - 32.dp)) {
-            TopNavBar("live", topTabs(go, onSearch), railFocus, { AppUi.accountMenu = true },
-                Modifier.padding(start = Layout.TV_SIDE, end = Layout.TV_SIDE, top = Layout.TV_TOP, bottom = Layout.S))
             Column(Modifier.weight(1f).fillMaxWidth().padding(start = Layout.TV_SIDE, end = Layout.TV_SIDE)) {
                 // Page header: title, one quiet summary line, and the page actions as pills (like a catalog page)
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Layout.S),
@@ -762,7 +805,7 @@ fun LiveTile(ch: Item, fav: Boolean, playing: Boolean, checked: Boolean, tv: Boo
     val shape = RoundedCornerShape(Radii.row)
     val name = ChannelTitle.pretty(ch.name)
     Column {
-        Box(Modifier.fillMaxWidth().aspectRatio(16f / 10f).focusCard(onClick, onMenu, { Keys.focused = ch }, scale = 1.06f, shape = shape)
+        Box(Modifier.fillMaxWidth().aspectRatio(16f / 10f).focusCard(onClick, onMenu, { Keys.focused = ch }, scale = if (tv) FocusPivot.CARD_SCALE else 1.06f, shape = shape)
             .background(Pal.Card, shape)
             .then(if (playing) Modifier.border(2.dp, Pal.Primary, shape) else Modifier)) {
             if (ch.img.isNotEmpty()) Poster(ch.img, name, Modifier.fillMaxSize().padding(if (tv) 14.dp else 10.dp), ContentScale.Fit, initialsSize = if (tv) 26 else 20)

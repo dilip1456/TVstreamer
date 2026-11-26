@@ -32,4 +32,17 @@ class FocusPivotTest {
         assertEquals(870f, b, 0.001f)
         assertEquals(900f, b - a, 0.001f)
     }
+
+    @Test fun pivotPxIsTwelvePercentClampedToTenFifteen() {
+        assertEquals(0f, FocusPivot.pivotPx(0f), 0.001f)
+        assertEquals(192f, FocusPivot.pivotPx(1600f), 0.001f)
+        assertEquals(160f, FocusPivot.pivotPx(1600f, 0.05f), 0.001f) // clamped to 10 %
+        assertEquals(240f, FocusPivot.pivotPx(1600f, 0.30f), 0.001f) // clamped to 15 %
+    }
+
+    @Test fun scrollByMovesTheItemToThePivot() {
+        assertEquals(0f, FocusPivot.scrollBy(192f, 192f), 0.001f)
+        assertEquals(608f, FocusPivot.scrollBy(800f, 192f), 0.001f)
+        assertEquals(-80f, FocusPivot.scrollBy(80f, 160f), 0.001f)
+    }
 }

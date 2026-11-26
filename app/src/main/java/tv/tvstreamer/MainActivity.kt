@@ -301,11 +301,13 @@ fun App(repo: Repo) {
     val barSpace = if (showBar) 84.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() else 0.dp
     val bannerKind = if (cur is Screen.Play) UpdateLogic.Banner.HIDDEN
         else UpdateLogic.banner(Updater.progress, Updater.busy, Updater.pending != null, Updater.status)
-    // Cold-start brand overlay only. The screens (including Live TV) compose underneath and
-    // are not held up; the splash fades as soon as the short mark intro has played.
+    // Cold-start brand overlay. The window background already shows the mark; this overlay keeps
+    // the pulsing glow up until cached content is ready (or the cap), so there is never a blank blue screen.
     var splash by remember { mutableStateOf(true) }
     var splashReady by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { splashReady = true }
+    val cached = repo.channels.isNotEmpty() || repo.lib.hasData
+    val localDone = !repo.localReading
+    LaunchedEffect(cached, localDone) { if (cached || localDone) splashReady = true }
     Surface(Modifier.fillMaxSize().background(Pal.Bg), color = Pal.Bg) {
         Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {

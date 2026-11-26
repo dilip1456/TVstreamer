@@ -1,12 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.Tvstreamer" parent="@android:style/Theme.Material.NoActionBar">
-        <item name="android:windowBackground">@color/ic_launcher_background</item>
+        <item name="android:windowBackground">@drawable/splash_window</item>
         <item name="android:statusBarColor">@color/ic_launcher_background</item>
         <item name="android:navigationBarColor">@color/ic_launcher_background</item>
         <item name="android:windowFullscreen">false</item>
         <item name="android:windowSplashScreenBackground">@color/ic_launcher_background</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+        <!-- Dedicated splash mark (240dp canvas, logo in the 160dp safe circle), not the
+             padded adaptive-icon foreground which looked like an empty blue screen. -->
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_splash_icon</item>
         <item name="android:windowSplashScreenIconBackgroundColor">@color/ic_launcher_background</item>
     </style>
 </resources>
