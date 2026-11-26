@@ -15,6 +15,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
+import androidx.compose.foundation.relocation.bringIntoViewResponder
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -174,4 +176,39 @@ private fun RailItem(e: RailEntry, open: Boolean, selected: Boolean, modifier: M
             fontWeight = if (selected || f) FontWeight.Bold else FontWeight.Medium)
         else if (selected) Box(Modifier.size(4.dp).clip(RoundedCornerShape(50)).background(Pal.Gold))
     }
+}
+
+/**
+ * Netflix-style focus pivot (1.92). D-pad focus moves normally scroll the list only as far as needed, so the focused
+ * row ends up at the top on one press and at the bottom on the next. These responders hand the list a viewport-sized
+ * rect that starts [pivot] before this row / card, so the list always glides the focused one to the same place.
+ * Near the list's ends it simply stops scrolling (the list cannot go past its start or end).
+ * [viewport] is the scrolling list's visible length in px along its axis (0 = not laid out yet: default behaviour).
+ */
+object FocusPivot {
+    /** Rect (along one axis) the parent list should bring into view: [start] - [pivot] … that + [viewport]. */
+    fun span(start: Float, pivot: Float, viewport: Float): Pair<Float, Float> = (start - pivot) to (start - pivot + viewport)
+}
+
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+fun Modifier.pivotInList(vertical: Boolean, pivot: Dp, viewport: () -> Int): Modifier = composed {
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val pivotPx = with(density) { pivot.toPx() }
+    val responder = remember(vertical, pivotPx) {
+        object : androidx.compose.foundation.relocation.BringIntoViewResponder {
+            override fun calculateRectForParent(localRect: androidx.compose.ui.geometry.Rect): androidx.compose.ui.geometry.Rect {
+                val vp = viewport().toFloat()
+                if (vp <= 0f) return localRect
+                return if (vertical) {
+                    val (a, b) = FocusPivot.span(0f, pivotPx, vp)
+                    androidx.compose.ui.geometry.Rect(localRect.left, a, localRect.right, b)
+                } else {
+                    val (a, b) = FocusPivot.span(0f, pivotPx, vp)
+                    androidx.compose.ui.geometry.Rect(a, localRect.top, b, localRect.bottom)
+                }
+            }
+            override suspend fun bringChildIntoView(localRect: () -> androidx.compose.ui.geometry.Rect?) {}
+        }
+    }
+    this.bringIntoViewResponder(responder)
 }

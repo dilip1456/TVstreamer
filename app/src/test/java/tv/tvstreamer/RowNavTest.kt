@@ -24,3 +24,12 @@ class RowNavTest {
         assertEquals(RowNav.Action.TO_MENU, RowNav.onKey(0, 1, L, true))
     }
 }
+
+class FocusPivotTest {
+    @Test fun spanIsViewportSizedAndStartsBeforeTheRow() {
+        val (a, b) = FocusPivot.span(0f, 30f, 900f)
+        assertEquals(-30f, a, 0.001f)
+        assertEquals(870f, b, 0.001f)
+        assertEquals(900f, b - a, 0.001f)
+    }
+}

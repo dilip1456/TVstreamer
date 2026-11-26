@@ -512,6 +512,7 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                 ShelfRow(repo, screenKey, shelf, isTv, hPad,
                     onLeftEdge = if (railOn) ({ railFocus.enter() }) else null,
                     onCardFocus = { railFocus.content = it },
+                    listViewport = { state.layoutInfo.viewportSize.height },
                     onOpen = { it ->
                         when {
                             it.kind == "itv" -> play(shelf.items, shelf.items.indexOfFirst { x -> x.key == it.key }.coerceAtLeast(0))
@@ -681,7 +682,7 @@ fun MetaLine(item: Item, meta: Meta? = null) {
 
 @Composable
 private fun ShelfRow(repo: Repo, screen: String, shelf: Shelf, isTv: Boolean, hPad: Dp, onOpen: (Item) -> Unit, onMenu: (Item?) -> Unit, onSeeAll: (() -> Unit)?,
-                     onLeftEdge: (() -> Unit)? = null, onCardFocus: (FocusRequester) -> Unit = {}) {
+                     onLeftEdge: (() -> Unit)? = null, onCardFocus: (FocusRequester) -> Unit = {}, listViewport: () -> Int = { 0 }) {
     // Reaching the end of a row fetches a little more (that row's category, or the row's language)
     val onEnd: () -> Unit = {
         shelf.cat?.let { repo.lib.moreInCat(it.id) } ?: shelf.pool?.let { p -> repo.lib.more(p.tab, setOf(p.lang)) }
@@ -692,9 +693,12 @@ private fun ShelfRow(repo: Repo, screen: String, shelf: Shelf, isTv: Boolean, hP
     val shown = remember(shelf.items) { shelf.items.distinctBy { it.key }.take(ROW_LIMIT) }
     // Focused card in this row (-1: none) and how many cards there are, so the row's ends never hand focus to another row
     var focusIx by remember(shelf.key) { mutableIntStateOf(-1) }
+    val cardPivot = if (isTv) Modifier.pivotInList(vertical = false, pivot = hPad, viewport = { state.layoutInfo.viewportSize.width }) else Modifier
     val hasSeeAll = onSeeAll != null && shelf.items.isNotEmpty()
     val cardCount = shown.size + (if (hasSeeAll) 1 else 0)
-    Column(Modifier.padding(top = if (isTv) 16.dp else 12.dp)) {
+    // TV: the focused row glides to the same height and the focused card to the row's start (Netflix-style pivot)
+    val pivot = if (isTv) Modifier.pivotInList(vertical = true, pivot = 12.dp, viewport = listViewport) else Modifier
+    Column(Modifier.then(pivot).padding(top = if (isTv) 22.dp else 12.dp)) {
         Row(Modifier.padding(horizontal = hPad), verticalAlignment = Alignment.CenterVertically) {
             // Touch: tapping the row title opens the whole category. TV: the "See all" tile at the row's end does
             // (the title is not a focus stop, so Up / Down between rows needs no extra press)
@@ -722,8 +726,8 @@ private fun ShelfRow(repo: Repo, screen: String, shelf: Shelf, isTv: Boolean, hP
         Spacer(Modifier.height(6.dp))
         LazyRow(
             state = state,
-            horizontalArrangement = Arrangement.spacedBy(if (isTv) 14.dp else 10.dp),
-            contentPadding = PaddingValues(horizontal = hPad, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(if (isTv) 16.dp else 10.dp),
+            contentPadding = PaddingValues(horizontal = hPad, vertical = if (isTv) 10.dp else 8.dp),
             modifier = Modifier.focusRestorer()
                 .onFocusChanged { if (!it.hasFocus) focusIx = -1 }
                 .onPreviewKeyEvent { e ->
@@ -748,7 +752,7 @@ private fun ShelfRow(repo: Repo, screen: String, shelf: Shelf, isTv: Boolean, hP
                 val k = "${shelf.key}|${it.key}"
                 val fr = remember { FocusRequester() }
                 RestoreFocus(repo, screen, k, fr)
-                val track = Modifier.focusRequester(fr).onFocusChanged { f -> if (f.hasFocus) { focusIx = i; onCardFocus(fr) } }
+                val track = cardPivot.focusRequester(fr).onFocusChanged { f -> if (f.hasFocus) { focusIx = i; onCardFocus(fr) } }
                 if (shelf.kind == "itv") {
                     ChannelTile(it, tileW, repo.isFav(it), track, { onOpen(it) }, { onMenu(it) }) { repo.focusItem(screen, k); Keys.focused = it }
                 } else {
@@ -761,7 +765,7 @@ private fun ShelfRow(repo: Repo, screen: String, shelf: Shelf, isTv: Boolean, hP
                     LaunchedEffect(shelf.key) { onEnd() }
                     val sfr = remember { FocusRequester() }
                     Box(
-                        Modifier.width(posterW).aspectRatio(2f / 3f).focusRequester(sfr)
+                        cardPivot.width(if (shelf.kind == "itv") tileW else posterW).aspectRatio(if (shelf.kind == "itv") 16f / 9f else 2f / 3f).focusRequester(sfr)
                             .onFocusChanged { f -> if (f.hasFocus) { focusIx = shown.size; onCardFocus(sfr) } }
                             .focusCard(onSeeAll).background(Pal.Card),
                         contentAlignment = Alignment.Center
@@ -786,8 +790,10 @@ fun PosterCard(raw: Item, width: Dp, progress: Float?, modifier: Modifier, onCli
     val item = raw.withMeta(meta)
     val name = meta?.title?.ifEmpty { null } ?: Names.title(item.name)
     val q = raw.parsed.quality
+    val tv = !AppUi.phoneNav
+    var focused by remember { mutableStateOf(false) }
     Column(Modifier.width(width)) {
-        Box(modifier.fillMaxWidth().aspectRatio(2f / 3f).focusCard(onClick, onMenu, onFocused)) {
+        Box(modifier.fillMaxWidth().aspectRatio(2f / 3f).onFocusChanged { focused = it.hasFocus }.focusCard(onClick, onMenu, onFocused)) {
             Poster(item.img, name, Modifier.fillMaxSize())
             val tag = when {
                 item.isSeries -> "SERIES"
@@ -807,14 +813,24 @@ fun PosterCard(raw: Item, width: Dp, progress: Float?, modifier: Modifier, onCli
                 Box(Modifier.align(Alignment.BottomStart).fillMaxWidth(progress).height(4.dp).background(Pal.Accent))
             }
         }
-        Spacer(Modifier.height(6.dp))
-        Text(if (item.season.isNotEmpty()) "${item.season} · $name" else name, color = Pal.Text2, fontSize = Ts.SECONDARY.sp,
-            maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Spacer(Modifier.height(if (tv) 8.dp else 6.dp))
         // Year and rating (IMDb when known)
         val r = meta?.imdbRating?.ifEmpty { null } ?: item.rating.takeIf { item.ratingNum > 0 }
         val y = item.year.ifEmpty { raw.parsed.year }
         val sub = listOfNotNull(y.ifEmpty { null }, r?.let { "★ $it" }).joinToString("  ·  ")
-        if (sub.isNotEmpty()) Text(sub, color = Pal.Dim, fontSize = Ts.CAPTION.sp, maxLines = 1)
+        val title = if (item.season.isNotEmpty()) "${item.season} · $name" else name
+        if (tv) {
+            // TV (1.92, less clutter): one quiet title line; year / rating only on the focused card. Fixed height, so
+            // moving focus never re-lays out the row.
+            Column(Modifier.fillMaxWidth().height(36.dp)) {
+                Text(title, color = if (focused) Pal.Text else Pal.Dim, fontSize = Ts.SECONDARY.sp,
+                    fontWeight = if (focused) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (focused && sub.isNotEmpty()) Text(sub, color = Pal.Dim, fontSize = Ts.CAPTION.sp, maxLines = 1)
+            }
+        } else {
+            Text(title, color = Pal.Text2, fontSize = Ts.SECONDARY.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            if (sub.isNotEmpty()) Text(sub, color = Pal.Dim, fontSize = Ts.CAPTION.sp, maxLines = 1)
+        }
     }
 }
 
