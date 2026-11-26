@@ -223,7 +223,7 @@ fun ChannelContextMenu(repo: Repo, ch: Item, on: Boolean, onShowHide: () -> Unit
         return
     }
     val labels = ItemContext.channelItems(on, repo.isFav(ch), repo.isRenamed(ch), inGroup = onCollapseGroup != null)
-    ChoiceDialog(ChannelTitle.pretty(named.name), labels.map { label ->
+    ChoiceDialog(ChannelTitle.pretty(named.name), listOf(AppChrome.GO_HOME to { onClose(); AppChrome.goHome() }) + labels.map { label ->
         label to {
             when (label) {
                 ItemContext.SHOW, ItemContext.HIDE -> { onShowHide(); onClose() }
@@ -247,7 +247,7 @@ fun LiveGroupContextMenu(
     onSelect: () -> Unit, onClose: () -> Unit
 ) {
     val labels = ItemContext.liveGroupItems(groupOn, folded)
-    ChoiceDialog(title, labels.map { label ->
+    ChoiceDialog(title, listOf(AppChrome.GO_HOME to { onClose(); AppChrome.goHome() }) + labels.map { label ->
         label to {
             when (label) {
                 ItemContext.SHOW, ItemContext.HIDE -> onShowHide()

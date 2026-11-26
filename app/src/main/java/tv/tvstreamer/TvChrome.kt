@@ -1,9 +1,10 @@
 package tv.tvstreamer
 
 /**
- * Netflix-style TV chrome (1.99.3). The top menu and the side rail are never on screen together:
- * at the top of the page the top bar is shown and the rail is hidden; once the user scrolls down
- * the top bar hides and the rail becomes available.
+ * TV chrome (1.99.5). The top bar still hides after you scroll down (Netflix-style).
+ * The side menu is no longer a peeking rail that appears only then: it is either fully
+ * hidden or fully open (see [SideMenu]), and Left can open it at any scroll position,
+ * including from the top menu's first tab.
  */
 object TvChrome {
     /** Scroll offset (px) before the page is considered to have left the top. */
@@ -11,15 +12,13 @@ object TvChrome {
 
     /**
      * @param topBarFocused keep the top bar while it still has focus
-     * @param railFocused keep the rail (and hide the top bar) while the user is in the side menu
      */
     fun topBarVisible(firstVisibleIndex: Int, firstVisibleOffset: Int, topBarFocused: Boolean = false,
-                      railFocused: Boolean = false, threshold: Int = HIDE_OFFSET): Boolean {
-        if (railFocused) return false
+                      threshold: Int = HIDE_OFFSET): Boolean {
         if (topBarFocused) return true
         return firstVisibleIndex <= 0 && firstVisibleOffset <= threshold
     }
 
-    /** The side rail is only offered on TV, and only while the top bar is hidden. */
-    fun railAvailable(tv: Boolean, topBarVisible: Boolean): Boolean = tv && !topBarVisible
+    /** The side menu is available on every TV screen; it does not depend on the top bar. */
+    fun sideMenuEnabled(tv: Boolean): Boolean = tv
 }

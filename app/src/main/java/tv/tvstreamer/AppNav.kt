@@ -91,19 +91,22 @@ fun topTabs(go: (Screen) -> Unit, onSearch: () -> Unit): List<TopTab> = listOf(
 
 /**
  * TV / tablet top menu (Netflix style), shared by Home, Movies, TV Shows and Live TV: compact logo top-left, tabs
- * centred, profile on the right. Left / Right stay inside the bar; Left on the first tab opens the side menu [rail]
- * only when the rail is available (the page has been scrolled and the top bar is hidden). Down goes to the page.
+ * centred, profile on the right. Left / Right stay inside the bar; Left on the first tab always opens the side
+ * menu on TV (including while the top bar is visible). Down goes to the page.
  */
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
-fun TopNavBar(current: String, tabs: List<TopTab>, rail: RailFocus?, onProfile: () -> Unit, modifier: Modifier = Modifier,
+fun TopNavBar(current: String, tabs: List<TopTab>, onOpenRail: (() -> Unit)?, onProfile: () -> Unit, modifier: Modifier = Modifier,
               tabModifier: (String) -> Modifier = { Modifier }) {
     val count = tabs.size + 1
     val frs = remember(count) { List(count) { FocusRequester() } }
     var ix by remember { mutableIntStateOf(-1) }
     Box(
         modifier.fillMaxWidth().heightIn(min = 44.dp)
-            .menuRow({ ix }, { count }, onLeftEdge = rail?.let { r -> { r.content = frs[0]; r.enter() } }) { n ->
+            .menuRow({ ix }, { count }, onLeftEdge = onOpenRail?.let { open -> {
+                SideMenu.rememberContent(frs.getOrNull(ix) ?: frs.getOrNull(0))
+                open()
+            } }) { n ->
                 ix = n
                 runCatching { frs.getOrNull(n)?.requestFocus() }
             }
@@ -171,90 +174,6 @@ object RailIcons {
         RailEntry.SERIES -> NavIcons.Series
         RailEntry.LIVE -> NavIcons.Live
         RailEntry.EXIT -> Exit
-    }
-}
-
-/** Collapsed width of the TV side menu; page content starts to the right of it. */
-val RAIL_W = 64.dp
-
-/** Moves focus between the side menu and the page. Set by the screen that shows the menu. */
-class RailFocus {
-    val reqs: Map<RailEntry, FocusRequester> = RailEntry.entries.associateWith { FocusRequester() }
-    /** Entry focused when the menu is entered (the current screen's). */
-    var current: RailEntry = RailEntry.HOME
-    /** Last focused card / button on the page (Right from the menu goes back to it). */
-    var content: FocusRequester? = null
-    var fallback: FocusRequester? = null
-    fun enter() { runCatching { reqs.getValue(current).requestFocus() } }
-    fun leave(): Boolean {
-        content?.let { if (runCatching { it.requestFocus() }.isSuccess) return true }
-        fallback?.let { if (runCatching { it.requestFocus() }.isSuccess) return true }
-        return false
-    }
-}
-
-/**
- * Netflix-style TV side menu: icons on the left edge; while it has focus it widens over the page with labels
- * on a dark wash. Up / Down move inside it (never out), Right goes back to the page, Back is left to the screen.
- */
-@Composable
-fun SideRail(current: RailEntry?, focus: RailFocus, onPick: (RailEntry) -> Unit, modifier: Modifier = Modifier) {
-    val entries = RailEntry.entries
-    val frs = remember(focus) { entries.map { focus.reqs.getValue(it) } }
-    SideEffect { focus.current = current ?: RailEntry.HOME }
-    var open by remember { mutableStateOf(false) }
-    var ix by remember { mutableIntStateOf(-1) }
-    val w by animateDpAsState(if (open) 240.dp else RAIL_W, tween(170), label = "rail")
-    Box(
-        modifier.zIndex(2f).fillMaxHeight().width(w)
-            .background(
-                if (open) Brush.horizontalGradient(listOf(Color(0xF7000000), Color(0xE6000000), Color(0x00000000)))
-                else Brush.horizontalGradient(listOf(Color(0xB3000000), Color(0x00000000)))
-            )
-            .onFocusChanged { open = it.hasFocus; if (!it.hasFocus) ix = -1 }
-            .onPreviewKeyEvent { e ->
-                if (e.type != KeyEventType.KeyDown || ix < 0) return@onPreviewKeyEvent false
-                when (e.key) {
-                    Key.DirectionUp -> { if (ix > 0) runCatching { frs[ix - 1].requestFocus() }; true }
-                    Key.DirectionDown -> { if (ix < entries.size - 1) runCatching { frs[ix + 1].requestFocus() }; true }
-                    Key.DirectionLeft -> true
-                    Key.DirectionRight -> { focus.leave(); true }
-                    else -> false
-                }
-            },
-        contentAlignment = Alignment.CenterStart
-    ) {
-        Column(Modifier.padding(start = 10.dp, end = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            entries.forEachIndexed { i, e ->
-                if (e == RailEntry.EXIT) Spacer(Modifier.height(18.dp))
-                RailItem(e, open, e == current, Modifier.focusRequester(frs[i]).onFocusChanged { if (it.isFocused) ix = i }) { onPick(e) }
-            }
-        }
-    }
-}
-
-@Composable
-private fun RailItem(e: RailEntry, open: Boolean, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    var f by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(12.dp)
-    val fg = when { f -> Pal.OnFocusPill; selected -> Pal.PrimaryText; else -> Color(0xFFB4C0CE) }
-    Row(
-        modifier.then(if (open) Modifier.width(212.dp) else Modifier)
-            .onFocusChanged { f = it.isFocused }
-            .clip(shape)
-            .background(if (f) Pal.FocusPill else Color.Transparent)
-            .clickable(onClick = onClick)
-            .semantics { contentDescription = e.label }
-            .padding(horizontal = 10.dp, vertical = 9.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            Icon(RailIcons.of(e), null, tint = fg, modifier = Modifier.size(24.dp))
-        }
-        if (open) Text(e.label, color = fg, fontSize = (Ts.ROW + 2).sp, maxLines = 1,
-            fontWeight = if (selected || f) FontWeight.Bold else FontWeight.Medium)
-        else if (selected) Box(Modifier.size(4.dp).clip(RoundedCornerShape(50)).background(Pal.Primary))
     }
 }
 

@@ -358,10 +358,10 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
     val screenKey = "cat:$mode"
     val heroFr = remember { FocusRequester() }
     val navFr = remember { FocusRequester() }
-    // TV side menu (1.91): Left on a row's first card opens it; Right goes back to the card it came from
+    // TV side menu: Left on a row's first card (or the hero's Play button) opens the overlay menu
     val railOn = !AppUi.phoneNav
-    val railFocus = remember { RailFocus() }
-    SideEffect { railFocus.fallback = if (hero != null) heroFr else navFr }
+    val heroPlayFr = remember { FocusRequester() }
+    SideEffect { SideMenu.fallback = if (hero != null) heroPlayFr else navFr }
     val searchFr = remember { FocusRequester() }
     // Search closed (Back): focus returns to the Search tab it was opened from
     LaunchedEffect(AppUi.searchClosed) {
@@ -386,10 +386,8 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
     val hPad = if (isTv) 48.dp else 14.dp
     val state = remember(mode) { repo.listStates.getOrPut(screenKey) { LazyListState() } }
     var topBarFocused by remember { mutableStateOf(false) }
-    var railFocused by remember { mutableStateOf(false) }
-    val topBarVisible by remember { derivedStateOf { TvChrome.topBarVisible(state.firstVisibleItemIndex, state.firstVisibleItemScrollOffset, topBarFocused, railFocused) } }
-    val railAvailable = TvChrome.railAvailable(isTv && railOn, topBarVisible)
-    val railPad by animateDpAsState(if (railAvailable) RAIL_W - 32.dp else 0.dp, tween(Motion.SCROLL_MS), label = "railPad")
+    val topBarVisible by remember { derivedStateOf { TvChrome.topBarVisible(state.firstVisibleItemIndex, state.firstVisibleItemScrollOffset, topBarFocused) } }
+    val railOnTv = isTv && railOn
     val firstLoad = FirstLoad.of(
         FirstLoad.Kind.HOME,
         hasPortal = repo.store.portal.isNotBlank() && repo.store.mac.isNotBlank(),
@@ -418,12 +416,16 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
         if (isTv && railOn) runCatching { navFr.requestFocus() }
         pendingTop = false
     }
+    LaunchedEffect(AppChrome.topFocusTick) {
+        if (AppChrome.topFocusTick == 0) return@LaunchedEffect
+        focusTop()
+    }
     MainBackSync(
-        isTv = isTv && railOn,
-        railFocused = railFocused,
+        isTv = railOnTv,
+        railFocused = SideMenu.open,
         topMenuFocused = topBarFocused,
         listState = state,
-        closeRail = { runCatching { railFocus.leave() } },
+        closeRail = { SideMenu.close() },
         focusTop = focusTop,
     )
     Box(Modifier.fillMaxSize().background(Pal.Bg).onKeyEvent { e ->
@@ -434,25 +436,7 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
     }) {
         // Soft cinematic wash at the top (static gradient, no blur — cheap on Fire TV). Not a second copy of the hero art.
         CinematicWash()
-        // Side rail only while the top bar is hidden (Netflix-style). At the top there is no rail at all.
-        AnimatedVisibility(
-            visible = railAvailable,
-            enter = slideInHorizontally(tween(Motion.SCROLL_MS)) { -it } + fadeIn(tween(Motion.SCROLL_MS)),
-            exit = slideOutHorizontally(tween(Motion.SCROLL_MS)) { -it } + fadeOut(tween(Motion.SCROLL_MS)),
-            modifier = Modifier.align(Alignment.CenterStart)
-        ) {
-            SideRail(when (mode) { "movies" -> RailEntry.MOVIES; "series" -> RailEntry.SERIES; else -> RailEntry.HOME }, railFocus, { e ->
-                when (e) {
-                    RailEntry.SEARCH -> go(Screen.Search)
-                    RailEntry.HOME -> go(Screen.Home)
-                    RailEntry.MOVIES -> go(Screen.MoviesTab)
-                    RailEntry.SERIES -> go(Screen.SeriesTab)
-                    RailEntry.LIVE -> go(Screen.Live)
-                    RailEntry.EXIT -> exitApp(ctx)
-                }
-            }, Modifier.onFocusChanged { railFocused = it.hasFocus })
-        }
-        Column(Modifier.fillMaxSize().padding(start = railPad)) {
+        Column(Modifier.fillMaxSize()) {
             if (AppUi.phoneNav) Column(Modifier.fillMaxWidth().padding(start = hPad, end = hPad, top = Layout.PHONE_TOP, bottom = 6.dp)) {
                 Row(Modifier.fillMaxWidth().padding(bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     BlueyMark(size = Layout.LOGO_PHONE)
@@ -467,8 +451,8 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
             ) {
                 if (!AppUi.phoneNav) Column(Modifier.fillMaxWidth().padding(start = hPad, end = hPad, top = Layout.TV_TOP, bottom = Layout.S)
                     .onFocusChanged { topBarFocused = it.hasFocus }) {
-                    // Left on the first tab opens the side menu only once the page has been scrolled (rail available).
-                    TopNavBar(mode, topTabs(go) { go(Screen.Search) }, if (railAvailable) railFocus else null, { AppUi.accountMenu = true }) { k ->
+                    // Left on the first tab always opens the side menu on TV, including while the top bar is showing.
+                    TopNavBar(mode, topTabs(go) { go(Screen.Search) }, if (railOnTv) ({ SideMenu.open() }) else null, { AppUi.accountMenu = true }) { k ->
                         when (k) {
                             mode -> Modifier.focusRequester(navFr).onFocusChanged { if (it.isFocused) repo.lastFocus[screenKey] = "nav" }
                             "search" -> Modifier.focusRequester(searchFr).onFocusChanged { if (it.isFocused) repo.lastFocus[screenKey] = "search" }
@@ -526,11 +510,15 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                 Hero(repo, hero, isTv, hPad, "Play",
                     onPlay = { if (h.play.isSeries) open(h.play) else playOrGate(h.play) },
                     onInfo = { open(hero) },
-                    playModifier = Modifier.onFocusChanged { if (it.isFocused) { repo.lastFocus[screenKey] = "hero"; railFocus.content = null } },
+                    playModifier = Modifier.focusRequester(heroPlayFr).onFocusChanged {
+                        if (it.isFocused) { repo.lastFocus[screenKey] = "hero"; SideMenu.rememberContent(heroPlayFr) }
+                    },
                     heroModifier = Modifier.focusRequester(heroFr).onFocusChanged { if (it.isFocused) repo.lastFocus[screenKey] = "hero" }
-                        .focusProperties { up = if (topBarVisible) navFr else FocusRequester.Default },
+                        .focusProperties { up = navFr; down = heroPlayFr },
                     slide = heroIx, slides = slides.size, onTouch = { heroTouched = System.currentTimeMillis() },
-                    onStep = { d -> heroTouched = System.currentTimeMillis(); heroIx = (heroIx + d).mod(slides.size.coerceAtLeast(1)) })
+                    onStep = { d -> heroTouched = System.currentTimeMillis(); heroIx = (heroIx + d).mod(slides.size.coerceAtLeast(1)) },
+                    onUp = { runCatching { navFr.requestFocus() }.onFailure { focusTop() } },
+                    onOpenMenu = if (railOnTv) ({ SideMenu.open(heroPlayFr) }) else null)
             }
             // Cached titles must never be hidden behind a spinner; the first-load panel only when nothing is saved yet
             if (firstLoad.visible && shelves.isEmpty()) item(key = "empty") {
@@ -546,8 +534,8 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                 // Lazy: a category's items are requested only when its row is composed (scrolled into view)
                 if (shelf.cat != null && shelf.loading) LaunchedEffect(shelf.key) { repo.loadRow(shelf.cat) }
                 ShelfRow(repo, screenKey, shelf, isTv, hPad,
-                    onLeftEdge = if (railAvailable) ({ railFocus.enter() }) else null,
-                    onCardFocus = { railFocus.content = it },
+                    onLeftEdge = if (railOnTv) ({ SideMenu.open() }) else null,
+                    onCardFocus = { SideMenu.rememberContent(it) },
                     listViewport = { state.layoutInfo.viewportSize.height },
                     listState = state,
                     onOpen = { it ->
@@ -567,6 +555,7 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
 
         menu?.let { (shelf, item) ->
             val opts = buildList<Pair<String, () -> Unit>> {
+                add(AppChrome.GO_HOME to { menu = null; AppChrome.goHome() })
                 if (item != null) {
                     if (shelf.key == "cont") {
                         val (p, _) = repo.store.resumeInfo(item)
@@ -651,6 +640,7 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
         }
         if (pageMenu) {
             ChoiceDialog("Options", buildList {
+                add(AppChrome.GO_HOME to { pageMenu = false; AppChrome.goHome() })
                 if (tabbed) add("Languages" to { pageMenu = false; go(Screen.Languages(mode, Screen.Home)) })
                 if (tabbed && !langs.isNullOrEmpty()) add("Sort: " + Sorts.label(sort) to { pageMenu = false; sortMenu = true })
                 add("Catalog Selector" to { pageMenu = false; go(Screen.Categories) })
@@ -667,7 +657,8 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
 
 @Composable
 private fun Hero(repo: Repo, raw: Item, isTv: Boolean, hPad: Dp, playLabel: String, onPlay: () -> Unit, onInfo: () -> Unit, playModifier: Modifier,
-                 heroModifier: Modifier = Modifier, slide: Int = 0, slides: Int = 1, onTouch: () -> Unit = {}, onStep: (Int) -> Unit = {}) {
+                 heroModifier: Modifier = Modifier, slide: Int = 0, slides: Int = 1, onTouch: () -> Unit = {}, onStep: (Int) -> Unit = {},
+                 onUp: (() -> Unit)? = null, onOpenMenu: (() -> Unit)? = null) {
     val meta = rememberMeta(raw)
     val item = raw.withMeta(meta)
     var fav by remember(item.key) { mutableStateOf(repo.isFav(item)) }
@@ -675,17 +666,19 @@ private fun Hero(repo: Repo, raw: Item, isTv: Boolean, hPad: Dp, playLabel: Stri
     val screenH = LocalConfiguration.current.screenHeightDp
     val heroH = if (isTv) (screenH * 0.72f).dp.coerceIn(420.dp, 720.dp) else 280.dp
     val backdrop = BackdropArt.distinct(meta?.backdrop, item.img)
-    // Full-bleed billboard on TV (most of the screen); slightly shorter on phones. Left / Right step the carousel
-    // when the billboard has focus; Down reaches Play / More info / My List; Up is wired to the tab bar.
+    // Full-bleed billboard on TV. Left opens the side menu, Up goes to the top menu, Down reaches Play.
+    // Right still steps the carousel when the billboard itself (not a button) has focus.
+    // Keys are handled on KeyEvent, not Preview, so Play / More info / Watchlist keep their own Left / Up.
     Box(Modifier.fillMaxWidth().height(heroH)
         .then(heroModifier)
         .focusable()
-        .onPreviewKeyEvent { e ->
-            if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+        .onKeyEvent { e ->
+            if (e.type != KeyEventType.KeyDown) return@onKeyEvent false
             onTouch()
             when (e.key) {
-                Key.DirectionLeft -> { if (slides > 1) { onStep(-1); true } else false }
+                Key.DirectionLeft -> { onOpenMenu?.invoke(); onOpenMenu != null }
                 Key.DirectionRight -> { if (slides > 1) { onStep(1); true } else false }
+                Key.DirectionUp -> { onUp?.invoke(); onUp != null }
                 else -> false
             }
         }) {
@@ -708,9 +701,19 @@ private fun Hero(repo: Repo, raw: Item, isTv: Boolean, hPad: Dp, playLabel: Stri
                 if (item.desc.isNotEmpty()) Text(item.desc, color = Pal.Desc, fontSize = if (isTv) Ts.ROW.sp else Ts.SECONDARY.sp,
                     maxLines = if (isTv) 3 else 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth(if (isTv) 0.58f else 1f))
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    PillButton(playLabel.ifEmpty { "Play" }, onPlay, playModifier.onFocusChanged { if (it.isFocused) Keys.focused = raw }, primary = true, icon = Ic.Play)
-                    PillButton("More info", onInfo)
-                    PillButton("Watchlist", { repo.toggleFav(raw); fav = repo.isFav(raw) }, icon = if (fav) Ic.Check else Ic.Add)
+                    val heroBtnKeys: (Boolean) -> Modifier = { leftmost ->
+                        Modifier.onPreviewKeyEvent { e ->
+                            if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                            when (e.key) {
+                                Key.DirectionLeft -> if (leftmost && onOpenMenu != null) { onOpenMenu.invoke(); true } else false
+                                Key.DirectionUp -> if (onUp != null) { onUp.invoke(); true } else false
+                                else -> false
+                            }
+                        }
+                    }
+                    PillButton(playLabel.ifEmpty { "Play" }, onPlay, playModifier.onFocusChanged { if (it.isFocused) Keys.focused = raw }.then(heroBtnKeys(true)), primary = true, icon = Ic.Play)
+                    PillButton("More info", onInfo, heroBtnKeys(false))
+                    PillButton("Watchlist", { repo.toggleFav(raw); fav = repo.isFav(raw) }, heroBtnKeys(false), icon = if (fav) Ic.Check else Ic.Add)
                     if (slides > 1) {
                         Spacer(Modifier.width(8.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -1243,6 +1246,7 @@ fun DetailScreen(repo: Repo, item: Item, play: (List<Item>, Int) -> Unit, onBack
         }
         if (more) {
             ChoiceDialog(name, focusKey = "more", opts = buildList {
+                add(AppChrome.GO_HOME to { more = false; AppChrome.goHome() })
                 if (Tmdb.enabled) add("Look Up Details Again" to { more = false; scope.launch { Tmdb.clearFor(cur) } })
                 if (cur.kind == "vod" && !cur.isEpisode()) {
                     add((if (repo.isFav(cur)) WatchLists.REMOVE else WatchLists.ADD) to { repo.toggleFav(cur); fav = repo.isFav(cur); more = false })
@@ -1377,6 +1381,7 @@ fun TitleMenu(repo: Repo, m: Item, versions: Int, open: (Item) -> Unit, play: ((
     var pick by remember(m.key) { mutableStateOf(false) }
     if (pick) { WatchlistPicker(repo, m, onClose); return }
     ChoiceDialog(Names.title(m.name), buildList {
+        add(AppChrome.GO_HOME to { onClose(); AppChrome.goHome() })
         when {
             m.isSeries -> add("Episodes" to { onClose(); open(m) })
             play != null -> add("Play" to { onClose(); play(m) })

@@ -116,10 +116,7 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
         repo.listStates.getOrPut("live152") { repo.liveView.let { androidx.compose.foundation.lazy.LazyListState(it.index, it.offset) } }
     }
     var topBarFocused by remember { mutableStateOf(false) }
-    var railFocused by remember { mutableStateOf(false) }
-    val topBarVisible by remember { derivedStateOf { TvChrome.topBarVisible(state.firstVisibleItemIndex, state.firstVisibleItemScrollOffset, topBarFocused, railFocused) } }
-    val railAvailable = TvChrome.railAvailable(tv && rail, topBarVisible)
-    val railPad by animateDpAsState(if (railAvailable) RAIL_W - 32.dp else 0.dp, tween(Motion.SCROLL_MS), label = "liveRailPad")
+    val topBarVisible by remember { derivedStateOf { TvChrome.topBarVisible(state.firstVisibleItemIndex, state.firstVisibleItemScrollOffset, topBarFocused) } }
     val firstLoad = FirstLoad.of(
         FirstLoad.Kind.LIVE,
         hasPortal = repo.store.portal.isNotBlank() && repo.store.mac.isNotBlank(),
@@ -144,12 +141,14 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
     }
     DisposableEffect(Unit) { onDispose { saveView() } }
     val scope = rememberCoroutineScope()
-    // Shared TV side menu (1.99): Left from a channel, header or the first action opens it; Right comes back
-    val railFocus = remember { RailFocus() }
+    // Shared TV side menu: Left from a channel, header or the first action opens the overlay.
     val navFr = remember { FocusRequester() }
     val actionFr = remember { FocusRequester() }
-    SideEffect { railFocus.fallback = actionFr }
-    val toRail = if (railAvailable) Modifier.focusProperties { left = railFocus.reqs.getValue(RailEntry.LIVE) } else Modifier
+    SideEffect { SideMenu.fallback = actionFr }
+    val openRail: () -> Unit = { SideMenu.open() }
+    val toRail = if (tv && rail) Modifier.onPreviewKeyEvent { e ->
+        if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionLeft) { openRail(); true } else false
+    } else Modifier
     val playingFr = remember { FocusRequester() }
     val restoreFr = remember { FocusRequester() }   // the last focused channel when nothing played yet
     val firstFr = remember { FocusRequester() }
@@ -175,12 +174,16 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
         if (tv && rail) runCatching { navFr.requestFocus() }
         pendingTop = false
     }
+    LaunchedEffect(AppChrome.topFocusTick) {
+        if (AppChrome.topFocusTick == 0) return@LaunchedEffect
+        focusTop()
+    }
     MainBackSync(
         isTv = tv && rail,
-        railFocused = railFocused,
+        railFocused = SideMenu.open,
         topMenuFocused = topBarFocused,
         listState = state,
-        closeRail = { runCatching { railFocus.leave() } },
+        closeRail = { SideMenu.close() },
         focusTop = focusTop,
     )
     BackHandler(sel != null && !Popups.any) { sel = null }
@@ -378,7 +381,7 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
                         val nType = group.sumOf { it.rows.size }
                         stickyHeader(key = "t|$type") {
                             TypeHeader(type, nType, typeFolded, tv, Modifier.focusRequester(headFr(tKey))
-                                .onFocusChanged { if (it.isFocused) { focusSec = tKey; onHeader = true; railFocus.content = headFr(tKey) } }
+                                .onFocusChanged { if (it.isFocused) { focusSec = tKey; onHeader = true; SideMenu.content = headFr(tKey) } }
                                 .then(toRail),
                                 onToggle = { toggleHeader(tKey) },
                                 onMenu = { tree.firstOrNull { it.type == type }?.let { groupMenu = it } })
@@ -389,7 +392,7 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
                                 val folded = s.key in collapsed
                                 if (subs) stickyHeader(key = "h|${s.key}") {
                                     SectionHeader(s, folded, tv, Modifier.focusRequester(headFr(s.key))
-                                        .onFocusChanged { if (it.isFocused) { focusSec = s.key; onHeader = true; railFocus.content = headFr(s.key) } }
+                                        .onFocusChanged { if (it.isFocused) { focusSec = s.key; onHeader = true; SideMenu.content = headFr(s.key) } }
                                         .then(toRail),
                                         onToggle = { toggleHeader(s.key) },
                                         onMenu = { LiveModes.nodeForSection(tree, s)?.let { groupMenu = it } },
@@ -403,7 +406,7 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
                                             .then(if (tv) Modifier.pivotInList(vertical = true, state = state, key = "${s.key}|${ch.key}") else Modifier)
                                             .then(if (ch.key == repo.nowPlaying) Modifier.focusRequester(playingFr)
                                                 else if (ch.key == focusKey) Modifier.focusRequester(restoreFr) else Modifier)
-                                            .onFocusChanged { if (it.isFocused) { focusKey = ch.key; focusSec = s.key; onHeader = false; railFocus.content = if (ch.key == repo.nowPlaying) playingFr else restoreFr } }
+                                            .onFocusChanged { if (it.isFocused) { focusKey = ch.key; focusSec = s.key; onHeader = false; SideMenu.content = if (ch.key == repo.nowPlaying) playingFr else restoreFr } }
                                             .then(if (first) Modifier.focusRequester(firstFr) else Modifier)
                                             .then(toRail),
                                         onClick = { sel?.let { sel = LiveSelect.toggle(it, ch.key) } ?: playAt(ch) },
@@ -449,30 +452,13 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
         else false
     }) {
         // No top wash here: the list's pinned headers sit on the plain page colour
-        AnimatedVisibility(
-            visible = railAvailable,
-            enter = slideInHorizontally(tween(Motion.SCROLL_MS)) { -it } + fadeIn(tween(Motion.SCROLL_MS)),
-            exit = slideOutHorizontally(tween(Motion.SCROLL_MS)) { -it } + fadeOut(tween(Motion.SCROLL_MS)),
-            modifier = Modifier.align(Alignment.CenterStart)
-        ) {
-            SideRail(RailEntry.LIVE, railFocus, { e ->
-                when (e) {
-                    RailEntry.SEARCH -> onSearch()
-                    RailEntry.HOME -> go(Screen.Home)
-                    RailEntry.MOVIES -> go(Screen.MoviesTab)
-                    RailEntry.SERIES -> go(Screen.SeriesTab)
-                    RailEntry.LIVE -> runCatching { railFocus.leave() }
-                    RailEntry.EXIT -> exitApp(ctx)
-                }
-            }, Modifier.onFocusChanged { railFocused = it.hasFocus })
-        }
-        Column(Modifier.fillMaxSize().padding(start = railPad)) {
+        Column(Modifier.fillMaxSize()) {
             AnimatedVisibility(
                 visible = topBarVisible,
                 enter = slideInVertically(tween(Motion.SCROLL_MS)) { -it } + fadeIn(tween(Motion.SCROLL_MS)),
                 exit = slideOutVertically(tween(Motion.SCROLL_MS)) { -it } + fadeOut(tween(Motion.SCROLL_MS))
             ) {
-                TopNavBar("live", topTabs(go, onSearch), if (railAvailable) railFocus else null, { AppUi.accountMenu = true },
+                TopNavBar("live", topTabs(go, onSearch), if (tv && rail) ({ SideMenu.open() }) else null, { AppUi.accountMenu = true },
                     Modifier.padding(start = Layout.TV_SIDE, end = Layout.TV_SIDE, top = Layout.TV_TOP, bottom = Layout.S)
                         .onFocusChanged { topBarFocused = it.hasFocus }) { k ->
                         if (k == "live") Modifier.focusRequester(navFr) else Modifier
@@ -490,8 +476,9 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
                             Ts.CAPTION, Pal.Dim.copy(alpha = 0.8f), Modifier.padding(top = 2.dp))
                     }
                     PillButton(if (mode == LiveModes.DEFAULT) "Mode" else mode, { popup = "modes" },
-                        Modifier.focusProperties { left = railFocus.reqs.getValue(RailEntry.LIVE) }
-                            .onFocusChanged { if (it.isFocused) railFocus.content = actionFr }.focusRequester(actionFr),
+                        Modifier.onPreviewKeyEvent { e ->
+                            if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionLeft) { SideMenu.open(actionFr); true } else false
+                        }.onFocusChanged { if (it.isFocused) SideMenu.rememberContent(actionFr) }.focusRequester(actionFr),
                         size = Ts.SECONDARY, compact = true, selected = mode != LiveModes.DEFAULT)
                     PillButton(LiveSummary.langButton(langs), { popup = "langs" }, size = Ts.SECONDARY, compact = true, selected = langs != null)
                     PillButton("Jump to", { popup = "sections" }, size = Ts.SECONDARY, compact = true)
@@ -520,6 +507,7 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
             layout.first[s.key]?.let { scope.launch { runCatching { state.scrollToItem(it) } } }; popup = null
         } }, focusKey = "sections", onClose = { popup = null })
         "more" -> ChoiceDialog("Options", listOf(
+            AppChrome.GO_HOME to { popup = null; AppChrome.goHome() },
             "Expand All" to { expandAll(); popup = null },
             "Collapse All" to { collapseAll(); popup = null },
             "Catalog Selector" to { popup = null; go(Screen.Categories) }

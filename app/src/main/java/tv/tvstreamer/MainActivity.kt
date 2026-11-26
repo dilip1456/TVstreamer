@@ -216,7 +216,7 @@ fun App(repo: Repo) {
         when (BackNav.action(
             search = search.open,
             canLeaveScreen = !main && screen !is Screen.Play,
-            railFocused = MainBack.railFocused,
+            railFocused = SideMenu.open,
             mainSection = main,
             atChrome = MainBack.atChrome,
             exitConfirmOpen = AppExit.open,
@@ -224,7 +224,7 @@ fun App(repo: Repo) {
             exitOpenedAt = AppExit.openedAt,
         )) {
             BackNav.Action.CLOSE_SEARCH -> search.open = false
-            BackNav.Action.CLOSE_RAIL -> MainBack.closeRail()
+            BackNav.Action.CLOSE_RAIL -> { SideMenu.close(); Unit }
             BackNav.Action.FOCUS_TOP -> MainBack.focusTop()
             BackNav.Action.SHOW_EXIT -> AppExit.show()
             BackNav.Action.CANCEL_EXIT -> AppExit.cancel()
@@ -235,7 +235,7 @@ fun App(repo: Repo) {
     // Always intercept Back outside the player so Home (and a main tab) cannot finish the app.
     // Popups, search, settings subsections and Live select mode register their own handlers above this.
     BackHandler(screen !is Screen.Play && !Popups.any) { onAppBack() }
-    LaunchedEffect(screen) { Keys.focused = null }
+    LaunchedEffect(screen) { Keys.focused = null; if (SideMenu.open) SideMenu.close(restore = false) }
 
     val play: (List<Item>, Int) -> Unit = { l, i -> if (l.isNotEmpty()) screen = Screen.Play(l, i, screen) }
     val open: (Item) -> Unit = { item ->
@@ -254,6 +254,8 @@ fun App(repo: Repo) {
             else -> to
         }
     }
+    androidx.compose.runtime.SideEffect { AppChrome.navigate = go }
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { AppChrome.navigate = null } }
 
     // Remote mic key / assist intent: open search and start voice capture (not over the player)
     LaunchedEffect(VoiceBus.request) {
@@ -296,7 +298,7 @@ fun App(repo: Repo) {
     DisposableEffect(Unit) {
         Keys.app = { a ->
             when (a) {
-                Act.HOME -> { screen = Screen.Home; true }
+                Act.HOME -> { screen = Screen.Home; AppChrome.requestTop(); true }
                 Act.MOVIES -> { screen = Screen.MoviesTab; true }
                 Act.SERIES -> { screen = Screen.SeriesTab; true }
                 Act.LIVE -> { screen = Screen.Live; true }
@@ -394,6 +396,24 @@ fun App(repo: Repo) {
             }, Modifier.align(Alignment.BottomCenter))
             if (AppUi.accountMenu && cur !is Screen.Play) AccountMenu(repo.store, go) { AppUi.accountMenu = false }
             if (AppExit.open && cur !is Screen.Play) ExitConfirm()
+            if (!phone && cur !is Screen.Play) SideMenuPanel(
+                current = when (cur) {
+                    Screen.MoviesTab -> RailEntry.MOVIES
+                    Screen.SeriesTab -> RailEntry.SERIES
+                    Screen.Live -> RailEntry.LIVE
+                    else -> RailEntry.HOME
+                },
+                onPick = { e ->
+                    when (e) {
+                        RailEntry.SEARCH -> { SideMenu.close(restore = false); search.open = true }
+                        RailEntry.HOME -> { SideMenu.close(restore = false); screen = Screen.Home; AppChrome.requestTop() }
+                        RailEntry.MOVIES -> { SideMenu.close(restore = false); screen = Screen.MoviesTab }
+                        RailEntry.SERIES -> { SideMenu.close(restore = false); screen = Screen.SeriesTab }
+                        RailEntry.LIVE -> { SideMenu.close(restore = false); screen = Screen.Live }
+                        RailEntry.EXIT -> { SideMenu.close(restore = false); AppExit.show() }
+                    }
+                }
+            )
             }
         }
         if (splash) BrandSplash(ready = splashReady) { splash = false }

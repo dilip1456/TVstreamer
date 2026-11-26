@@ -64,7 +64,7 @@ object Keys {
         KeyEvent.KEYCODE_VOLUME_MUTE, KeyEvent.KEYCODE_ASSIST, KeyEvent.KEYCODE_VOICE_ASSIST
     )
 
-    /** Defaults: hold Menu = favorite. Extra buttons some remotes send while the app is open. */
+    /** Defaults: hold Menu = Go to Home (short Menu still opens the Options / context menu). Extra buttons some remotes send while the app is open. */
     val defaultShort: Map<Int, Act> = mapOf(
         KeyEvent.KEYCODE_CAPTIONS to Act.SUBS,
         KeyEvent.KEYCODE_GUIDE to Act.LIVE,
@@ -76,7 +76,7 @@ object Keys {
         KeyEvent.KEYCODE_SEARCH to Act.SEARCH,
         KeyEvent.KEYCODE_PROG_BLUE to Act.SEARCH
     )
-    val defaultLong: Map<Int, Act> = mapOf(KeyEvent.KEYCODE_MENU to Act.FAV)
+    val defaultLong: Map<Int, Act> = mapOf(KeyEvent.KEYCODE_MENU to Act.HOME)
 
     var short by mutableStateOf(defaultShort)
         private set
@@ -182,7 +182,7 @@ fun RemoteScreen(onBack: () -> Unit) {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Remote buttons", color = Pal.Text, fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold)
                     Text("Give a remote button its own action, separately for a short press and for holding it. " +
-                        "Holding Menu adds or removes the focused / playing title from favorites; a short Menu press still opens the options menu.",
+                        "Holding Menu opens this app's Home tab (the physical Home button still leaves the app — Android and Fire TV do not let apps intercept it). A short Menu press still opens the options menu.",
                         color = Pal.Dim, fontSize = Ts.SECONDARY.sp)
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         PillButton(if (learning) "Press a button on the remote…" else "Learn a button", { learnMsg = ""; learning = true }, Modifier.focusRequester(firstFr), primary = true)

@@ -13,14 +13,17 @@ import androidx.compose.ui.platform.LocalFocusManager
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/** D-pad wrap in poster grids: Right on a row's last card goes to the next row's first; Left on a row's first card
- *  goes to the menu on the left when there is one, else to the previous row's last card. */
+/** D-pad wrap in poster grids: Right on a row's last card goes to the next row's first; Left on a row's first
+ *  card opens the side menu on TV, else goes to the previous row's last card on phone. */
 object GridNav {
     /** Card to focus for Right at [index] in column [col] of [cols]; null = let the default handle it. */
     fun right(index: Int, col: Int, cols: Int, total: Int): Int? =
         if (cols > 0 && col == cols - 1 && index + 1 < total) index + 1 else null
 
-    /** Card to focus for Left at [index] in column [col] when nothing is on the left ([navTookIt] = false). */
+    /** True when Left on this column should open the TV side menu instead of wrapping. */
+    fun leftOpensMenu(col: Int, tv: Boolean): Boolean = tv && col == 0
+
+    /** Card to focus for Left at [index] in column [col] when the side menu did not take it. */
     fun left(index: Int, col: Int, navTookIt: Boolean): Int? =
         if (col == 0 && !navTookIt && index > 0) index - 1 else null
 }
@@ -52,6 +55,7 @@ fun Modifier.gridWrap(index: Int, total: Int, state: LazyGridState, focus: GridF
             Key.DirectionRight -> GridNav.right(index, me.column, cols, total)?.let { go(it); true } ?: false
             Key.DirectionLeft -> {
                 if (me.column != 0) false
+                else if (GridNav.leftOpensMenu(me.column, !AppUi.phoneNav)) { SideMenu.open(); true }
                 else {
                     val moved = fm.moveFocus(FocusDirection.Left)
                     GridNav.left(index, me.column, moved)?.let { go(it) }

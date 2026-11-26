@@ -5,7 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** 1.99 / 1.99.3: Left on the leftmost top tab opens the side menu only when the rail is available. */
+/** 1.99.5: Left on the leftmost top tab opens the side menu on TV (including while the top bar is showing). */
 class V199Test {
     @Test fun leftOnFirstTabOpensTheSideMenu() {
         assertTrue(TabNav.opensRail(0, TabNav.Dir.LEFT, hasRail = true))

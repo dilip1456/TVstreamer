@@ -12,18 +12,17 @@ class TvChromeTest {
         assertFalse(TvChrome.topBarVisible(1, 0))
     }
 
-    @Test fun focusOverridesScrollPosition() {
+    @Test fun focusKeepsTheTopBarWhileScrolled() {
         assertTrue(TvChrome.topBarVisible(3, 200, topBarFocused = true))
-        assertFalse(TvChrome.topBarVisible(0, 0, railFocused = true))
-        assertFalse(TvChrome.topBarVisible(0, 0, topBarFocused = true, railFocused = true))
+        // The side menu is an overlay now: it does not force the top bar to un-compose
+        assertTrue(TvChrome.topBarVisible(0, 0))
     }
 
-    @Test fun railOnlyWhenTheTopBarIsHiddenOnTv() {
-        assertFalse(TvChrome.railAvailable(tv = true, topBarVisible = true))
-        assertTrue(TvChrome.railAvailable(tv = true, topBarVisible = false))
-        assertFalse(TvChrome.railAvailable(tv = false, topBarVisible = false))
-        // Left on the first tab stays put while the top bar is showing
-        assertFalse(TabNav.opensRail(0, TabNav.Dir.LEFT, hasRail = TvChrome.railAvailable(true, true)))
-        assertTrue(TabNav.opensRail(0, TabNav.Dir.LEFT, hasRail = TvChrome.railAvailable(true, false)))
+    @Test fun sideMenuIsAlwaysAvailableOnTv() {
+        assertTrue(TvChrome.sideMenuEnabled(tv = true))
+        assertFalse(TvChrome.sideMenuEnabled(tv = false))
+        // Left on the first tab opens the side menu even while the top bar is showing
+        assertTrue(TabNav.opensRail(0, TabNav.Dir.LEFT, hasRail = TvChrome.sideMenuEnabled(true)))
+        assertFalse(TabNav.opensRail(0, TabNav.Dir.LEFT, hasRail = TvChrome.sideMenuEnabled(false)))
     }
 }

@@ -36,7 +36,7 @@ object TabNav {
         }
     }
 
-    /** True when Left on the first tab should open the side menu (only when the rail is currently available). */
+    /** True when Left on the first tab should open the side menu (TV: always, including while the top bar is showing). */
     fun opensRail(index: Int, dir: Dir, hasRail: Boolean): Boolean = hasRail && dir == Dir.LEFT && index == 0
 
     /** True when the key must be consumed so focus cannot leave the tab bar (Left / Right / Up). */
