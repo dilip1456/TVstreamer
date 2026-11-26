@@ -650,19 +650,45 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
         else { delay(60); runCatching { if (dialog == null && !panel && !controls) rootFr.requestFocus() } }
     }
 
-    // 1.68: ONE Back leaves the player and lands on the list it was opened from (same channel focused). Only something the
-    // user opened on purpose (a menu / dialog, the Channels or Schedule side panel) closes first; those take Back
-    // themselves (PopupFrame). The info bar, the controls, the Up next card and phone fullscreen no longer eat a press
-    // (they used to: Back hid the info bar, then exited fullscreen, then left, so it took 2-3 presses and an extra
-    // press after that went past the list to Home).
-    BackHandler(dialog != null) { dialog = null; touch() }
-    fun goBack() {
-        when {
-            dialog != null -> { dialog = null; touch() }
-            panel -> layer = LiveOverlay.Layer.NONE
-            else -> onBack()
+    // Back: a visible overlay (controls, pickers, channel list, info bar, Up next) hides first and playback
+    // continues. With nothing open, the first Back shows a short hint; a second Back within 2 s leaves the
+    // player and returns to the screen it was opened from (not the main menu). Menus / pickers / side panels
+    // still close themselves via PopupFrame. A held Back is not treated as a double press. Elsewhere in the
+    // app, Back stays one-press.
+    var exitArmedAt by remember { mutableLongStateOf(0L) }
+    var exitHint by remember { mutableStateOf(false) }
+    fun onPlayerBack(repeat: Boolean = false) {
+        val overlay = PlayerBack.overlayOpen(
+            controls = controls && !live,
+            dialog = dialog != null,
+            panel = panel,
+            info = live && layer != LiveOverlay.Layer.NONE,
+            upNext = showUpNext,
+        )
+        val r = PlayerBack.press(android.os.SystemClock.elapsedRealtime(), overlay, exitArmedAt, repeat)
+        exitArmedAt = r.armedAt
+        when (r.action) {
+            PlayerBack.Action.HIDE_OVERLAY -> {
+                dialog = null
+                controls = false
+                if (layer != LiveOverlay.Layer.NONE) layer = LiveOverlay.Layer.NONE
+                if (showUpNext) upNextCancelled = item.key
+                exitHint = false
+                touch()
+            }
+            PlayerBack.Action.HINT -> exitHint = true
+            PlayerBack.Action.EXIT -> { exitHint = false; onBack() }
+            PlayerBack.Action.IGNORE -> {}
         }
     }
+    LaunchedEffect(exitArmedAt) {
+        if (exitArmedAt > 0L) {
+            delay(PlayerBack.EXIT_WINDOW_MS)
+            if (exitArmedAt > 0L) exitHint = false
+        }
+    }
+    BackHandler(!Popups.any) { onPlayerBack() }
+    fun goBack() { onPlayerBack() }
 
     // Keys that are swallowed on KeyDown also have their KeyUp swallowed,
     // so the button that receives focus does not get a stray click.
@@ -727,8 +753,14 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
                     }
                     Key.DirectionLeft -> { seekBy(-SEEK_MS); showControls(true); true }
                     Key.DirectionRight -> { seekBy(SEEK_MS); showControls(true); true }
-                    Key.DirectionUp -> { if (list.size > 1) go(idx + 1) else showControls(); true }
-                    Key.DirectionDown -> { if (list.size > 1) go(idx - 1) else showControls(); true }
+                    Key.DirectionUp, Key.DirectionDown -> {
+                        when (PlayerPad.hiddenVertical(live, up = k == Key.DirectionUp)) {
+                            PlayerPad.Action.ZAP_UP -> go(idx + 1)
+                            PlayerPad.Action.ZAP_DOWN -> go(idx - 1)
+                            PlayerPad.Action.SHOW_CONTROLS -> showControls()
+                        }
+                        true
+                    }
                     Key.Menu -> { dialog = "menu"; true }
                     else -> false
                 }
@@ -845,6 +877,11 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
         if (flash.isNotEmpty()) {
             Text(flash, color = Color.White, fontSize = Ts.DISPLAY.sp, fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.align(Alignment.Center).background(Color(0x99000000), RoundedCornerShape(Radii.row)).padding(horizontal = 20.dp, vertical = 10.dp))
+        }
+        if (exitHint) {
+            Text(PlayerBack.HINT, color = Color.White, fontSize = Ts.HEAD.sp,
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 48.dp)
+                    .background(Color(0xCC000000), RoundedCornerShape(20.dp)).padding(horizontal = 18.dp, vertical = 10.dp))
         }
 
         // Channel / episode banner after zapping, even when controls are hidden.
