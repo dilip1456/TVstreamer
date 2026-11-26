@@ -93,17 +93,20 @@ object GeminiParse {
 
     /** Prompt for "Suggested for you". [liked] / [disliked] are local votes (more like these / avoid similar). */
     fun suggestPrompt(watched: List<String>, favorites: List<String>, lib: List<LibEntry<*>>, count: Int = 20,
-                      liked: List<String> = emptyList(), disliked: List<String> = emptyList()): String = buildString {
+                      liked: List<String> = emptyList(), disliked: List<String> = emptyList(),
+                      shown: List<String> = emptyList()): String = buildString {
         append("You recommend movies and TV series for a TV app. Pick up to $count titles the user is likely to enjoy, ")
         append("similar in genre, tone, cast or era to what they watched and liked. ")
         append("Pick ONLY from the LIBRARY list below and do not pick titles they already watched or favorited. ")
         if (liked.isNotEmpty()) append("The user liked these suggestions — prefer more titles like them. ")
         if (disliked.isNotEmpty()) append("The user disliked these titles — do not pick them, and avoid similar titles. ")
+        if (shown.isNotEmpty()) append("They asked for fresh ideas: do not pick titles from ALREADY SUGGESTED. ")
         append("Answer with JSON only: {\"ids\":[<library id>, ...]} ordered best first.\n\n")
         append("WATCHED:\n").append(watched.take(40).joinToString("\n").ifEmpty { "(none)" }).append("\n\n")
         append("FAVORITES:\n").append(favorites.take(40).joinToString("\n").ifEmpty { "(none)" }).append("\n\n")
         append("LIKED (more like these):\n").append(liked.take(40).joinToString("\n").ifEmpty { "(none)" }).append("\n\n")
         append("DISLIKED (do not pick, avoid similar):\n").append(disliked.take(40).joinToString("\n").ifEmpty { "(none)" }).append("\n\n")
+        if (shown.isNotEmpty()) append("ALREADY SUGGESTED (do not pick again):\n").append(shown.take(80).joinToString("\n")).append("\n\n")
         append("LIBRARY (id|title|year|kind):\n").append(libraryLines(lib))
     }
 

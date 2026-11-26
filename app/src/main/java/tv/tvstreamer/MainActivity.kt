@@ -262,7 +262,7 @@ fun App(repo: Repo) {
                     val f = Keys.focused
                     if (f != null && !f.isEpisode()) {
                         repo.toggleFav(f)
-                        toast(ctx, if (repo.isFav(f)) "Added to My List" else "Removed from My List")
+                        toast(ctx, repo.favMessage(f))
                         tick++
                     } else toast(ctx, "Focus a title or channel first")
                     true

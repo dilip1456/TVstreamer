@@ -352,6 +352,34 @@ class Library(private val repo: Repo) {
     fun moreInCat(id: String) { if (id !in catEnd) job("cat:$id") { fetchCat(id, front = false) } }
     fun catHasMore(id: String): Boolean = id !in catEnd
 
+    /** Category page Refresh (1.97): when each category was last refreshed, so repeated presses never pull the portal again. */
+    private val catRefreshedAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    fun catRefreshWait(id: String, now: Long = System.currentTimeMillis()): Long = CatRefresh.wait(catRefreshedAt[id] ?: 0L, now)
+
+    /**
+     * Refresh on a category page: page 1 of that one category (new titles go in front), queued behind any running
+     * library job and paced like every other page (gap between pages, session cap, portal pause). Once per
+     * category every 10 minutes. The saved titles stay on screen meanwhile.
+     */
+    fun refreshCat(id: String): String {
+        val now = System.currentTimeMillis()
+        val wait = catRefreshWait(id, now)
+        if (wait > 0) return "Refreshed a moment ago. To keep your provider happy, try again in ${(wait + 59_999) / 60_000} min."
+        if (repo.api.limiter.paused) return busyText(repo.api.limiter.pauseLeft())
+        if (stopped) return "Loading is stopped. Resume it in Settings first."
+        catRefreshedAt[id] = now
+        job("refresh:$id") {
+            val pg = page(id, 1) ?: return@job
+            val (next, add) = CatalogDisk.merge(all, pg.items, front = true)
+            if (add.isNotEmpty()) { publish(next, add); appendDisk(add) }
+            if (!catNext.containsKey(id)) catNext[id] = 2
+            if (pg.pages > 1 && id in catEnd && add.isNotEmpty()) catEnd -= id
+            note = if (add.isEmpty()) "No new titles in this category" else "${add.size} new ${if (add.size == 1) "title" else "titles"} added"
+            writeMeta()
+        }
+        return "Checking this category for new titles…"
+    }
+
     /** Titles found by a portal search: kept with the rest. */
     fun merge(items: List<Item>) {
         val add = items.filter { it.kind == "vod" }

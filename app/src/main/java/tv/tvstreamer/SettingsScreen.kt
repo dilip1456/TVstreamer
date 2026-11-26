@@ -57,6 +57,8 @@ object SettingsLabels {
     const val LOCK_PASSWORD = "Lock Password"
     const val SAVE_RELOAD = "Save and Reload"
     const val CATALOG_SELECTOR = "Catalog Selector"
+    const val DEFAULT_WATCHLIST = "Default Watchlist"
+    const val MANAGE_WATCHLISTS = "Manage Watchlists"
     const val SENSITIVE = "Sensitive Content Only"
     const val REFRESH_INTERVAL = "Library Refresh Interval"
     const val REFRESH_LIBRARY = "Refresh Library"
@@ -93,7 +95,7 @@ object SettingsLabels {
     const val CLEAR_INFO = "Clear Movie Info Cache"
 
     val ALL = listOf(GOOGLE_ACCOUNT, SYNC_NOW, SIGN_IN, SIGN_OUT, PORTAL_URL, MAC, SERIAL, LOCK_PASSWORD, SAVE_RELOAD,
-        CATALOG_SELECTOR, SENSITIVE, REFRESH_INTERVAL, REFRESH_LIBRARY, STOP_LOADING, RESUME_LOADING, CONFIRM_REFRESH,
+        CATALOG_SELECTOR, DEFAULT_WATCHLIST, MANAGE_WATCHLISTS, SENSITIVE, REFRESH_INTERVAL, REFRESH_LIBRARY, STOP_LOADING, RESUME_LOADING, CONFIRM_REFRESH,
         CLEAR_HISTORY, CLEAR_DAY, CLEAR_ALL, CANCEL, LANG_MOVIES, LANG_SERIES, LANG_LIVE, AUTOPLAY, PICTURE,
         PHONE_ORIENTATION, SUB_SIZE, RESET_TRACKS, TMDB, OMDB, OS_KEY, OS_USER, OS_PASS, SUBDL, GEMINI, SAVE_TEST,
         ABOUT_KEYS, THEME, REMOTE, UPDATE_MODE, CHECK_UPDATE, PORTAL_REPLIES, LINK_DIAG, CLEAR_INFO)
@@ -150,6 +152,7 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
     var aspect by remember { mutableStateOf(s.aspect) }
     var note by remember { mutableStateOf("") }
     var learn by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var wlPage by remember { mutableStateOf("") }
     var sec by remember { mutableStateOf(if (split) SettingsNav.Sec.ACCOUNT else null) }
     var inDetail by remember { mutableStateOf(false) }
     val secFr = remember { SettingsNav.ALL.associateWith { FocusRequester() } }
@@ -192,6 +195,9 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
             }
             SettingsNav.Sec.CATALOG -> {
                 SettingRow(L.CATALOG_SELECTOR, "Movies, series and Live TV", first) { go(Screen.Categories) }
+                // 1.97: several watchlists; Add to Watchlist uses the default one
+                SettingRow(L.DEFAULT_WATCHLIST, repo.defaultList().name) { wlPage = "default" }
+                SettingRow(L.MANAGE_WATCHLISTS, repo.watchLists.size.let { if (it == 1) "1 list" else "$it lists" }) { wlPage = "manage" }
                 SettingRow(L.SENSITIVE, if (repo.showAdult) "On" else "Off") {
                     repo.showAdult = !repo.showAdult
                     note = if (repo.showAdult) "Only password-controlled movies, series and channels are shown. History is not saved in this mode." else "Sensitive content is hidden. Normal catalog is shown."
@@ -340,5 +346,11 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
             } else DetailPane(cur, Modifier.fillMaxSize().padding(16.dp))
         }
         learn?.let { (t, b) -> InfoDialog(t, b) { learn = null } }
+        when (wlPage) {
+            "default" -> ChoiceDialog(SettingsLabels.DEFAULT_WATCHLIST, repo.watchLists.map { l ->
+                ((if (l.id == repo.defaultList().id) "✓  " else "") + l.name) to { repo.setDefaultList(l.id); note = "${l.name} is now the default watchlist"; wlPage = "" }
+            }, focusKey = "wl-default-settings") { wlPage = "" }
+            "manage" -> WatchlistPicker(repo, null) { wlPage = "" }
+        }
     }
 }

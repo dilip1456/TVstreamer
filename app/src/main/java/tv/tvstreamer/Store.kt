@@ -75,6 +75,19 @@ class Store(ctx: Context) {
         p.edit().putString(name, itemsJson(l).toString()).apply()
     }
 
+    /** Watchlists the user made (1.97), JSON (see WatchLists). A plain string pref, so it syncs like other settings. */
+    var watchlistsJson: String
+        get() = p.getString(WatchLists.PREF, "") ?: ""
+        set(v) { p.edit().putString(WatchLists.PREF, v).apply() }
+    /** Id of the default watchlist ("" = My List). */
+    var watchlistDefault: String
+        get() = p.getString(WatchLists.PREF_DEFAULT, "") ?: ""
+        set(v) { p.edit().putString(WatchLists.PREF_DEFAULT, v).apply() }
+    /** Name the user gave the built-in My List ("" = My List). */
+    var myListName: String
+        get() = p.getString(WatchLists.PREF_MY_NAME, "") ?: ""
+        set(v) { p.edit().putString(WatchLists.PREF_MY_NAME, v).apply() }
+
     fun addRecent(i: Item) {
         if (i.locked) return
         saveList("recent", (listOf(i) + list("recent").filter { it.key != i.key }).take(30))

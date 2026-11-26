@@ -385,7 +385,7 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
                 Act.FAV -> {
                     val i = cur
                     repo.toggleFav(i); favTick++; touch()
-                    toast(ctx, if (repo.isFav(i)) "Added to My List" else "Removed from My List")
+                    toast(ctx, repo.favMessage(i))
                     true
                 }
                 else -> false
@@ -1033,7 +1033,7 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
                 else -> buildList {
                     // Bar options that had no room on the one-line bar come first (Fullscreen is already listed below)
                     barOverflow.filter { it.key != "fs" && it.key != "move" }.forEach { a -> add(a.label to { dialog = null; a.onClick() }) }
-                    if (!live) add((if (repo.isFav(item)) "Remove favorite" else "Add favorite") to { repo.toggleFav(item); favTick++; dialog = null })
+                    if (!live) add((if (repo.isFav(item)) WatchLists.REMOVE else WatchLists.ADD) to { repo.toggleFav(item); favTick++; dialog = null })
                     add("Audio track" to { dialog = "audio" })
                     add("Subtitles" to { dialog = "subs" })
                     add("Picture: Fit / Fill / Zoom" to { dialog = "aspect" })

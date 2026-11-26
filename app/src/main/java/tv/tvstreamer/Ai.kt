@@ -30,6 +30,16 @@ object Ai {
     private const val TTL_MS = 12 * 3600_000L
     private const val RETRY_MS = 30 * 60_000L
     private const val MAX_LIB = 700
+    /** A Gemini request for the Home row is running (the Refresh Suggestions tile shows it). */
+    var refreshing by mutableStateOf(false)
+        private set
+    /** Keys suggested before (newest last, capped): a refresh asks for titles not shown yet. */
+    private var shownKeys: List<String> = emptyList()
+    private var shownTitles: List<String> = emptyList()
+    private const val MAX_SHOWN = 200
+    /** The row had suggestions at some point (so an empty row means "all reviewed", not "nothing yet"). */
+    var hadAny by mutableStateOf(false)
+        private set
     @Volatile private var busy = false
     @Volatile private var lastTry = 0L
     @Volatile private var lastTrySig = ""
@@ -56,7 +66,29 @@ object Ai {
     private fun watched(repo: Repo): List<String> =
         repo.store.history().filter { it.kind == "vod" }.map { e -> if (e.isEpisodeLike()) (repo.store.parentOf(e)?.let { titleOf(it) } ?: titleOf(e)) else titleOf(e) }.distinct()
 
-    private fun favorites(repo: Repo): List<String> = repo.favs.filter { it.kind == "vod" }.map { titleOf(it) }.distinct()
+    /** Titles in any watchlist (My List and the user's lists). */
+    private fun favorites(repo: Repo): List<String> = repo.watchLists.flatMap { it.items }.filter { it.kind == "vod" }.map { titleOf(it) }.distinct()
+
+    /**
+     * What the Home row shows: suggestions not disliked, not in a watchlist and not watched yet. When this is
+     * empty but [suggested] is not, everything was reviewed and the row offers Refresh Suggestions.
+     */
+    fun visibleFor(repo: Repo, items: List<Item> = suggested): List<Item> {
+        val seen = runCatching { repo.store.history().map { it.key }.toSet() }.getOrDefault(emptySet())
+        return AiSuggest.remaining(items, feedback, repo.listedKeys(), seen)
+    }
+
+    /** Already Watched on a suggestion: marked watched (watch history, so Gemini counts it) and out of the row. */
+    fun markWatched(repo: Repo, item: Item) {
+        repo.setWatched(item, true)
+        drop(repo, item)
+    }
+
+    /** Takes [item] out of the saved row (watched, added to a list). */
+    fun drop(repo: Repo, item: Item) {
+        val kept = suggested.filter { it.key != item.key }
+        if (kept.size != suggested.size) { suggested = kept; persistSuggested(repo, sig(repo), stamped = false) }
+    }
 
     fun voteOf(item: Item): AiVote = AiFeedback.voteOf(feedback, item)
 
@@ -94,6 +126,8 @@ object Ai {
             .put("t", if (stamped) System.currentTimeMillis() else 0L)
             .put("sig", signature)
             .put("items", JSONArray().also { a -> suggested.forEach { a.put(it.toJson()) } })
+            .put("shown", JSONArray(shownKeys))
+            .put("shownTitles", JSONArray(shownTitles))
             .toString())
     }
 
@@ -105,8 +139,12 @@ object Ai {
             return
         }
         val o = repo.store.cacheRead(CACHE)?.let { runCatching { JSONObject(it) }.getOrNull() } ?: return
+        o.optJSONArray("shown")?.let { s -> shownKeys = (0 until s.length()).map { s.optString(it) }.filter { it.isNotEmpty() } }
+        o.optJSONArray("shownTitles")?.let { s -> shownTitles = (0 until s.length()).map { s.optString(it) }.filter { it.isNotEmpty() } }
+        if (shownKeys.isNotEmpty()) hadAny = true
         val a = o.optJSONArray("items") ?: return
         suggested = AiFeedback.visible((0 until a.length()).mapNotNull { runCatching { Item.from(a.getJSONObject(it)) }.getOrNull() }, feedback)
+        if (suggested.isNotEmpty()) hadAny = true
     }
 
     /** Asks Gemini for new suggestions when the cache is old or the history / favourites / votes changed. Never throws. */
@@ -123,26 +161,31 @@ object Ai {
         val fresh = cache != null && cache.optString("sig") == signature && System.currentTimeMillis() - cache.optLong("t") < TTL_MS
         if (fresh && !force) return
         if (!force && signature == lastTrySig && System.currentTimeMillis() - lastTry < RETRY_MS) return
-        busy = true
+        busy = true; refreshing = true
         try {
             val lib = withContext(Dispatchers.Default) { library(repo) }
             if (lib.size < 20) return                       // library not loaded yet; tried again when it grows
-            val text = withContext(Dispatchers.IO) { Gemini.generate(GeminiParse.suggestPrompt(w, f, lib, liked = liked, disliked = disliked)) }
+            // A refresh asks for titles not suggested before (the current row counts as shown)
+            val before = if (force) (shownTitles + suggested.map { titleOf(it) }).distinct().takeLast(80) else emptyList()
+            val text = withContext(Dispatchers.IO) { Gemini.generate(GeminiParse.suggestPrompt(w, f, lib, liked = liked, disliked = disliked, shown = before)) }
             val (ids, titles) = GeminiParse.picksFromText(text)
-            val skip = (repo.favs.map { it.key } + repo.store.history().map { it.key }).toSet()
-            val items = GeminiParse.map(ids, titles, lib).filter { it.key !in skip && !AiFeedback.isDisliked(feedback, it) }
+            val skip = repo.listedKeys() + repo.store.history().map { it.key } + (if (force) shownKeys + suggested.map { it.key } else emptyList())
+            val items = AiSuggest.remaining(GeminiParse.map(ids, titles, lib), feedback, skip, emptySet())
             if (items.isNotEmpty()) {
+                val old = suggested
                 suggested = items
+                val (k, t) = AiSuggest.remember(shownKeys, shownTitles, old + items, ::titleOf, MAX_SHOWN)
+                shownKeys = k; shownTitles = t; hadAny = true
                 persistSuggested(repo, signature, stamped = true)
-            }
-            lastError = ""
+                lastError = ""
+            } else lastError = if (force) "No new suggestions right now. Try again later." else ""
             lastTry = System.currentTimeMillis(); lastTrySig = signature
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
             lastError = e.message ?: "Gemini request failed"
             lastTry = System.currentTimeMillis(); lastTrySig = signature   // back off; no retry storm
-        } finally { busy = false }
+        } finally { busy = false; refreshing = false }
     }
 
     /** Voice / typed request: search words, or titles from the library. */

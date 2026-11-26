@@ -390,6 +390,7 @@ class Repo(private val ctx: Context) {
         hidden = store.hidden
         chNames = store.chNames()
         loadFavs()
+        loadLists()
         applyNames()
         vodOrder = store.catOrder("vod")
         liveOrder = store.catOrder("itv")
@@ -429,16 +430,90 @@ class Repo(private val ctx: Context) {
     private fun persistFavs(list: List<Item>) { bg.launch { store.saveList("fav", list) } }
     private fun persistHidden(h: Set<String>) { bg.launch { store.hidden = h } }
 
-    fun isFav(i: Item) = if (i.kind == "itv") folders.contains(i.key) else favs.any { it.key == i.key }
-    /** Quick toggle (remote Favourite key, search): a channel goes into the last used folder, or out of every folder. */
+    /** Channels: in a My Channels folder. Movies / series: in any watchlist. */
+    fun isFav(i: Item) = if (i.kind == "itv") folders.contains(i.key) else isListed(i)
+    /**
+     * Quick toggle (remote Favourite key, player star, search): a channel goes into the last used folder, or out of
+     * every folder; a movie / series goes into the default watchlist, or out of every watchlist.
+     */
     fun toggleFav(i: Item) {
         if (i.kind == "itv") {
             if (isFav(i)) removeFromFavorites(listOf(i))
             else addToFolder(store.sort("last_folder", "").takeIf { it in folders.folders } ?: folders.names.firstOrNull() ?: FolderSet.DEFAULT, listOf(i))
             return
         }
-        favs = if (isFav(i)) favs.filter { it.key != i.key } else favs + i
-        persistFavs(favs.filter { it.kind != "itv" })
+        if (isListed(i)) removeFromAllLists(i) else addToList(defaultListId, i)
+    }
+    /** Toast text after [toggleFav]. */
+    fun favMessage(i: Item): String = when {
+        i.kind == "itv" -> if (isFav(i)) "Added to My Channels" else "Removed from My Channels"
+        isListed(i) -> "Added to ${defaultList().name}"
+        else -> "Removed from watchlists"
+    }
+
+    // ---- Watchlists (1.97): My List (the synced "fav" list) plus the user's own lists ----
+    var userLists by mutableStateOf(WatchLists.fromJson(store.watchlistsJson))
+        private set
+    var myListName by mutableStateOf(WatchLists.clean(store.myListName).ifEmpty { WatchLists.MY_NAME })
+        private set
+    var defaultListId by mutableStateOf(store.watchlistDefault.ifEmpty { WatchLists.MY })
+        private set
+    /** Every watchlist, My List first. */
+    val watchLists: List<WatchList>
+        get() = listOf(WatchList(WatchLists.MY, myListName, favs.filter { it.kind == "vod" })) + userLists
+    fun defaultList(): WatchList { val all = watchLists; val id = WatchLists.defaultId(defaultListId, all); return all.first { it.id == id } }
+    fun isListed(i: Item): Boolean = favs.any { it.kind == "vod" && it.key == i.key } || WatchLists.contains(userLists, i.key)
+    fun isInList(id: String, i: Item): Boolean = watchLists.firstOrNull { it.id == id }?.items?.any { it.key == i.key } == true
+    fun listedKeys(): Set<String> = WatchLists.keys(watchLists)
+
+    private val listsLock = Any()
+    /** Saved off the main thread; each write stores the latest lists, so quick changes never land out of order. */
+    private fun saveUserLists(l: List<WatchList>) { userLists = l; bg.launch { synchronized(listsLock) { store.watchlistsJson = WatchLists.toJson(userLists) } } }
+
+    fun addToList(id: String, i: Item) {
+        if (i.kind != "vod") return
+        val target = WatchLists.defaultId(id, watchLists)
+        if (target == WatchLists.MY) {
+            if (favs.none { it.key == i.key }) { favs = favs + i; persistFavs(favs.filter { it.kind != "itv" }) }
+        } else saveUserLists(WatchLists.add(userLists, target, i))
+    }
+    fun removeFromList(id: String, i: Item) {
+        if (id == WatchLists.MY) {
+            if (favs.any { it.kind == "vod" && it.key == i.key }) { favs = favs.filter { it.kind == "itv" || it.key != i.key }; persistFavs(favs.filter { it.kind != "itv" }) }
+        } else saveUserLists(WatchLists.remove(userLists, id, i.key))
+    }
+    fun removeFromAllLists(i: Item) {
+        removeFromList(WatchLists.MY, i)
+        if (WatchLists.contains(userLists, i.key)) saveUserLists(WatchLists.removeEverywhere(userLists, i.key))
+    }
+    /** New list; returns its id (null for an empty name). */
+    fun createList(name: String): String? {
+        val (l, id) = WatchLists.create(watchLists, name)
+        if (id == null) return null
+        saveUserLists(l.filter { it.id != WatchLists.MY })
+        return id
+    }
+    fun renameList(id: String, name: String) {
+        if (id == WatchLists.MY) {
+            val n = WatchLists.uniqueName(name, watchLists, exceptId = WatchLists.MY)
+            if (n.isEmpty()) return
+            myListName = n; bg.launch { store.myListName = if (n == WatchLists.MY_NAME) "" else n }
+        } else saveUserLists(WatchLists.rename(watchLists, id, name).filter { it.id != WatchLists.MY })
+    }
+    /** My List can not be deleted; deleting the default makes My List the default again. */
+    fun deleteList(id: String) {
+        if (id == WatchLists.MY) return
+        saveUserLists(WatchLists.delete(userLists, id))
+        if (defaultListId == id) setDefaultList(WatchLists.MY)
+    }
+    fun setDefaultList(id: String) {
+        val d = WatchLists.defaultId(id, watchLists)
+        defaultListId = d; bg.launch { store.watchlistDefault = if (d == WatchLists.MY) "" else d }
+    }
+    private fun loadLists() {
+        userLists = WatchLists.fromJson(store.watchlistsJson)
+        myListName = WatchLists.clean(store.myListName).ifEmpty { WatchLists.MY_NAME }
+        defaultListId = store.watchlistDefault.ifEmpty { WatchLists.MY }
     }
 
     // ---- My Channels folders ----
