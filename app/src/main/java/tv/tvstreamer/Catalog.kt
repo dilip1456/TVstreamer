@@ -1375,6 +1375,6 @@ fun LanguagesScreen(repo: Repo, tab: String, onBack: () -> Unit) {
     }
 }
 
-/** Catalog Selector: one mode-aware list of movie, series and Live TV groups. */
+/** Catalog Selector: languages, then Movies / Series / Live categories, then the shown list. */
 @Composable
-fun CategoriesScreen(repo: Repo, go: (Screen) -> Unit) = CatalogModeScreen(repo, go)
+fun CategoriesScreen(repo: Repo, go: (Screen) -> Unit) = CatalogSelectorScreen(repo, go)
