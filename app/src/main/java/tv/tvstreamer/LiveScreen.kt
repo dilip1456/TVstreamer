@@ -132,6 +132,7 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
     // Select mode (bulk hide / unhide): null = off, else the selected channel keys
     var sel by remember { mutableStateOf<Set<String>?>(null) }
     var focusSec by remember { mutableStateOf("") }
+    var onHeader by remember { mutableStateOf(false) }   // focus is on a type / sub-category header (not a channel)
     val barFr = remember { FocusRequester() }
     BackHandler(sel != null && !Popups.any) { sel = null }
     fun bulk(on: Boolean) {
@@ -239,13 +240,45 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
         scope.launch { runCatching { state.animateScrollToItem(at) } }
     }
     fun expandAll() { repo.setCollapsed(LiveCollapse.expandAll()) }
-    fun collapseAll() { repo.setCollapsed(LiveCollapse.collapseAll(types)) }
+    /** Scroll a header into view after a fold (its channels are gone, so the list must not be left mid-air) and focus it. */
+    fun showHeader(hk: String, next: Set<String>) {
+        val at = LiveCollapse.headerIndex(LiveCollapse.layout(sections, next), hk) ?: return
+        scope.launch {
+            runCatching { state.scrollToItem(at) }
+            delay(60)
+            if (tv) runCatching { headFr(hk).requestFocus() }
+        }
+    }
+    /** 1.99.2: fold the group the focused channel (or header) is in, from anywhere inside it. */
+    fun foldGroupOf(sectionKey: String) {
+        val hk = LiveCollapse.headerOf(sections, sectionKey) ?: return
+        val next = LiveCollapse.foldGroup(sections, collapsed, sectionKey)
+        if (next != collapsed) repo.setCollapsed(next)
+        focusSec = hk
+        showHeader(hk, next)
+    }
+    /** OK on a header: fold / unfold; a fold keeps the header in view and focused. */
+    fun toggleHeader(hk: String) {
+        val folding = hk !in collapsed
+        repo.toggleCollapsed(listOf(hk))
+        if (folding) showHeader(hk, collapsed + hk)
+    }
+    fun collapseAll() {
+        val next = LiveCollapse.collapseAll(types)
+        repo.setCollapsed(next)
+        // Land on the type that had focus (else the first one), at the top of the folded list
+        val type = sections.firstOrNull { it.key == focusSec || LiveCollapse.typeKey(it.type) == focusSec }?.type ?: types.firstOrNull()
+        type?.let { showHeader(LiveCollapse.typeKey(it), next) }
+    }
     // Channel / Page up-down jump a whole section and land on its header (1.56)
     fun pageKey(e: androidx.compose.ui.input.key.KeyEvent): Boolean {
         val down = when (e.key) { Key.ChannelDown, Key.PageDown, Key.MediaFastForward -> true; Key.ChannelUp, Key.PageUp, Key.MediaRewind -> false; else -> return false }
         if (e.type != KeyEventType.KeyDown) return true
-        val cur = focusSec.ifEmpty { collapseLayout.visibleHeaders.firstOrNull().orEmpty() }
-        val k = LiveCollapse.step(collapseLayout.visibleHeaders, cur, down) ?: return true
+        if (e.nativeKeyEvent.repeatCount > 0 && e.nativeKeyEvent.repeatCount % 3 != 0) return true   // held: a calm pace
+        val curSec = focusSec.ifEmpty { collapseLayout.visibleHeaders.firstOrNull().orEmpty() }
+        // a channel's own header key (a lone block folds under its type header)
+        val cur = if (onHeader) curSec else LiveCollapse.headerOf(sections, curSec) ?: curSec
+        val k = LiveCollapse.jump(collapseLayout.visibleHeaders, cur, onHeader, down) ?: return true
         val at = layout.first[k] ?: return true
         scope.launch { runCatching { state.scrollToItem(at) }; delay(60); runCatching { headFr(k).requestFocus() } }
         return true
@@ -295,9 +328,9 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
                         val nType = group.sumOf { it.rows.size }
                         stickyHeader(key = "t|$type") {
                             TypeHeader(type, nType, typeFolded, tv, Modifier.focusRequester(headFr(tKey))
-                                .onFocusChanged { if (it.isFocused) { focusSec = tKey; railFocus.content = headFr(tKey) } }
+                                .onFocusChanged { if (it.isFocused) { focusSec = tKey; onHeader = true; railFocus.content = headFr(tKey) } }
                                 .then(toRail),
-                                onToggle = { repo.toggleCollapsed(listOf(tKey)) },
+                                onToggle = { toggleHeader(tKey) },
                                 onMenu = { tree.firstOrNull { it.type == type }?.let { groupMenu = it } })
                         }
                         if (!typeFolded) {
@@ -306,9 +339,9 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
                                 val folded = s.key in collapsed
                                 if (subs) stickyHeader(key = "h|${s.key}") {
                                     SectionHeader(s, folded, tv, Modifier.focusRequester(headFr(s.key))
-                                        .onFocusChanged { if (it.isFocused) { focusSec = s.key; railFocus.content = headFr(s.key) } }
+                                        .onFocusChanged { if (it.isFocused) { focusSec = s.key; onHeader = true; railFocus.content = headFr(s.key) } }
                                         .then(toRail),
-                                        onToggle = { repo.toggleCollapsed(listOf(s.key)) },
+                                        onToggle = { toggleHeader(s.key) },
                                         onMenu = { LiveModes.nodeForSection(tree, s)?.let { groupMenu = it } },
                                         underType = true)
                                 }
@@ -319,7 +352,7 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
                                         Modifier
                                             .then(if (ch.key == repo.nowPlaying) Modifier.focusRequester(playingFr)
                                                 else if (ch.key == focusKey) Modifier.focusRequester(restoreFr) else Modifier)
-                                            .onFocusChanged { if (it.isFocused) { focusKey = ch.key; focusSec = s.key; railFocus.content = if (ch.key == repo.nowPlaying) playingFr else restoreFr } }
+                                            .onFocusChanged { if (it.isFocused) { focusKey = ch.key; focusSec = s.key; onHeader = false; railFocus.content = if (ch.key == repo.nowPlaying) playingFr else restoreFr } }
                                             .then(if (first) Modifier.focusRequester(firstFr) else Modifier)
                                             .then(toRail),
                                         onClick = { sel?.let { sel = LiveSelect.toggle(it, ch.key) } ?: playAt(ch) },
@@ -385,6 +418,9 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
                     Column(Modifier.weight(1f)) {
                         androidx.compose.material3.Text("Live TV", color = Pal.Text, fontSize = (Ts.TITLE + 4).sp, fontWeight = FontWeight.Bold, maxLines = 1)
                         Label(liveSummary(mode, modeCount, langs, view), Ts.SECONDARY, Pal.Dim, Modifier.padding(top = 2.dp))
+                        // 1.99.2: how to fold a long open group without scrolling back to its header
+                        if (sections.isNotEmpty()) Label("Rewind or Channel Up: group header  ·  Menu on a channel: Collapse Group",
+                            Ts.CAPTION, Pal.Dim.copy(alpha = 0.8f), Modifier.padding(top = 2.dp))
                     }
                     PillButton(if (mode == LiveModes.DEFAULT) "Mode" else mode, { popup = "modes" },
                         Modifier.focusProperties { left = railFocus.reqs.getValue(RailEntry.LIVE) }
@@ -428,7 +464,9 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
         ChannelContextMenu(repo, ch, nowOn,
             onShowHide = { setChannelOn(ch, on = !nowOn, row = row) },
             onSelect = { sel = setOf(ch.key) },
-            onClose = { menuCh = null })
+            onClose = { menuCh = null },
+            onCollapseGroup = sections.firstOrNull { sc -> sc.rows.any { it.ch.key == ch.key } }?.let { sc -> { foldGroupOf(sc.key) } },
+            onCollapseAll = { collapseAll() })
     }
     groupMenu?.let { n ->
         LiveGroupContextMenu(

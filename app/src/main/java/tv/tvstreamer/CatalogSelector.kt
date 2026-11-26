@@ -66,4 +66,13 @@ object CatalogSelector {
         sel.size <= 3 -> sel.sorted().joinToString(", ")
         else -> "${sel.size} languages"
     }
+
+    /**
+     * 1.99.2: the one language a category is listed under in the Movies / Series tree: its own language when
+     * that is picked (or nothing is picked), else the first picked language it also carries.
+     */
+    fun pickLang(primary: String, all: Set<String>, sel: Set<String>): String = when {
+        sel.isEmpty() || primary in sel -> primary
+        else -> all.firstOrNull { it in sel } ?: primary
+    }.ifBlank { Tags.OTHER }
 }

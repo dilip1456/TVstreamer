@@ -20,14 +20,17 @@ object ItemContext {
     const val COLLAPSE = "Collapse"
     const val EXPAND = "Expand"
     const val COLLAPSE_ALL = "Collapse All"
+    const val COLLAPSE_GROUP = "Collapse Group"
     const val EXPAND_ALL = "Expand All"
 
-    fun channelItems(on: Boolean, inList: Boolean, renamed: Boolean): List<String> = buildList {
+    fun channelItems(on: Boolean, inList: Boolean, renamed: Boolean, inGroup: Boolean = false): List<String> = buildList {
+        if (inGroup) add(COLLAPSE_GROUP)
         add(if (on) HIDE else SHOW)
         add(RENAME)
         if (renamed) add(RESET_NAME)
         add(if (inList) REMOVE_LIST else ADD_LIST)
         add(SELECT)
+        if (inGroup) add(COLLAPSE_ALL)
     }
 
     fun liveGroupItems(groupOn: Boolean, folded: Boolean): List<String> = listOf(

@@ -6,7 +6,11 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.ui.input.key.*
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
@@ -27,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
@@ -76,6 +81,14 @@ fun CatalogSelectorScreen(repo: Repo, go: (Screen) -> Unit) {
             CatalogSelector.vodGroups(repo.ordered("vod"), repo::isSeriesCat, lib::catLangs, savedLangs) { c -> lib.inCat(c.id).size }
         }
     }
+    // 1.99.2: Movies / Series fold under their language (from the saved category names: no portal call)
+    val catLang = remember(repo.vodCats, savedLangs) {
+        repo.vodCats.associate { c -> "vod:${c.id}" to CatalogSelector.pickLang(lib.catLang(c), lib.catLangs(c), savedLangs) }
+    }
+    val langOrder = remember(langRows) { langRows.map { it.name } }
+    fun treeOf(section: String, groups: List<CatalogGroups.Group>): CatalogTree.Tree =
+        if (section == CatalogSelector.LIVE) CatalogTree.of(groups)
+        else CatalogTree.byLanguage(groups, { g -> catLang[g.key] ?: Tags.OTHER }, langOrder)
     val live by produceState(emptyList<CatalogGroups.Group>(), savedLangs, repo.channels, repo.liveCats, info) {
         value = withContext(Dispatchers.Default) {
             val titles = repo.liveCats.associate { it.id to it.title }
@@ -86,6 +99,16 @@ fun CatalogSelectorScreen(repo: Repo, go: (Screen) -> Unit) {
     }
     val columns = mapOf(CatalogSelector.MOVIES to vod.first, CatalogSelector.SERIES to vod.second, CatalogSelector.LIVE to live)
     fun on(key: String) = repo.groupOn(key)
+    val trees = remember(columns, catLang, langOrder) { columns.mapValues { (sec, g) -> treeOf(sec, g) } }
+    // Which parents are open, per column and step; a lone parent starts open
+    val open = remember { mutableStateMapOf<String, Set<String>>() }
+    /** Apply a tick change: turn keys on, then off (titles for the stored groups). */
+    fun applyChange(t: CatalogTree.Tree, ch: CatalogTree.Change) {
+        if (ch.isEmpty) return
+        fun titled(keys: List<String>) = keys.map { k -> k to (t.nodes.values.firstOrNull { it.key == k }?.title ?: k) }
+        if (ch.on.isNotEmpty()) repo.setGroupsOn(titled(ch.on), true)
+        if (ch.off.isNotEmpty()) repo.setGroupsOn(titled(ch.off), false)
+    }
 
     // Step 3 keeps the list it opened with, so unticking a row there does not make it jump away
     var summary by remember { mutableStateOf<Map<String, List<CatalogGroups.Group>>>(emptyMap()) }
@@ -93,6 +116,7 @@ fun CatalogSelectorScreen(repo: Repo, go: (Screen) -> Unit) {
     fun goStep(s: Int) {
         if (step == 0 && s > 0) saveLangs()
         if (s == 2) summary = columns.mapValues { (_, g) -> CatalogSelector.shownOnly(g, ::on) }
+        if (s == 2) open.keys.filter { it.startsWith("2|") }.forEach { open.remove(it) }
         step = s
     }
     BackHandler(step > 0 && !Popups.any) { goStep(step - 1) }
@@ -129,18 +153,19 @@ fun CatalogSelectorScreen(repo: Repo, go: (Screen) -> Unit) {
                         PillButton(CatalogSelector.langLabel(savedLangs), { goStep(0) }, compact = true, size = Ts.HEAD)
                     }
                     Spacer(Modifier.height(10.dp))
-                    Columns(columns, tv, firstFr, summary = false, on = ::on,
-                        onToggle = { g -> repo.toggleGroupKey(g.key, g.title) },
-                        onAll = { gs, v -> repo.setGroupsOn(gs.map { it.key to it.title }, v) })
+                    Columns(trees, tv, firstFr, summary = false, on = ::on, open = open, openKey = "1|",
+                        onToggle = { t, id -> applyChange(t, CatalogTree.toggle(t, id, ::on)) },
+                        onAll = { t, v -> applyChange(t, CatalogTree.Change(if (v) t.keys().filter { !on(it) } else emptyList(), if (v) emptyList() else t.keys().filter { on(it) })) })
                 }
                 else -> Column(Modifier.fillMaxSize()) {
                     Text(CatalogSelector.langLabel(savedLangs) + "   ·   " +
                         CatalogSelector.SECTIONS.joinToString("   ·   ") { s -> "$s ${summary[s].orEmpty().count { on(it.key) }}" },
                         color = Pal.Dim, fontSize = Ts.SECONDARY.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.padding(bottom = 10.dp))
-                    Columns(summary, tv, firstFr, summary = true, on = ::on,
-                        onToggle = { g -> repo.toggleGroupKey(g.key, g.title) },
-                        onAll = { gs, v -> repo.setGroupsOn(gs.map { it.key to it.title }, v) })
+                    val sumTrees = remember(summary, catLang, langOrder) { summary.mapValues { (sec, g) -> treeOf(sec, g) } }
+                    Columns(sumTrees, tv, firstFr, summary = true, on = ::on, open = open, openKey = "2|",
+                        onToggle = { t, id -> applyChange(t, CatalogTree.toggle(t, id, ::on)) },
+                        onAll = { _, _ -> })
                 }
             }
         }
@@ -183,7 +208,7 @@ private fun LanguageStep(rows: List<CatalogSelector.Lang>, sel: Set<String>, tv:
             Text("Loading…", color = Pal.Dim, fontSize = Ts.ROW.sp, modifier = Modifier.padding(top = 16.dp))
             return@Column
         }
-        LazyVerticalGrid(GridCells.Adaptive(if (tv) 250.dp else 160.dp), Modifier.fillMaxSize(),
+        LazyVerticalGrid(GridCells.Adaptive(if (tv) 220.dp else 150.dp), Modifier.fillMaxSize(),
             horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp),
             contentPadding = PaddingValues(bottom = 24.dp, top = 4.dp, start = 4.dp, end = 4.dp)) {
             itemsIndexed(rows, key = { _, l -> l.name }) { i, l ->
@@ -203,15 +228,16 @@ private fun LanguageStep(rows: List<CatalogSelector.Lang>, sel: Set<String>, tv:
 
 @Composable
 private fun Columns(
-    columns: Map<String, List<CatalogGroups.Group>>, tv: Boolean, firstFr: FocusRequester, summary: Boolean,
-    on: (String) -> Boolean, onToggle: (CatalogGroups.Group) -> Unit, onAll: (List<CatalogGroups.Group>, Boolean) -> Unit
+    trees: Map<String, CatalogTree.Tree>, tv: Boolean, firstFr: FocusRequester, summary: Boolean,
+    on: (String) -> Boolean, open: MutableMap<String, Set<String>>, openKey: String,
+    onToggle: (CatalogTree.Tree, String) -> Unit, onAll: (CatalogTree.Tree, Boolean) -> Unit
 ) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val wide = tv || maxWidth >= 720.dp
         if (wide) {
-            Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 CatalogSelector.SECTIONS.forEachIndexed { i, s ->
-                    SectionColumn(s, columns[s].orEmpty(), summary, on, onToggle, onAll,
+                    SectionColumn(s, trees[s] ?: EMPTY_TREE, summary, on, open, openKey + s, tv, onToggle, onAll,
                         if (i == 0) firstFr else null, Modifier.weight(1f).fillMaxHeight())
                 }
             }
@@ -223,43 +249,148 @@ private fun Columns(
                         PillButton(s, { cur = s }, selected = s == cur, compact = true, size = Ts.HEAD)
                     }
                 }
-                SectionColumn(cur, columns[cur].orEmpty(), summary, on, onToggle, onAll, firstFr, Modifier.fillMaxSize())
+                SectionColumn(cur, trees[cur] ?: EMPTY_TREE, summary, on, open, openKey + cur, tv, onToggle, onAll, firstFr, Modifier.fillMaxSize())
             }
         }
     }
 }
 
+private val EMPTY_TREE = CatalogTree.Tree(emptyMap(), emptyList())
+
+/**
+ * One column as a tree (1.99.2). OK / tap ticks a row (a parent ticks or clears everything under it).
+ * Right opens a folded parent, Left folds an open one; Left on a child folds its parent and lands on it.
+ * Menu / long-press, or the chevron on the phone, also folds and unfolds. Open parents stay pinned at the
+ * top while their rows scroll, so they can be folded from anywhere.
+ */
 @Composable
 private fun SectionColumn(
-    title: String, groups: List<CatalogGroups.Group>, summary: Boolean, on: (String) -> Boolean,
-    onToggle: (CatalogGroups.Group) -> Unit, onAll: (List<CatalogGroups.Group>, Boolean) -> Unit,
+    title: String, tree: CatalogTree.Tree, summary: Boolean, on: (String) -> Boolean,
+    open: MutableMap<String, Set<String>>, openKey: String, tv: Boolean,
+    onToggle: (CatalogTree.Tree, String) -> Unit, onAll: (CatalogTree.Tree, Boolean) -> Unit,
     firstFr: FocusRequester?, modifier: Modifier
 ) {
     val shape = RoundedCornerShape(Radii.panel)
+    val startOpen = remember(tree) { CatalogTree.initialExpanded(tree) }
+    val expanded = open[openKey] ?: startOpen
+    val rows = remember(tree, expanded) { CatalogTree.visible(tree, expanded) }
+    val list = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    val frs = remember(tree) { HashMap<String, FocusRequester>() }
+    fun fr(id: String) = frs.getOrPut(id) { FocusRequester() }
+    fun setOpen(next: Set<String>) { open[openKey] = next }
+    fun foldTo(next: Set<String>, focusId: String) {
+        setOpen(next)
+        val at = CatalogTree.indexIn(CatalogTree.visible(tree, next), focusId)
+        scope.launch {
+            if (at >= 0 && (at < list.firstVisibleItemIndex || at > list.firstVisibleItemIndex + 3)) runCatching { list.scrollToItem(at) }
+            delay(40)
+            runCatching { fr(focusId).requestFocus() }
+        }
+    }
+    // Opening turns the row into a pinned header (a new list item): keep the focus on it
+    fun expand(id: String) {
+        setOpen(expanded + id)
+        scope.launch { delay(40); runCatching { fr(id).requestFocus() } }
+    }
     Column(modifier.clip(shape).background(Pal.Surface.copy(alpha = 0.72f))
-        .border(1.dp, Pal.Primary.copy(alpha = 0.18f), shape).padding(10.dp)) {
-        val (n, total) = CatalogSelector.tally(groups, on)
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.fillMaxWidth().padding(start = 4.dp, bottom = 8.dp)) {
-            Text(title.uppercase(), color = Pal.PrimaryText, fontSize = Ts.HEAD.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.6.sp)
-            Text("$n / $total", color = Pal.Dim, fontSize = Ts.SECONDARY.sp, modifier = Modifier.weight(1f), maxLines = 1)
-            if (!summary && groups.isNotEmpty()) {
-                PillButton("All", { onAll(groups, true) }, compact = true, size = Ts.SECONDARY)
-                PillButton("None", { onAll(groups, false) }, compact = true, size = Ts.SECONDARY)
+        .border(1.dp, Pal.Primary.copy(alpha = 0.18f), shape).padding(horizontal = 8.dp, vertical = 8.dp)) {
+        val stored = tree.nodes.values.filter { it.key != null }
+        val n = stored.count { CatalogTree.state(tree, it.id, on) == CatalogTree.Tri.ON }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.fillMaxWidth().padding(start = 4.dp, bottom = 6.dp)) {
+            Text(title.uppercase(), color = Pal.PrimaryText, fontSize = Ts.HEAD.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.4.sp)
+            Text("$n / ${stored.size}", color = Pal.Dim, fontSize = Ts.CAPTION.sp, modifier = Modifier.weight(1f), maxLines = 1)
+            if (!summary && !tree.isEmpty) {
+                PillButton("All", { onAll(tree, true) }, compact = true, size = Ts.CAPTION)
+                PillButton("None", { onAll(tree, false) }, compact = true, size = Ts.CAPTION)
             }
         }
-        if (groups.isEmpty()) {
+        if (tree.isEmpty) {
             Text(if (summary) "Nothing selected" else "No categories", color = Pal.Dim, fontSize = Ts.SECONDARY.sp,
                 modifier = Modifier.padding(4.dp))
             return@Column
         }
-        LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp),
-            contentPadding = PaddingValues(4.dp)) {
-            itemsIndexed(groups, key = { _, g -> g.key }) { i, g ->
-                val unit = if (g.section == CatalogSelector.LIVE) " ch" else ""
-                CheckRow(g.title, if (g.count > 0) "%,d".format(g.count) + unit else "", on(g.key), g.depth,
-                    if (i == 0 && firstFr != null) Modifier.focusRequester(firstFr) else Modifier) { onToggle(g) }
+        LazyColumn(Modifier.fillMaxSize(), state = list, verticalArrangement = Arrangement.spacedBy(2.dp),
+            contentPadding = PaddingValues(horizontal = 2.dp, vertical = 2.dp)) {
+            rows.forEachIndexed { i, node ->
+                val content: @Composable () -> Unit = {
+                    val isOpen = node.id in expanded
+                    val tri = CatalogTree.state(tree, node.id, on)
+                    val unit = if (title == CatalogSelector.LIVE) " ch" else ""
+                    val sub = when {
+                        node.isParent -> CatalogTree.tally(tree, node.id, on).let { (a, b) -> "$a / $b" }
+                        node.count > 0 -> "%,d".format(node.count) + unit
+                        else -> ""
+                    }
+                    TreeRow(node, tri, isOpen, sub, tv,
+                        Modifier.focusRequester(fr(node.id))
+                            .then(if (i == 0 && firstFr != null) Modifier.focusRequester(firstFr) else Modifier)
+                            .onPreviewKeyEvent { e ->
+                                if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                                val first = e.nativeKeyEvent.repeatCount == 0
+                                when (e.key) {
+                                    Key.DirectionRight -> if (node.isParent && !isOpen) { if (first) expand(node.id); true } else false
+                                    Key.DirectionLeft -> when {
+                                        node.isParent && isOpen -> { if (first) foldTo(CatalogTree.collapseFrom(tree, node.children.first(), expanded).first, node.id); true }
+                                        node.parent != null -> {
+                                            if (first) CatalogTree.collapseFrom(tree, node.id, expanded).let { (next, p) -> if (p != null) foldTo(next, p) }
+                                            true
+                                        }
+                                        else -> false
+                                    }
+                                    else -> false
+                                }
+                            },
+                        onClick = { onToggle(tree, node.id) },
+                        onFold = if (node.isParent) ({ if (isOpen) foldTo(expanded - node.id, node.id) else expand(node.id) }) else null)
+                }
+                // An open top-level parent stays pinned while its rows scroll
+                if (node.isParent && node.depth == 0 && node.id in expanded) stickyHeader(key = "h|" + node.id) {
+                    Box(Modifier.fillMaxWidth().background(Pal.Surface)) { content() }
+                }
+                else item(key = node.id) { content() }
             }
+        }
+    }
+}
+
+/** Compact tree row: chevron (parents), tri-state box, name and a quiet count. */
+@Composable
+private fun TreeRow(node: CatalogTree.Node, tri: CatalogTree.Tri, open: Boolean, sub: String, tv: Boolean, modifier: Modifier,
+                    onClick: () -> Unit, onFold: (() -> Unit)?) {
+    val shape = RoundedCornerShape(Radii.row)
+    val parent = node.isParent
+    Row(modifier.fillMaxWidth().padding(start = (node.depth * 14).dp).focusCard(onClick, onMenu = onFold, scale = 1.015f, shape = shape)
+        .background(if (parent) Pal.Soft else Color.Transparent, shape)
+        .padding(start = 4.dp, end = 8.dp, top = if (tv) 4.dp else 5.dp, bottom = if (tv) 4.dp else 5.dp)
+        .alpha(if (tri == CatalogTree.Tri.OFF) 0.6f else 1f),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        // Chevron: tap target on the phone (not a separate TV focus stop: Right / Left fold there)
+        Box(Modifier.size(width = 22.dp, height = 22.dp)
+            .then(if (onFold != null && !tv) Modifier.pointerInput(onFold) { detectTapGestures { onFold() } } else Modifier),
+            contentAlignment = Alignment.Center) {
+            if (parent) Text(if (open) "⌄" else "›", color = Pal.PrimaryText, fontSize = Ts.ROW.sp, fontWeight = FontWeight.Bold)
+        }
+        TriCheck(tri)
+        Text(node.title, color = Pal.Text, fontSize = (if (parent) Ts.HEAD else Ts.SECONDARY).sp,
+            fontWeight = if (parent) FontWeight.SemiBold else FontWeight.Normal,
+            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+        if (sub.isNotEmpty()) Text(sub, color = Pal.Dim, fontSize = Ts.CAPTION.sp, maxLines = 1)
+    }
+}
+
+/** Tri-state box: ticked (blue with a tick), partly ticked (blue with a bar), empty. */
+@Composable
+private fun TriCheck(tri: CatalogTree.Tri) {
+    val filled = tri != CatalogTree.Tri.OFF
+    Box(Modifier.size(18.dp).clip(RoundedCornerShape(5.dp)).background(if (filled) Pal.Primary else Color.Transparent)
+        .border(2.dp, if (filled) Pal.Primary else Pal.Dim.copy(alpha = 0.7f), RoundedCornerShape(5.dp)),
+        contentAlignment = Alignment.Center) {
+        when (tri) {
+            CatalogTree.Tri.ON -> Text("✓", color = Color.White, fontSize = Ts.CAPTION.sp, fontWeight = FontWeight.Bold)
+            CatalogTree.Tri.PARTIAL -> Box(Modifier.size(width = 9.dp, height = 2.dp).background(Color.White))
+            CatalogTree.Tri.OFF -> {}
         }
     }
 }
@@ -270,7 +401,7 @@ private fun Tile(title: String, sub: String, on: Boolean, modifier: Modifier, on
     Row(modifier.fillMaxWidth().focusCard(onClick, scale = 1.03f, shape = shape)
         .background(if (on) Pal.Primary.copy(alpha = 0.18f) else Pal.Soft, shape)
         .then(if (on) Modifier.border(1.dp, Pal.Primary.copy(alpha = 0.6f), shape) else Modifier)
-        .padding(horizontal = 14.dp, vertical = 12.dp),
+        .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Check(on)
         Column(Modifier.weight(1f)) {
@@ -278,21 +409,6 @@ private fun Tile(title: String, sub: String, on: Boolean, modifier: Modifier, on
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (sub.isNotEmpty()) Text(sub, color = Pal.Dim, fontSize = Ts.CAPTION.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-    }
-}
-
-@Composable
-private fun CheckRow(title: String, count: String, on: Boolean, depth: Int, modifier: Modifier, onClick: () -> Unit) {
-    val shape = RoundedCornerShape(Radii.row)
-    Row(modifier.fillMaxWidth().padding(start = (depth * 16).dp).focusCard(onClick, scale = 1.02f, shape = shape)
-        .background(if (on) Color.Transparent else Pal.Card.copy(alpha = 0.35f), shape)
-        .padding(horizontal = 10.dp, vertical = 8.dp)
-        .alpha(if (on) 1f else 0.55f),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Check(on)
-        Text(title, color = Pal.Text, fontSize = Ts.ROW.sp, fontWeight = if (depth == 0) FontWeight.Medium else FontWeight.Normal,
-            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-        if (count.isNotEmpty()) Text(count, color = Pal.Dim, fontSize = Ts.CAPTION.sp, maxLines = 1)
     }
 }
 

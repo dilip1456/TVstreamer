@@ -82,4 +82,31 @@ object LiveCollapse {
         val j = if (i < 0) (if (down) 0 else keys.lastIndex) else if (down) i + 1 else i - 1
         return keys.getOrNull(j.coerceIn(0, keys.lastIndex))
     }
+
+    /**
+     * 1.99.2: the header a channel row folds under. Inside a type that lists sub-categories it is the
+     * sub-category; a type with one plain block uses the type header.
+     */
+    fun headerOf(sections: List<LiveModes.Section>, sectionKey: String): String? {
+        val s = sections.firstOrNull { it.key == sectionKey } ?: return null
+        val group = sections.filter { it.type == s.type }
+        return if (showSubs(group)) s.key else typeKey(s.type)
+    }
+
+    /** Fold the group that [sectionKey] is in (never unfolds). */
+    fun foldGroup(sections: List<LiveModes.Section>, collapsed: Set<String>, sectionKey: String): Set<String> =
+        headerOf(sections, sectionKey)?.let { collapsed + it } ?: collapsed
+
+    /** List index of a header key (a type key such as "Sports/" + "*", or a section key) in [layout]. */
+    fun headerIndex(layout: Layout, key: String): Int? =
+        if (key.endsWith("/*")) layout.typeStart[key.removeSuffix("/*")] else layout.sectionStart[key]
+
+    /**
+     * Channel / Page up-down and Rewind / Fast forward. From a channel, Up first lands on the header of the group
+     * it is in (so a long open group can be folded at once); from a header it steps to the previous / next one.
+     */
+    fun jump(headers: List<String>, current: String, onHeader: Boolean, down: Boolean): String? {
+        if (!onHeader && !down && current in headers) return current
+        return step(headers, current, down)
+    }
 }

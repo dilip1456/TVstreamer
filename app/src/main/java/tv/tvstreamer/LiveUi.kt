@@ -214,14 +214,15 @@ fun ChannelMenu(repo: Repo, ch: Item, @Suppress("UNUSED_PARAMETER") folder: Stri
 
 /** Compact hold / Menu context menu for a Live TV channel (Show/Hide, Rename, My List, Select). */
 @Composable
-fun ChannelContextMenu(repo: Repo, ch: Item, on: Boolean, onShowHide: () -> Unit, onSelect: () -> Unit, onClose: () -> Unit) {
+fun ChannelContextMenu(repo: Repo, ch: Item, on: Boolean, onShowHide: () -> Unit, onSelect: () -> Unit, onClose: () -> Unit,
+                       onCollapseGroup: (() -> Unit)? = null, onCollapseAll: (() -> Unit)? = null) {
     var page by remember { mutableStateOf("main") }
     val named = repo.named(ch)
     if (page == "rename") {
         NameDialog("Rename channel", ChannelTitle.pretty(named.name), "Save name", { repo.renameChannel(ch, it); onClose() }) { page = "main" }
         return
     }
-    val labels = ItemContext.channelItems(on, repo.isFav(ch), repo.isRenamed(ch))
+    val labels = ItemContext.channelItems(on, repo.isFav(ch), repo.isRenamed(ch), inGroup = onCollapseGroup != null)
     ChoiceDialog(ChannelTitle.pretty(named.name), labels.map { label ->
         label to {
             when (label) {
@@ -230,6 +231,8 @@ fun ChannelContextMenu(repo: Repo, ch: Item, on: Boolean, onShowHide: () -> Unit
                 ItemContext.RESET_NAME -> { repo.renameChannel(ch, null); onClose() }
                 ItemContext.ADD_LIST, ItemContext.REMOVE_LIST -> { repo.toggleFav(ch); onClose() }
                 ItemContext.SELECT -> { onSelect(); onClose() }
+                ItemContext.COLLAPSE_GROUP -> { onClose(); onCollapseGroup?.invoke() }
+                ItemContext.COLLAPSE_ALL -> { onClose(); onCollapseAll?.invoke() }
             }
         }
     }, focusKey = "ch-ctx-" + ch.key + page, onClose = onClose)
