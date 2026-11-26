@@ -100,12 +100,22 @@ class MainActivity : ComponentActivity() {
     override fun onStart() { super.onStart(); Cloud.syncSoon() }
     override fun onStop() { Cloud.flush(); super.onStop() }
 
+    /**
+     * Normal (Compose) key handling. A navigation key must never take the app down: a focus move that races a lazy
+     * list (target not composed yet / just disposed) throws inside Compose's focus search; that step is skipped instead.
+     */
+    private fun safeDispatch(e: KeyEvent): Boolean =
+        if (!KeyRepeat.isNav(e.keyCode)) super.dispatchKeyEvent(e)
+        else try { super.dispatchKeyEvent(e) } catch (t: RuntimeException) {
+            android.util.Log.w("TVstreamer", "D-pad step skipped", t); true
+        }
+
     /** Re-send a key to the normal (Compose) handling, as a fresh down + up. */
     private fun replay(up: KeyEvent) {
         replaying = true
         try {
-            super.dispatchKeyEvent(KeyEvent.changeAction(up, KeyEvent.ACTION_DOWN))
-            super.dispatchKeyEvent(up)
+            safeDispatch(KeyEvent.changeAction(up, KeyEvent.ACTION_DOWN))
+            safeDispatch(up)
         } finally { replaying = false }
     }
 
@@ -114,8 +124,10 @@ class MainActivity : ComponentActivity() {
      * Keys with a long-press action wait for release (or [Keys.LONG_MS]) to tell short from long.
      */
     override fun dispatchKeyEvent(e: KeyEvent): Boolean {
-        if (replaying) return super.dispatchKeyEvent(e)
+        if (replaying) return safeDispatch(e)
         val code = e.keyCode
+        // Held D-pad (1.95): pace key repeats so a long press scrolls smoothly instead of flooding focus moves
+        if (e.action == KeyEvent.ACTION_DOWN && KeyRepeat.drop(code, e.repeatCount, e.eventTime)) return true
         Keys.learn?.let { learn ->
             if (e.action == KeyEvent.ACTION_DOWN && e.repeatCount == 0) learn(if (code == KeyEvent.KEYCODE_BACK) -1 else code)
             return true
@@ -128,10 +140,10 @@ class MainActivity : ComponentActivity() {
             if (e.action == KeyEvent.ACTION_DOWN && e.repeatCount == 0) VoiceBus.request++
             return true
         }
-        if (code in Keys.reserved) return super.dispatchKeyEvent(e)
+        if (code in Keys.reserved) return safeDispatch(e)
         val s = Keys.shortOf(code)
         val l = Keys.longOf(code)
-        if (s == Act.DEFAULT && l == Act.DEFAULT) return super.dispatchKeyEvent(e)
+        if (s == Act.DEFAULT && l == Act.DEFAULT) return safeDispatch(e)
         if (l != Act.DEFAULT) {
             when (e.action) {
                 KeyEvent.ACTION_DOWN -> {
@@ -157,7 +169,7 @@ class MainActivity : ComponentActivity() {
         }
         // Only a short-press action: act on the first down
         if (e.action == KeyEvent.ACTION_DOWN) {
-            if (e.repeatCount == 0 && !Keys.run(s)) return super.dispatchKeyEvent(e)
+            if (e.repeatCount == 0 && !Keys.run(s)) return safeDispatch(e)
             return true
         }
         return true
