@@ -98,8 +98,13 @@ fun CatalogSelectorScreen(repo: Repo, go: (Screen) -> Unit) {
     BackHandler(step > 0 && !Popups.any) { goStep(step - 1) }
 
     val firstFr = remember(step) { FocusRequester() }
-    val ready = when (step) { 0 -> langRows.isNotEmpty(); else -> true }
-    LaunchedEffect(step, ready) { if (ready) { delay(120); runCatching { firstFr.requestFocus() } } }
+    val navFr = remember { FocusRequester() }
+    // Focus the first tile / row; when there is none (no languages yet, an empty first column) the Next / Done
+    // button, so the remote always has somewhere to start (never a screen with nothing focused).
+    LaunchedEffect(step, langRows.isEmpty()) {
+        delay(120)
+        if (runCatching { firstFr.requestFocus() }.isFailure) runCatching { navFr.requestFocus() }
+    }
 
     val mode = repo.mode()
     Box(Modifier.fillMaxSize().background(Pal.Bg)) {
@@ -112,8 +117,8 @@ fun CatalogSelectorScreen(repo: Repo, go: (Screen) -> Unit) {
                 Spacer(Modifier.width(8.dp))
                 StepDots(step, tv, Modifier.weight(1f))
                 if (step > 0) PillButton("‹ Back", { goStep(step - 1) }, compact = true, size = Ts.HEAD)
-                if (step < 2) PillButton("Next ›", { goStep(step + 1) }, primary = true, compact = true, size = Ts.HEAD)
-                else PillButton("Done", exit, primary = true, compact = true, size = Ts.HEAD)
+                if (step < 2) PillButton("Next ›", { goStep(step + 1) }, Modifier.focusRequester(navFr), primary = true, compact = true, size = Ts.HEAD)
+                else PillButton("Done", exit, Modifier.focusRequester(navFr), primary = true, compact = true, size = Ts.HEAD)
             }
             when (step) {
                 0 -> LanguageStep(langRows, langs, tv, firstFr) { langs = it }
@@ -148,7 +153,7 @@ fun CatalogSelectorScreen(repo: Repo, go: (Screen) -> Unit) {
 
 @Composable
 private fun StepDots(step: Int, tv: Boolean, modifier: Modifier) {
-    val names = listOf("Languages", "Categories", "Your selection")
+    val names = listOf("Languages", "Categories", "Your Selection")
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(if (tv) 14.dp else 6.dp), verticalAlignment = Alignment.CenterVertically) {
         names.forEachIndexed { i, n ->
             val cur = i == step
@@ -170,8 +175,8 @@ private fun LanguageStep(rows: List<CatalogSelector.Lang>, sel: Set<String>, tv:
     Column(Modifier.fillMaxSize()) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
             modifier = Modifier.padding(bottom = 10.dp)) {
-            PillButton("Select all", { set(rows.map { it.name }.toSet()) }, compact = true, size = Ts.HEAD)
-            PillButton("Select none", { set(emptySet()) }, compact = true, size = Ts.HEAD)
+            PillButton("Select All", { set(rows.map { it.name }.toSet()) }, compact = true, size = Ts.HEAD)
+            PillButton("Select None", { set(emptySet()) }, compact = true, size = Ts.HEAD)
             Text(if (sel.isEmpty()) "All languages" else "${sel.size} selected", color = Pal.Dim, fontSize = Ts.SECONDARY.sp)
         }
         if (rows.isEmpty()) {

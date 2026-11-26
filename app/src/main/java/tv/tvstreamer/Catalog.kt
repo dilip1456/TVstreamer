@@ -560,7 +560,7 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                     repo.status = "\"${shelf.title}\" hidden. Show it again in Catalog Selector."
                 })
                 if (tabbed) add("Languages" to { menu = null; go(Screen.Languages(mode, Screen.Home)) })
-                add("Catalog Selector…" to { menu = null; go(Screen.Categories) })
+                add("Catalog Selector" to { menu = null; go(Screen.Categories) })
             }
             val title = item?.let { (if (it.season.isNotEmpty()) "${it.season} · " else "") + Names.title(it.name) } ?: shelf.cat?.let { c ->
                 val pos = repo.visibleVod().indexOfFirst { it.id == c.id }
@@ -579,7 +579,7 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
             ChoiceDialog("Options", buildList {
                 if (tabbed) add("Languages" to { pageMenu = false; go(Screen.Languages(mode, Screen.Home)) })
                 if (tabbed && !langs.isNullOrEmpty()) add("Sort: " + Sorts.label(sort) to { pageMenu = false; sortMenu = true })
-                add("Catalog Selector…" to { pageMenu = false; go(Screen.Categories) })
+                add("Catalog Selector" to { pageMenu = false; go(Screen.Categories) })
                 add("Exit ${ctx.getString(R.string.app_name)}" to { pageMenu = false; exitApp(ctx) })
             }, focusKey = "page-menu") { pageMenu = false }
         }
