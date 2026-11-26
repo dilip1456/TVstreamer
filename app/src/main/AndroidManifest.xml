@@ -12,7 +12,10 @@
     <queries>
         <intent><action android:name="android.speech.RecognitionService" /></intent>
         <intent><action android:name="android.speech.action.RECOGNIZE_SPEECH" /></intent>
+        <provider android:authorities="android.media.tv" />
     </queries>
+    <!-- TV home screen row (Continue watching / Recommended); unused on phones -->
+    <uses-permission android:name="com.android.providers.tv.permission.WRITE_EPG_DATA" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <application
@@ -45,6 +48,12 @@
             <intent-filter>
                 <action android:name="com.google.android.gms.actions.SEARCH_ACTION" />
                 <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <!-- Cards in the TV home screen row: tvstreamer://item?k=..&i=..&a=play|open -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="tvstreamer" android:host="item" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.ASSIST" />

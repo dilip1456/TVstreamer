@@ -130,6 +130,14 @@ class Store(ctx: Context) {
         return out
     }
 
+    /** Continue watching records with their length and when each was last played (for the TV home screen row). */
+    fun continueRecords(): List<HomeRowsPlan.Resume> {
+        val a = resumeArray()
+        return (0 until a.length()).mapNotNull { x ->
+            runCatching { val o = a.getJSONObject(x); HomeRowsPlan.Resume(Item.from(o), o.optLong("p"), o.optLong("d"), o.optLong("t")) }.getOrNull()
+        }
+    }
+
     fun customCats(): Map<String, List<Item>> {
         val raw = p.getString("custom_cats", "{}") ?: "{}"
         return try {

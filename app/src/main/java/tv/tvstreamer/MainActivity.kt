@@ -85,6 +85,8 @@ class MainActivity : ComponentActivity() {
      */
     private fun handleIntent(i: android.content.Intent?) {
         val a = i?.action ?: return
+        // A card in the app's TV home screen row (Continue watching / Live / Recommended)
+        if (a == android.content.Intent.ACTION_VIEW) { HomeRowsPlan.parse(i.dataString)?.let { DeepLinkBus.pending = it }; return }
         val searchy = a == android.content.Intent.ACTION_SEARCH || a == "com.google.android.gms.actions.SEARCH_ACTION" ||
             a == android.content.Intent.ACTION_ASSIST || a == android.content.Intent.ACTION_VOICE_COMMAND
         if (!searchy) return
@@ -95,7 +97,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onStart() { super.onStart(); Cloud.syncSoon() }
-    override fun onStop() { Cloud.flush(); super.onStop() }
+    override fun onStop() { Cloud.flush(); HomeRows.syncSoon(this, repo); super.onStop() }
 
     /**
      * Normal (Compose) key handling. A navigation key must never take the app down: a focus move that races a lazy
@@ -235,6 +237,27 @@ fun App(repo: Repo) {
             if (screen !is Screen.Play && screen != Screen.Remote) { search.open = true; search.voiceReq++ }
         }
     }
+    // A card from the TV home screen row: play it (Continue watching / live) or open its details (Recommended).
+    // Looked up in local data only; waits briefly for the saved catalog when the app was cold-started.
+    LaunchedEffect(DeepLinkBus.pending) {
+        val link = DeepLinkBus.pending ?: return@LaunchedEffect
+        var item: Item? = null
+        for (attempt in 0 until 40) {
+            item = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { runCatching { deepLinkItem(repo, link) }.getOrNull() }
+            if (item != null) break
+            kotlinx.coroutines.delay(500)
+        }
+        DeepLinkBus.pending = null
+        val it = item ?: run { toast(ctx, "That title is no longer in the catalog"); return@LaunchedEffect }
+        search.open = false
+        screen = when {
+            it.kind == "itv" -> Screen.Play(listOf(repo.fresh(it)), 0, Screen.Home)
+            it.isSeries -> Screen.Detail(it, Screen.Home)
+            link.play || it.isEpisode() -> Screen.Play(listOf(it), 0, Screen.Home)
+            else -> Screen.Detail(it, Screen.Home)
+        }
+        tick++
+    }
     // Search intent with a query (e.g. "Alexa, search for Inception" / android.intent.action.SEARCH)
     LaunchedEffect(VoiceBus.query) {
         val q = VoiceBus.query ?: return@LaunchedEffect
@@ -348,4 +371,15 @@ fun App(repo: Repo) {
         if (splash) PhoenixSplash(ready = splashReady) { splash = false }
         }
     }
+}
+
+/** The item a home screen card points at, from local data only (history, saved lists, AI suggestions, catalog). */
+private fun deepLinkItem(repo: Repo, link: HomeRowsPlan.Link): Item? {
+    val key = link.key
+    repo.store.continueList().firstOrNull { it.first.key == key }?.let { return it.first }
+    repo.store.history().firstOrNull { it.key == key }?.let { return it }
+    if (link.kind == "itv") return repo.store.list("recent").firstOrNull { it.key == key }
+        ?: repo.channels.firstOrNull { it.key == key }
+    Ai.suggested.firstOrNull { it.key == key }?.let { return it }
+    return repo.lib.everything().firstOrNull { it.key == key }
 }
