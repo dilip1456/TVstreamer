@@ -173,12 +173,7 @@ object LiveModes {
         rowsFrom(classify(chans, langs, info, catTitle), mode, folders, hidden, view)
 
     /** After a row disappears in Only-active, focus this neighbour (next, else previous). */
-    fun neighborKey(rows: List<Row>, key: String): String? {
-        val keys = rows.map { it.ch.key }
-        val i = keys.indexOf(key)
-        if (i < 0) return null
-        return keys.getOrNull(i + 1) ?: keys.getOrNull(i - 1)
-    }
+    fun neighborKey(rows: List<Row>, key: String): String? = FocusStay.afterRemove(rows.map { it.ch.key }, key)
 
     /** A left-nav tree node: a type, or one of its sub-categories / regions, with its channel count. */
     data class Node(val key: String, val type: String, val label: String, val count: Int, val hidden: Boolean,

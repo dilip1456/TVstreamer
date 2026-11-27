@@ -1,6 +1,11 @@
 @file:OptIn(ExperimentalFoundationApi::class, ExperimentalComposeUiApi::class)
 
 package tv.tvstreamer
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.Key
 
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -210,7 +215,7 @@ fun SearchFab(modifier: Modifier = Modifier, onClick: () -> Unit) {
 }
 
 @Composable
-fun SearchOverlay(repo: Repo, st: SearchState, open: (Item) -> Unit, play: (List<Item>, Int) -> Unit) {
+fun SearchOverlay(repo: Repo, st: SearchState, open: (Item) -> Unit, play: (List<Item>, Int) -> Unit, onClose: () -> Unit = {}) {
     val isTv = rememberIsTv()
     var result by remember { mutableStateOf<SearchResult?>(null) }
     var busy by remember { mutableStateOf(false) }
@@ -281,7 +286,21 @@ fun SearchOverlay(repo: Repo, st: SearchState, open: (Item) -> Unit, play: (List
     var aiMenu by remember { mutableStateOf<Item?>(null) }
     val posterW = posterWidth(isTv)
     val hPad = if (isTv) 48.dp else 12.dp
-    Box(Modifier.fillMaxSize().background(Pal.Bg.copy(alpha = 0.97f)).focusTrap()) {
+    var expectUp by remember { mutableStateOf(false) }
+    Box(Modifier.fillMaxSize().background(Pal.Bg.copy(alpha = 0.97f)).focusTrap()
+        .onPreviewKeyEvent { e ->
+            if (e.key != Key.Back && e.key != Key.Escape) return@onPreviewKeyEvent false
+            if (Popups.any) return@onPreviewKeyEvent false
+            val d = OverlayBack.onKey(
+                isDown = e.type == KeyEventType.KeyDown,
+                isUp = e.type == KeyEventType.KeyUp,
+                repeat = e.nativeKeyEvent.repeatCount > 0,
+                expectUp = expectUp,
+            )
+            expectUp = d.expectUp
+            if (d.close) onClose()
+            d.consume
+        }) {
         LazyVerticalGrid(
             columns = GridCells.Adaptive(posterW),
             contentPadding = PaddingValues(horizontal = hPad, vertical = if (isTv) 24.dp else 12.dp),

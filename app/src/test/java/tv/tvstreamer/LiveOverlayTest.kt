@@ -7,9 +7,9 @@ import tv.tvstreamer.LiveOverlay.Pad
 import tv.tvstreamer.LiveOverlay.Effect
 
 class LiveOverlayTest {
-    @Test fun upDownZapAtOnceAndShowInfo() {
-        assertEquals(Layer.INFO to Effect.Zap(1), LiveOverlay.press(Layer.NONE, Pad.UP))
-        assertEquals(Layer.INFO to Effect.Zap(-1), LiveOverlay.press(Layer.INFO, Pad.DOWN))
+    @Test fun upDownZapAtOnceAndCloseTheOverlay() {
+        assertEquals(Layer.NONE to Effect.Zap(1), LiveOverlay.press(Layer.NONE, Pad.UP))
+        assertEquals(Layer.NONE to Effect.Zap(-1), LiveOverlay.press(Layer.INFO, Pad.DOWN))
         assertEquals(Layer.NONE to Effect.None, LiveOverlay.press(Layer.NONE, Pad.UP, channels = 1))
     }
 
@@ -22,10 +22,10 @@ class LiveOverlayTest {
         assertEquals(Effect.Menu, LiveOverlay.press(Layer.NONE, Pad.MENU).second)
     }
 
-    @Test fun backClosesTopOverlayThenLeaves() {
+    @Test fun backHidesTheInfoBarOrPanelInOnePress() {
         assertEquals(Layer.NONE to Effect.None, LiveOverlay.press(Layer.GUIDE, Pad.BACK))
         assertEquals(Layer.NONE to Effect.None, LiveOverlay.press(Layer.CHANNELS, Pad.BACK))
-        assertEquals(Layer.NONE to Effect.Exit, LiveOverlay.press(Layer.INFO, Pad.BACK))   // 1.68: one press leaves
+        assertEquals(Layer.NONE to Effect.None, LiveOverlay.press(Layer.INFO, Pad.BACK))
         assertEquals(Layer.NONE to Effect.Exit, LiveOverlay.press(Layer.NONE, Pad.BACK))
     }
 

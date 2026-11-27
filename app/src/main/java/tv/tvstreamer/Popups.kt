@@ -65,6 +65,8 @@ fun PopupFrame(onClose: () -> Unit, alignment: Alignment = Alignment.Center, scr
     DisposableEffect(Unit) { onDispose { Popups.close(id) } }
     val close by rememberUpdatedState(onClose)
     androidx.activity.compose.BackHandler { if (Popups.isTop(id)) close() }
+    // Close on KeyDown; swallow the matching KeyUp so the press cannot leak to the screen behind.
+    var expectUp by remember { mutableStateOf(false) }
     // Fade + slight slide in (~180 ms), cheap: one graphicsLayer, no blur
     val shown = remember { androidx.compose.animation.core.Animatable(0f) }
     LaunchedEffect(Unit) { shown.animateTo(1f, Motion.spec()) }
@@ -76,9 +78,15 @@ fun PopupFrame(onClose: () -> Unit, alignment: Alignment = Alignment.Center, scr
             .pointerInput(Unit) { detectTapGestures { if (Popups.isTop(id)) close() } }
             .onPreviewKeyEvent { e ->
                 if (e.key != Key.Back && e.key != Key.Escape) return@onPreviewKeyEvent false
-                if (!Popups.isTop(id)) return@onPreviewKeyEvent false   // a popup on top of this one takes it
-                if (e.type == KeyEventType.KeyUp) close()
-                true
+                val d = OverlayBack.onKey(
+                    isDown = e.type == KeyEventType.KeyDown,
+                    isUp = e.type == KeyEventType.KeyUp,
+                    repeat = e.nativeKeyEvent.repeatCount > 0,
+                    expectUp = expectUp,
+                )
+                expectUp = d.expectUp
+                if (d.close && Popups.isTop(id)) close()
+                d.consume
             },
         contentAlignment = alignment
     ) {

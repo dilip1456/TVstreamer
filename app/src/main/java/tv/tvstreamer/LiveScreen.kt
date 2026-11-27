@@ -22,6 +22,7 @@ import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
@@ -49,38 +50,31 @@ import androidx.activity.compose.BackHandler
 import kotlinx.coroutines.launch
 
 /**
- * Live TV (v1.52): one clean list, grouped by portal type and category only (News incl. "Local News", Sports, …).
- *  - TV: a short left menu (icons; labels open while it has focus) with
- *    Search, Mode, Languages, Sections and Options. Sections open a jump list.
- *  - Rows: number badge, logo, clean name, small language tag; the channel playing is marked. The schedule is in the player.
- *  - Sections fold: OK on a header (or a sub-category in the left tree) hides / shows its channels; saved.
- *  - Modes: Default (every channel not hidden) or a custom mode (only its channels). "All channels" / "Only hidden"
- *    also list the others, dimmed; each row has a Hide or Show chip (tap / TV OK). Hold OK / long-press still
- *    toggles on TV when browsing hidden, or starts Select on the phone. Menu on a channel = channel menu.
- *    On the phone, Select shows a compact action bar (count, Hide, Show, Select all, Cancel) above the nav bar.
- *  - Languages: only the selected languages are listed (Options / Menu on the remote, or ⋮ on the phone).
- *  - Guide: now / next loaded only for the rows on screen. Back from the player lands on the channel that played.
+ * Live TV (v1.99.6): categories on the left, that category's channels on the right.
+ *  - Opens on Favourites, or All when Favourites is empty; the last category is not remembered
+ *    across sessions. In-session, the selected category stays.
+ *  - Visible rows request now / next from the guide, one at a time, only for what is on screen.
+ *  - TV: Left from a channel goes to the category list; Left from a category opens the side
+ *    menu; Up from the first category goes to the top menu. Back climbs that same way.
+ *  - Rewind / Fast forward / Channel +/− pages the channel list. Number keys jump to a channel.
+ *  - Phone: a chip row of categories, or two panes when the screen is wide enough.
+ *  - Modes, Languages, Options, Select and Hide / Show stay as they were. Back never leaves
+ *    the app without confirmation. Long-press Menu still goes to Home.
  */
 @Composable
 fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {}, onSearch: () -> Unit = {}) {
     val tv = rememberIsTv()
-    // TV layout (shared top menu + side menu) wherever Home uses it; phones and tablets get the touch layout
     val rail = !AppUi.phoneNav
-    // Kept in Repo (and saved): Back from the player must bring back the same list (1.53)
+    val wide = rail || androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp >= 700
     var view by remember { mutableStateOf(repo.liveView.view) }
     val browseAll = view.showsHidden
-    var popup by remember { mutableStateOf<String?>(null) }    // modes | langs | sections
+    var popup by remember { mutableStateOf<String?>(null) }
     var menuCh by remember { mutableStateOf<Item?>(null) }
 
-    // 1.72: the background title index waits while Live TV is on screen (nothing competes with the list)
     DisposableEffect(Unit) { repo.liveOpen = true; onDispose { repo.liveOpen = false; repo.lib.indexKick() } }
     LaunchedEffect(repo.rawChannels, repo.liveCats) { repo.liveIndex.ensure(repo.rawChannels, repo.liveCats) }
     val ix = repo.liveIndex
     val info = ix.info
-    // 1.70: the list is worked out off the main thread from the saved channel list (no portal); the last result is
-    // kept in Repo, so opening Live TV again (or after the start-up pre-build) shows it in the first frame.
-    // 1.73: one inputs object per real change (a fresh one every recomposition restarted the layout each time), and a
-    // layout already worked out for this mode / view (all are pre-built) is used in this very frame.
     val curMode = repo.mode()
     val inputs = remember(repo.channels, repo.liveCats, repo.liveOrder, repo.hidden, repo.showAdult, repo.liveLangs, info,
         curMode, repo.folders, view) { repo.liveInputs(view) }
@@ -89,7 +83,6 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
         value = repo.liveModel(inputs)
     }
     val model = repo.liveModelCached(inputs) ?: produced
-    // After a hide / show, language or mode edit, lay the other modes / views out again in the background
     LaunchedEffect(repo.hidden, repo.folders, repo.liveLangs, repo.liveOrder, repo.showAdult, info) { repo.prewarmLive() }
     LaunchedEffect(model.inputs != null) {
         if (model.inputs != null) LiveTiming.shown(android.os.SystemClock.elapsedRealtime() - openedAt, model.flat.size)
@@ -99,22 +92,29 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
     val langs = inputs.langs
     val rows = model.rows
     val tree = model.tree
-    val sections = model.sections
-    val types = model.types
-    // List positions: type + section header index, flat channel list (what the player steps through)
-    val collapsed = repo.liveCollapsed
-    val collapseLayout = remember(sections, collapsed) { LiveCollapse.layout(sections, collapsed) }
-    val layout = remember(model, collapseLayout) {
-        Triple(collapseLayout.sectionStart, collapseLayout.typeStart, model.flat)
-    }
-    val flat = model.flat
-    val flatPos = model.flatPos
     val allLangs = model.allLangs
     val modeCount = model.modeCount
 
-    val state = remember {
-        repo.listStates.getOrPut("live152") { repo.liveView.let { androidx.compose.foundation.lazy.LazyListState(it.index, it.offset) } }
+    val favKeysAll = remember(repo.folders) { repo.folders.channels().map { it.key } }
+    val haveKeys = remember(rows) { rows.map { it.ch.key }.toSet() }
+    val favKeys = remember(favKeysAll, haveKeys) { favKeysAll.filter { it in haveKeys } }
+    val recentKeys = remember(repo.nowPlaying, haveKeys) { repo.store.list("recent").map { it.key }.filter { it in haveKeys } }
+    val pins = LivePane.pins(favKeys.size, recentKeys.size, rows.size)
+    var selected by remember { mutableStateOf("") }
+    var expanded by remember { mutableStateOf(setOf<String>()) }
+    val cats = remember(pins, tree, expanded) { LivePane.visible(pins, tree, expanded) }
+    val selKey = LivePane.settle(selected.ifEmpty { LivePane.initial(favKeys.size) }, cats, favKeys.size)
+    val paneRows = remember(selKey, rows, favKeys, recentKeys, tree) {
+        LivePane.rowsOf(selKey, rows, favKeys, recentKeys, tree)
     }
+    val paneTitle = LivePane.titleOf(selKey, cats)
+
+    val chState = remember(selKey) {
+        repo.listStates.getOrPut("live-ch:$selKey") { androidx.compose.foundation.lazy.LazyListState() }
+    }
+    val catState = remember { repo.listStates.getOrPut("live-cats") { androidx.compose.foundation.lazy.LazyListState() } }
+    // Keep a list state named like the old one so chrome "at top" still works
+    val state = chState
     var topBarFocused by remember { mutableStateOf(false) }
     val topBarVisible by remember { derivedStateOf { TvChrome.topBarVisible(state.firstVisibleItemIndex, state.firstVisibleItemScrollOffset, topBarFocused) } }
     val firstLoad = FirstLoad.of(
@@ -133,35 +133,29 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
         catalogStopped = repo.lib.stopped,
     )
     var focusKey by remember { mutableStateOf(repo.liveView.focus) }
+    var focusOnChannels by remember { mutableStateOf(true) }
     fun saveView() = repo.saveLiveView(LiveView(view, state.firstVisibleItemIndex, state.firstVisibleItemScrollOffset, focusKey))
     LaunchedEffect(view) { saveView() }
     LaunchedEffect(state) {
         snapshotFlow { state.firstVisibleItemIndex to state.firstVisibleItemScrollOffset }
-            .collect { delay(400); saveView() }   // collect is sequential: at most one save per 400 ms while scrolling
+            .collect { delay(400); saveView() }
     }
     DisposableEffect(Unit) { onDispose { saveView() } }
     val scope = rememberCoroutineScope()
-    // Shared TV side menu: Left from a channel, header or the first action opens the overlay.
     val navFr = remember { FocusRequester() }
     val actionFr = remember { FocusRequester() }
     SideEffect { SideMenu.fallback = actionFr }
     val openRail: () -> Unit = { SideMenu.open() }
-    val toRail = if (tv && rail) Modifier.onPreviewKeyEvent { e ->
-        if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionLeft) { openRail(); true } else false
-    } else Modifier
+    val catFrs = remember { HashMap<String, FocusRequester>() }
+    fun catFr(k: String) = catFrs.getOrPut(k) { FocusRequester() }
+    val chFrs = remember { HashMap<String, FocusRequester>() }
+    fun chFr(k: String) = chFrs.getOrPut(k) { FocusRequester() }
     val playingFr = remember { FocusRequester() }
-    val restoreFr = remember { FocusRequester() }   // the last focused channel when nothing played yet
+    val restoreFr = remember { FocusRequester() }
     val firstFr = remember { FocusRequester() }
-    // Section header focus targets; Channel / Page up-down jump a whole section and land on its header (1.56)
-    val headFrs = remember { HashMap<String, FocusRequester>() }
-    fun headFr(k: String) = headFrs.getOrPut(k) { FocusRequester() }
     val ctx = LocalContext.current
-    // Select mode (bulk hide / unhide): null = off, else the selected channel keys
     var sel by remember { mutableStateOf<Set<String>?>(null) }
-    var focusSec by remember { mutableStateOf("") }
-    var onHeader by remember { mutableStateOf(false) }   // focus is on a type / sub-category header (not a channel)
     val barFr = remember { FocusRequester() }
-    // Back: close the rail if it has focus, else scroll to the top and focus the Live tab, then ask before exit.
     var pendingTop by remember { mutableStateOf(false) }
     val focusTop: () -> Unit = {
         pendingTop = true
@@ -186,71 +180,89 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
         closeRail = { SideMenu.close() },
         focusTop = focusTop,
     )
-    BackHandler(sel != null && !Popups.any) { sel = null }
+    var jumpBuf by remember { mutableStateOf("") }
+    var jumpTick by remember { mutableIntStateOf(0) }
+    BackHandler(jumpBuf.isNotEmpty() && !Popups.any) { jumpBuf = "" }
+    BackHandler(sel != null && !Popups.any && jumpBuf.isEmpty()) { sel = null }
+    BackHandler(focusOnChannels && tv && rail && !Popups.any && sel == null && jumpBuf.isEmpty()) {
+        focusOnChannels = false
+        scope.launch { delay(40); runCatching { catFr(selKey).requestFocus() } }
+    }
+    fun stayAfter(keys: List<String>, removed: String) {
+        focusKey = FocusStay.afterRemove(keys, removed) ?: removed
+    }
     fun bulk(on: Boolean) {
         val s0 = sel ?: return
-        val targets = rows.filter { it.ch.key in s0 && it.on != on }.distinctBy { it.ch.key }
+        val targets = paneRows.filter { it.ch.key in s0 && it.on != on }.distinctBy { it.ch.key }
         if (targets.isNotEmpty()) {
             val leave = targets.map { it.ch.key }.toSet()
             if (!view.shows(on)) {
-                val stay = rows.map { it.ch.key }.filter { it !in leave }
-                val anchor = targets.first().ch.key
-                focusKey = LiveModes.neighborKey(rows, anchor)?.takeIf { it in stay } ?: stay.firstOrNull().orEmpty()
+                focusKey = FocusStay.afterRemoveMany(paneRows.map { it.ch.key }, leave, focusKey).orEmpty()
             }
             repo.setOnRows(targets, on)
         }
         toast(ctx, LiveSelect.summary(targets.size, on, mode)); sel = null
     }
-    /** Hide/show a channel, keeping list order; if the row leaves this view, move focus to the next row. */
     fun setChannelOn(ch: Item, on: Boolean? = null, row: LiveModes.Row? = null) {
         val nowOn = row?.on ?: repo.isOn(ch)
         val want = on ?: !nowOn
         val leaving = view.shows(nowOn) && !view.shows(want)
-        if (leaving) {
-            val next = LiveModes.neighborKey(rows, ch.key)
-            if (next != null) focusKey = next
-        } else {
-            focusKey = ch.key
-        }
+        if (leaving) stayAfter(paneRows.map { it.ch.key }, ch.key) else focusKey = ch.key
         if (row != null && on != null) repo.setOnRows(listOf(row), on) else repo.toggleOn(ch)
-        if (leaving) scope.launch { delay(80); runCatching { restoreFr.requestFocus() } }
+        if (leaving) scope.launch { delay(80); runCatching { chFr(focusKey).requestFocus() } }
     }
-    // OK twice quickly on a row hides / unhides it; a single OK plays after the double-press window
+    fun toggleFavStay(ch: Item) {
+        if (selKey == LivePane.FAVOURITES && repo.isFav(ch)) stayAfter(paneRows.map { it.ch.key }, ch.key)
+        else focusKey = ch.key
+        repo.toggleFav(ch)
+        scope.launch { delay(80); runCatching { chFr(focusKey).requestFocus() } }
+    }
     var pendingPlay by remember { mutableStateOf<Job?>(null) }
     var lastOkKey by remember { mutableStateOf<String?>(null) }
     var lastOkAt by remember { mutableStateOf(0L) }
 
-    // 1.70: no guide requests from the list (the guide loads in the player, for the channel playing)
-    // Back from the player: land on the channel that was playing (else the first channel)
     var restored by remember { mutableStateOf(false) }
-    LaunchedEffect(flat.isNotEmpty()) {
-        if (restored || flat.isEmpty()) return@LaunchedEffect
+    LaunchedEffect(paneRows.isNotEmpty(), selKey) {
+        if (restored || paneRows.isEmpty()) return@LaunchedEffect
         restored = true
-        val k = repo.nowPlaying.ifEmpty { focusKey }
-        val sec = sections.firstOrNull { s -> s.rows.any { it.ch.key == k } }
-        if (sec != null) {
-            if (sec.key in collapsed) { runCatching { state.scrollToItem(layout.first[sec.key] ?: 0) }; delay(120); if (tv) runCatching { headFr(sec.key).requestFocus() }; return@LaunchedEffect }
-            val at = (layout.first[sec.key] ?: 0) + 1 + sec.rows.indexOfFirst { it.ch.key == k }
-            // Keep the saved scroll position when the channel is on screen there; scroll only when it is not
-            LiveView.scrollFor(state.firstVisibleItemIndex, at)?.let { runCatching { state.scrollToItem(it) } }
-            delay(120)
-            if (tv) runCatching { (if (k == repo.nowPlaying) playingFr else restoreFr).requestFocus() }
-        } else if (tv) { delay(150); runCatching { firstFr.requestFocus() }.onFailure { sections.firstOrNull()?.let { runCatching { headFr(it.key).requestFocus() } } } }
+        val k = paneRows.firstOrNull { it.ch.key == repo.nowPlaying }?.ch?.key
+            ?: paneRows.firstOrNull { it.ch.key == focusKey }?.ch?.key
+            ?: paneRows.first().ch.key
+        focusKey = k
+        val at = paneRows.indexOfFirst { it.ch.key == k }.coerceAtLeast(0)
+        LiveView.scrollFor(chState.firstVisibleItemIndex, at)?.let { runCatching { chState.scrollToItem(it) } }
+        delay(120)
+        if (tv) runCatching { (if (k == repo.nowPlaying) playingFr else restoreFr).requestFocus() }
     }
-
-    // Search closed (Back): back to the channel focused last (else the one playing), scrolled into view (1.55)
     LaunchedEffect(AppUi.searchClosed) {
         if (AppUi.searchClosed == 0 || !tv) return@LaunchedEffect
         val k = SearchReturn.liveTarget(focusKey, repo.nowPlaying).ifEmpty { return@LaunchedEffect }
-        val sec = sections.firstOrNull { s -> s.rows.any { it.ch.key == k } } ?: return@LaunchedEffect
-        if (sec.key in collapsed) { runCatching { state.scrollToItem(layout.first[sec.key] ?: 0) }; delay(120); runCatching { headFr(sec.key).requestFocus() }; return@LaunchedEffect }
-        val at = (layout.first[sec.key] ?: 0) + 1 + sec.rows.indexOfFirst { it.ch.key == k }
-        LiveView.scrollFor(state.firstVisibleItemIndex, at)?.let { runCatching { state.scrollToItem(it) } }
+        val at = paneRows.indexOfFirst { it.ch.key == k }
+        if (at < 0) return@LaunchedEffect
+        focusOnChannels = true
+        LiveView.scrollFor(chState.firstVisibleItemIndex, at)?.let { runCatching { chState.scrollToItem(it) } }
         delay(120)
         runCatching { (if (k == repo.nowPlaying) playingFr else restoreFr).requestFocus() }
     }
+    // After hide / unfavourite, keep focus on the neighbour, not the top of the list
+    LaunchedEffect(focusKey, paneRows.map { it.ch.key }) {
+        if (!tv || !focusOnChannels || focusKey.isEmpty()) return@LaunchedEffect
+        if (paneRows.none { it.ch.key == focusKey }) return@LaunchedEffect
+        delay(16)
+        runCatching { chFr(focusKey).requestFocus() }
+    }
 
-    fun playAt(ch: Item) { focusKey = ch.key; saveView(); val i = flatPos[ch.key] ?: return; val e = repo.gate(ch.locked); if (e == null) { repo.liveSpans = LiveOverlay.spans(sections.map { sectionTitle(it) to it.rows.size }); repo.liveSpanKeys = LiveOverlay.keysOf(flat); play(flat, i) } else repo.status = e }
+    fun playAt(ch: Item) {
+        focusKey = ch.key; saveView()
+        val list = paneRows.map { it.ch }
+        val i = list.indexOfFirst { it.key == ch.key }.takeIf { it >= 0 } ?: return
+        val e = repo.gate(ch.locked)
+        if (e == null) {
+            repo.liveSpans = LiveOverlay.spans(listOf(paneTitle to list.size))
+            repo.liveSpanKeys = LiveOverlay.keysOf(list)
+            play(list, i)
+        } else repo.status = e
+    }
     fun keyOk(ch: Item) {
         sel?.let { sel = LiveSelect.toggle(it, ch.key); return }
         val now = android.os.SystemClock.uptimeMillis()
@@ -263,83 +275,194 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
         pendingPlay?.cancel()
         pendingPlay = scope.launch { delay(DoublePress.WINDOW_MS); pendingPlay = null; playAt(ch) }
     }
-    // After hiding a group from the context menu, a short Undo bar is offered
-    var undo by remember { mutableStateOf<Pair<String, Boolean>?>(null) }   // group key, hidden now
+
+    var undo by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
     val undoFr = remember { FocusRequester() }
     LaunchedEffect(undo) { if (undo != null) { delay(120); if (tv) runCatching { undoFr.requestFocus() }; delay(5000); undo = null } }
     var groupMenu by remember { mutableStateOf<LiveModes.Node?>(null) }
-    var expanded by remember { mutableStateOf(repo.liveNavType) }
-    fun openNav(type: String) { expanded = type; repo.rememberNavType(type) }
-    fun nodeSections(n: LiveModes.Node) = sections.filter { sc -> sc.type == n.type && when {
-        n.region -> sc.rows.any { it.region == n.label }
-        n.key == Taxonomy.typeKey(n.type) -> true
-        else -> sc.label == n.label || sc.label.startsWith(n.label + " · ")
-    } }
-    fun collapseKeysOf(n: LiveModes.Node): List<String> =
-        if (n.key == Taxonomy.typeKey(n.type) && !n.region) listOf(LiveCollapse.typeKey(n.type))
-        else nodeSections(n).map { it.key }
-    fun nodeFolded(n: LiveModes.Node) = collapseKeysOf(n).let { it.isNotEmpty() && it.all { k -> k in collapsed } }
-    fun rowsOf(n: LiveModes.Node) = nodeSections(n).flatMap { it.rows }
-    fun jumpNode(n: LiveModes.Node) {
-        if (n.key == Taxonomy.typeKey(n.type) || LiveCollapse.isTypeCollapsed(n.type, collapsed)) {
-            layout.second[n.type]?.let { at -> scope.launch { runCatching { state.animateScrollToItem(at) } } }
-            return
-        }
-        val sec = nodeSections(n).firstOrNull() ?: return
-        var at = layout.first[sec.key] ?: return
-        if (n.region && sec.key !in collapsed && !LiveCollapse.isTypeCollapsed(n.type, collapsed))
-            at += 1 + sec.rows.indexOfFirst { it.region == n.label }.coerceAtLeast(0)
-        scope.launch { runCatching { state.animateScrollToItem(at) } }
-    }
-    fun expandAll() { repo.setCollapsed(LiveCollapse.expandAll()) }
-    /** Scroll a header into view after a fold (its channels are gone, so the list must not be left mid-air) and focus it. */
-    fun showHeader(hk: String, next: Set<String>) {
-        val at = LiveCollapse.headerIndex(LiveCollapse.layout(sections, next), hk) ?: return
-        scope.launch {
-            runCatching { state.scrollToItem(at) }
-            delay(60)
-            if (tv) runCatching { headFr(hk).requestFocus() }
+
+    fun pickCat(c: LivePane.Cat, toChannels: Boolean) {
+        if (c.key == LivePane.SEARCH) { onSearch(); return }
+        selected = c.key
+        if (c.expandable && !toChannels) expanded = LivePane.toggleExpand(expanded, c.key)
+        if (c.expandable && toChannels) expanded = LivePane.expandedFor(c.key, tree, expanded)
+        if (toChannels || !c.expandable) {
+            focusOnChannels = true
+            scope.launch {
+                delay(40)
+                val k = paneRows.firstOrNull { it.ch.key == focusKey }?.ch?.key ?: paneRows.firstOrNull()?.ch?.key
+                if (k != null) runCatching { chFr(k).requestFocus() }
+            }
         }
     }
-    /** 1.99.2: fold the group the focused channel (or header) is in, from anywhere inside it. */
-    fun foldGroupOf(sectionKey: String) {
-        val hk = LiveCollapse.headerOf(sections, sectionKey) ?: return
-        val next = LiveCollapse.foldGroup(sections, collapsed, sectionKey)
-        if (next != collapsed) repo.setCollapsed(next)
-        focusSec = hk
-        showHeader(hk, next)
-    }
-    /** OK on a header: fold / unfold; a fold keeps the header in view and focused. */
-    fun toggleHeader(hk: String) {
-        val folding = hk !in collapsed
-        repo.toggleCollapsed(listOf(hk))
-        if (folding) showHeader(hk, collapsed + hk)
-    }
-    fun collapseAll() {
-        val next = LiveCollapse.collapseAll(types)
-        repo.setCollapsed(next)
-        // Land on the type that had focus (else the first one), at the top of the folded list
-        val type = sections.firstOrNull { it.key == focusSec || LiveCollapse.typeKey(it.type) == focusSec }?.type ?: types.firstOrNull()
-        type?.let { showHeader(LiveCollapse.typeKey(it), next) }
-    }
-    // Channel / Page up-down jump a whole section and land on its header (1.56)
+    fun expandAll() { expanded = tree.filter { it.children.isNotEmpty() }.map { it.key }.toSet() }
+    fun collapseAll() { expanded = emptySet() }
+
     fun pageKey(e: androidx.compose.ui.input.key.KeyEvent): Boolean {
         val down = when (e.key) { Key.ChannelDown, Key.PageDown, Key.MediaFastForward -> true; Key.ChannelUp, Key.PageUp, Key.MediaRewind -> false; else -> return false }
         if (e.type != KeyEventType.KeyDown) return true
-        if (e.nativeKeyEvent.repeatCount > 0 && e.nativeKeyEvent.repeatCount % 3 != 0) return true   // held: a calm pace
-        val curSec = focusSec.ifEmpty { collapseLayout.visibleHeaders.firstOrNull().orEmpty() }
-        // a channel's own header key (a lone block folds under its type header)
-        val cur = if (onHeader) curSec else LiveCollapse.headerOf(sections, curSec) ?: curSec
-        val k = LiveCollapse.jump(collapseLayout.visibleHeaders, cur, onHeader, down) ?: return true
-        val at = layout.first[k] ?: return true
-        scope.launch { runCatching { state.scrollToItem(at) }; delay(60); runCatching { headFr(k).requestFocus() } }
+        if (e.nativeKeyEvent.repeatCount > 0 && e.nativeKeyEvent.repeatCount % 3 != 0) return true
+        val keys = paneRows.map { it.ch.key }
+        if (keys.isEmpty()) return true
+        val i = keys.indexOf(focusKey).let { if (it < 0) 0 else it }
+        val at = LivePane.pageIndex(i, down, keys.size)
+        val k = keys[at]
+        focusKey = k
+        focusOnChannels = true
+        scope.launch { runCatching { chState.scrollToItem(at) }; delay(60); runCatching { chFr(k).requestFocus() } }
         return true
     }
-    // Live TV options (Menu on the left nav / ⋮ on phone): view state, Select, languages
+    fun listKeys(e: androidx.compose.ui.input.key.KeyEvent): Boolean {
+        if (Popups.any) return false
+        if (pageKey(e)) return true
+        if (e.type != KeyEventType.KeyDown) return false
+        val digit = ChannelJump.digitOfCode(e.nativeKeyEvent.keyCode.toLong())
+        if (digit != null) {
+            jumpBuf = ChannelJump.append(jumpBuf, digit)
+            jumpTick++
+            return true
+        }
+        return false
+    }
+    LaunchedEffect(jumpTick, jumpBuf) {
+        if (jumpBuf.isEmpty()) return@LaunchedEffect
+        delay(ChannelJump.TIMEOUT_MS)
+        val hit = ChannelJump.find(jumpBuf, paneRows, rows)
+        jumpBuf = ""
+        if (hit == null) return@LaunchedEffect
+        if (hit.switchToAll) selected = LivePane.ALL
+        focusKey = hit.key
+        focusOnChannels = true
+    }
+
+    // Gentle now / next for visible rows only
+    LaunchedEffect(selKey, chState, paneRows.size) {
+        snapshotFlow { chState.layoutInfo.visibleItemsInfo.map { it.index } }.collect { vis ->
+            if (vis.isEmpty() || paneRows.isEmpty()) return@collect
+            val ids = Epg.ahead(vis, paneRows.size).mapNotNull { paneRows.getOrNull(it)?.ch?.id }.filter { it.isNotBlank() }
+            if (ids.isNotEmpty()) repo.epg.want(ids)
+        }
+    }
+
     fun viewOpts(close: () -> Unit): List<Pair<String, () -> Unit>> = LiveModes.View.values().map { v ->
         ((if (v == view) "✓  " else "     ") + v.label) to { view = v; close() }
     } + listOf("Select Channels" to { sel = emptySet(); close() })
-    fun jumpTo(type: String) { layout.second[type]?.let { scope.launch { runCatching { state.animateScrollToItem(it) } } } }
+
+    @Composable
+    fun ChannelList(modifier: Modifier) {
+        LazyColumn(state = chState, modifier = modifier.onPreviewKeyEvent { listKeys(it) }) {
+            itemsIndexed(paneRows, key = { _, r -> r.ch.key }) { i, r ->
+                val ch = r.ch
+                val fr = when {
+                    ch.key == repo.nowPlaying -> playingFr
+                    ch.key == focusKey -> restoreFr
+                    i == 0 -> firstFr
+                    else -> chFr(ch.key)
+                }
+                // Always also register under the key so stay-after-hide can find it
+                val keyFr = chFr(ch.key)
+                ChannelRow(repo, ch, r.on, browseAll, ch.key == repo.nowPlaying, tv, sel?.let { ch.key in it },
+                    Modifier
+                        .focusRequester(fr)
+                        .then(if (fr !== keyFr) Modifier.focusRequester(keyFr) else Modifier)
+                        .onFocusChanged {
+                            if (it.isFocused) {
+                                focusKey = ch.key
+                                focusOnChannels = true
+                                SideMenu.content = if (ch.key == repo.nowPlaying) playingFr else restoreFr
+                            }
+                        }
+                        .then(
+                            if (tv && rail) Modifier.onPreviewKeyEvent { e ->
+                                if (e.type == KeyEventType.KeyDown && e.key == Key.DirectionLeft) {
+                                    focusOnChannels = false
+                                    scope.launch { delay(20); runCatching { catFr(selKey).requestFocus() } }
+                                    true
+                                } else false
+                            } else Modifier
+                        ),
+                    onClick = { if (sel != null) keyOk(ch) else playAt(ch) },
+                    onKeyOk = { keyOk(ch) },
+                    onToggle = { setChannelOn(ch) },
+                    onSetShown = { setChannelOn(ch, on = !r.on, row = r) },
+                    onMenu = { menuCh = ch })
+            }
+        }
+    }
+
+    @Composable
+    fun CatList(modifier: Modifier) {
+        LazyColumn(state = catState, modifier = modifier) {
+            items(cats, key = { it.key }) { c ->
+                val selectedCat = c.key == selKey
+                var f by remember { mutableStateOf(false) }
+                val shape = RoundedCornerShape(Radii.row)
+                val ring by androidx.compose.animation.core.animateFloatAsState(if (f) 1f else 0f, Motion.spec(), label = "catRing")
+                val isFirst = c.key == cats.firstOrNull()?.key
+                Row(
+                    Modifier.fillMaxWidth()
+                        .focusRequester(catFr(c.key))
+                        .onFocusChanged {
+                            f = it.isFocused
+                            if (it.isFocused) {
+                                focusOnChannels = false
+                                SideMenu.content = catFr(c.key)
+                            }
+                        }
+                        .onPreviewKeyEvent { e ->
+                            if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                            when (e.key) {
+                                Key.DirectionRight -> { pickCat(c, toChannels = true); true }
+                                Key.DirectionLeft -> if (tv && rail) { SideMenu.open(); true } else false
+                                Key.DirectionUp -> if (isFirst && tv && rail) { focusTop(); true } else false
+                                else -> false
+                            }
+                        }
+                        .onKeyEvent { e ->
+                            if (e.type == KeyEventType.KeyUp && e.key == Key.Menu && !LivePane.isPin(c.key)) {
+                                LivePane.findNode(tree, c.key)?.let { groupMenu = it }; true
+                            } else false
+                        }
+                        .focusRing(ring, shape)
+                        .clip(shape)
+                        .background(when { f -> Pal.FocusBg; selectedCat -> Pal.Soft; else -> Color.Transparent })
+                        .combinedClickable(onClick = { pickCat(c, toChannels = !c.expandable) }, onLongClick = {
+                            LivePane.findNode(tree, c.key)?.let { groupMenu = it }
+                        })
+                        .padding(start = (Layout.M.value + c.depth * 16).dp, end = Layout.M, top = 8.dp, bottom = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(Layout.S)
+                ) {
+                    androidx.compose.material3.Text(c.label, color = if (selectedCat || f) Pal.PrimaryText else Pal.Text,
+                        fontSize = if (c.depth == 0) Ts.HEAD.sp else Ts.SECONDARY.sp,
+                        fontWeight = if (selectedCat || f) FontWeight.SemiBold else FontWeight.Medium,
+                        maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false))
+                    if (c.key != LivePane.SEARCH) Label("${c.count}", Ts.CAPTION, Pal.Dim)
+                    Spacer(Modifier.weight(1f))
+                    if (c.expandable) Label(if (c.key in expanded) "⌄" else "›", Ts.SECONDARY, if (f) Pal.PrimaryText else Pal.Dim)
+                }
+            }
+        }
+    }
+
+    @Composable
+    fun ChipRow() {
+        val chipCats = LivePane.chips(pins, tree, selKey)
+        androidx.compose.foundation.lazy.LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth().padding(bottom = Layout.S)
+        ) {
+            items(chipCats, key = { it.key }) { c ->
+                val on = c.key == selKey
+                PillButton(
+                    if (c.key == LivePane.SEARCH || c.count <= 0) c.label else "${c.label}  ·  ${c.count}",
+                    { pickCat(c, toChannels = true) },
+                    size = Ts.SECONDARY, compact = true, selected = on
+                )
+            }
+        }
+    }
 
     @Composable
     fun ListPane(modifier: Modifier) {
@@ -350,89 +473,61 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
                 Label(ix.error.ifEmpty { "Could not sort channels" }, Ts.SECONDARY, Pal.Warn)
                 PillButton("Try again", { ix.ensure(repo.channels, repo.liveCats, force = true) }, size = Ts.SECONDARY, compact = true)
             }
+            if (jumpBuf.isNotEmpty()) {
+                Box(Modifier.fillMaxWidth().padding(bottom = Layout.S), contentAlignment = Alignment.Center) {
+                    Box(Modifier.clip(RoundedCornerShape(Radii.row)).background(Pal.Surface).padding(horizontal = 16.dp, vertical = 6.dp)) {
+                        Label(jumpBuf, Ts.TITLE, Pal.PrimaryText)
+                    }
+                }
+            }
             when {
                 repo.channels.isEmpty() -> Box(Modifier.weight(1f)) {
                     val msg = LiveStatus.empty(repo.localReading, repo.status)
-                    // 1.73: the download failed or timed out and nothing is saved: try again on request
                     if (LiveStatus.failed(repo.status)) EmptyState("Channels could not be loaded", msg, warn = true, action = "Retry",
                         onAction = { repo.status = "Downloading channel list…"; repo.refreshAll() })
                     else if (firstLoad.visible) FirstLoadPanel(firstLoad, onStop = { repo.lib.stop() }, Modifier.padding(top = Layout.L), onResume = { repo.lib.resume() })
                     else BrandLoading(msg, Modifier.padding(top = Layout.L))
                 }
-                !ready -> Box(Modifier.weight(1f)) { BrandLoading("Arranging channels…", Modifier.padding(top = Layout.L)) }   // laid out on Live TV's own thread (a moment)
-                sections.isEmpty() -> Box(Modifier.weight(1f)) {
-                    when {
-                        view == LiveModes.View.HIDDEN -> EmptyState("Nothing hidden", "Every channel in this list is shown.")
-                        mode != LiveModes.DEFAULT && !browseAll -> EmptyState("$mode has no channels yet",
-                            "Open Options, pick All channels, then hold OK on a channel to add it.")
-                        langs != null -> EmptyState("No channels in these languages", "Pick more languages to see more channels.",
-                            action = "Languages", onAction = { popup = "langs" })
-                        else -> EmptyState("No channels to show", "Open Options to show hidden channels.")
-                    }
-                }
-                else -> LazyColumn(state = state, modifier = Modifier.weight(1f).fillMaxWidth().onPreviewKeyEvent { e -> pageKey(e) }, verticalArrangement = Arrangement.spacedBy(if (tv) 6.dp else 4.dp),
-                    contentPadding = PaddingValues(bottom = 12.dp)) {
-                    val firstVisibleKey = sections.firstOrNull { s ->
-                        !LiveCollapse.isTypeCollapsed(s.type, collapsed) && s.key !in collapsed && s.rows.isNotEmpty()
-                    }?.rows?.first()?.ch?.key
-                    sections.groupBy { it.type }.forEach { (type, group) ->
-                        val tKey = LiveCollapse.typeKey(type)
-                        val typeFolded = tKey in collapsed
-                        val nType = group.sumOf { it.rows.size }
-                        stickyHeader(key = "t|$type") {
-                            TypeHeader(type, nType, typeFolded, tv, Modifier.focusRequester(headFr(tKey))
-                                .onFocusChanged { if (it.isFocused) { focusSec = tKey; onHeader = true; SideMenu.content = headFr(tKey) } }
-                                .then(toRail),
-                                onToggle = { toggleHeader(tKey) },
-                                onMenu = { tree.firstOrNull { it.type == type }?.let { groupMenu = it } })
-                        }
-                        if (!typeFolded) {
-                            val subs = LiveCollapse.showSubs(group)
-                            group.forEach { s ->
-                                val folded = s.key in collapsed
-                                if (subs) stickyHeader(key = "h|${s.key}") {
-                                    SectionHeader(s, folded, tv, Modifier.focusRequester(headFr(s.key))
-                                        .onFocusChanged { if (it.isFocused) { focusSec = s.key; onHeader = true; SideMenu.content = headFr(s.key) } }
-                                        .then(toRail),
-                                        onToggle = { toggleHeader(s.key) },
-                                        onMenu = { LiveModes.nodeForSection(tree, s)?.let { groupMenu = it } },
-                                        underType = true)
-                                }
-                                if (!folded) items(s.rows, key = { r -> "${s.key}|${r.ch.key}" }) { r ->
-                                    val ch = r.ch
-                                    val first = ch.key == firstVisibleKey
-                                    ChannelRow(repo, ch, r.on, browseAll, ch.key == repo.nowPlaying, tv, sel?.let { ch.key in it },
-                                        Modifier
-                                            .then(if (tv) Modifier.pivotInList(vertical = true, state = state, key = "${s.key}|${ch.key}") else Modifier)
-                                            .then(if (ch.key == repo.nowPlaying) Modifier.focusRequester(playingFr)
-                                                else if (ch.key == focusKey) Modifier.focusRequester(restoreFr) else Modifier)
-                                            .onFocusChanged { if (it.isFocused) { focusKey = ch.key; focusSec = s.key; onHeader = false; SideMenu.content = if (ch.key == repo.nowPlaying) playingFr else restoreFr } }
-                                            .then(if (first) Modifier.focusRequester(firstFr) else Modifier)
-                                            .then(toRail),
-                                        onClick = { sel?.let { sel = LiveSelect.toggle(it, ch.key) } ?: playAt(ch) },
-                                        onKeyOk = { keyOk(ch) },
-                                        onToggle = { if (!tv) { focusSec = s.key; sel = LiveSelect.toggle(sel ?: emptySet(), ch.key) } else setChannelOn(ch, row = r) },
-                                        onSetShown = {
-                                            setChannelOn(ch, on = !r.on, row = r)
-                                            toast(ctx, LiveSelect.summary(1, !r.on, mode))
-                                        },
-                                        onMenu = { if (sel != null) runCatching { barFr.requestFocus() } else menuCh = ch })
-                                }
+                !ready -> Box(Modifier.weight(1f)) { BrandLoading("Arranging channels…", Modifier.padding(top = Layout.L)) }
+                else -> {
+                    if (!wide) ChipRow()
+                    val emptyPane = paneRows.isEmpty()
+                    Row(Modifier.weight(1f).fillMaxWidth()) {
+                        if (wide) {
+                            Column(Modifier.width(if (tv) 280.dp else 240.dp).fillMaxHeight().padding(end = Layout.M)) {
+                                CatList(Modifier.weight(1f))
                             }
+                        }
+                        Box(Modifier.weight(1f).fillMaxHeight()) {
+                            if (emptyPane) {
+                                val empty = when (selKey) {
+                                    LivePane.RECENT -> "Channels you play will show up here." to "No recent channels"
+                                    LivePane.FAVOURITES -> "Add a channel to Favourites from its menu." to "No favourites"
+                                    else -> "Open Options to show hidden channels, or pick another category." to "No channels to show"
+                                }
+                                val hiddenEmpty = view == LiveModes.View.HIDDEN
+                                val modeEmpty = mode != LiveModes.DEFAULT && !browseAll
+                                when {
+                                    hiddenEmpty && rows.isEmpty() -> EmptyState("Nothing hidden", "Every channel in this list is shown.")
+                                    modeEmpty && rows.isEmpty() -> EmptyState("$mode has no channels yet",
+                                        "Open Options, pick All channels, then hold OK on a channel to add it.")
+                                    langs != null && rows.isEmpty() -> EmptyState("No channels in the selected languages",
+                                        "Open Languages to include more.", action = "Languages", onAction = { popup = "langs" })
+                                    else -> EmptyState(empty.second, empty.first)
+                                }
+                            } else ChannelList(Modifier.fillMaxSize())
                         }
                     }
                 }
             }
             sel?.let { cur ->
-                val viewKeys = rows.map { it.ch.key }.distinct()
-                val selScope = LiveSelect.selectScope(focusSec, sections, viewKeys)
-                val whole = LiveSelect.scopeIsView(selScope, viewKeys)
+                val viewKeys = paneRows.map { it.ch.key }.distinct()
                 SelectBar(cur.size, mode, tv, barFr,
-                    canHide = LiveSelect.targets(rows, cur, false).isNotEmpty(),
-                    canShow = LiveSelect.targets(rows, cur, true).isNotEmpty(),
-                    allLabel = LiveSelect.selectAllLabel(cur, selScope, whole),
+                    canHide = LiveSelect.targets(paneRows, cur, false).isNotEmpty(),
+                    canShow = LiveSelect.targets(paneRows, cur, true).isNotEmpty(),
+                    allLabel = LiveSelect.selectAllLabel(cur, viewKeys, true),
                     onHide = { bulk(false) }, onShow = { bulk(true) },
-                    onAll = { sel = LiveSelect.selectAll(cur, selScope) }, onCancel = { sel = null })
+                    onAll = { sel = LiveSelect.selectAll(cur, viewKeys) }, onCancel = { sel = null })
             }
             undo?.let { (k, nowHidden) ->
                 Row(Modifier.fillMaxWidth().padding(top = 6.dp).clip(RoundedCornerShape(Radii.row)).background(Pal.Surface.copy(alpha = 0.94f))
@@ -444,14 +539,10 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
         }
     }
 
-    // TV (1.99): the same frame as Home / Movies / TV Shows: shared top menu, shared side menu, title-safe margins.
-    // Left from a channel (or the leftmost tab / action) opens the side menu; Right there comes back.
-    // Back closes the rail or returns to the top menu; it does not leave Live TV in one press.
     if (rail) Box(Modifier.fillMaxSize().background(Pal.Bg).onKeyEvent { e ->
         if (e.type == KeyEventType.KeyUp && e.key == Key.Menu && popup == null && menuCh == null) { popup = "more"; true }
         else false
     }) {
-        // No top wash here: the list's pinned headers sit on the plain page colour
         Column(Modifier.fillMaxSize()) {
             AnimatedVisibility(
                 visible = topBarVisible,
@@ -465,14 +556,12 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
                     }
             }
             Column(Modifier.weight(1f).fillMaxWidth().padding(start = Layout.TV_SIDE, end = Layout.TV_SIDE)) {
-                // Page header: title, one quiet summary line, and the page actions as pills (like a catalog page)
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Layout.S),
                     modifier = Modifier.fillMaxWidth().padding(top = Layout.XS, bottom = Layout.S)) {
                     Column(Modifier.weight(1f)) {
                         androidx.compose.material3.Text("Live TV", color = Pal.Text, fontSize = (Ts.TITLE + 4).sp, fontWeight = FontWeight.Bold, maxLines = 1)
                         Label(liveSummary(mode, modeCount, langs, view), Ts.SECONDARY, Pal.Dim, Modifier.padding(top = 2.dp))
-                        // 1.99.2: how to fold a long open group without scrolling back to its header
-                        if (sections.isNotEmpty()) Label("Rewind or Channel Up: group header  ·  Menu on a channel: Collapse Group",
+                        if (cats.isNotEmpty()) Label("Rewind or Channel +/− pages the list  ·  Left opens categories",
                             Ts.CAPTION, Pal.Dim.copy(alpha = 0.8f), Modifier.padding(top = 2.dp))
                     }
                     PillButton(if (mode == LiveModes.DEFAULT) "Mode" else mode, { popup = "modes" },
@@ -481,7 +570,6 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
                         }.onFocusChanged { if (it.isFocused) SideMenu.rememberContent(actionFr) }.focusRequester(actionFr),
                         size = Ts.SECONDARY, compact = true, selected = mode != LiveModes.DEFAULT)
                     PillButton(LiveSummary.langButton(langs), { popup = "langs" }, size = Ts.SECONDARY, compact = true, selected = langs != null)
-                    PillButton("Jump to", { popup = "sections" }, size = Ts.SECONDARY, compact = true)
                     PillButton("Options", { popup = "more" }, size = Ts.SECONDARY, compact = true)
                 }
                 ListPane(Modifier.weight(1f))
@@ -503,9 +591,6 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
     when (popup) {
         "modes" -> ModeMenu(repo, rows.filter { it.on }.map { it.ch }) { popup = null }
         "langs" -> LanguagePicker(repo, allLangs) { popup = null }
-        "sections" -> ChoiceDialog("Jump to", sections.map { s -> "${sectionTitle(s)}  ·  ${s.rows.size}" to {
-            layout.first[s.key]?.let { scope.launch { runCatching { state.scrollToItem(it) } } }; popup = null
-        } }, focusKey = "sections", onClose = { popup = null })
         "more" -> ChoiceDialog("Options", listOf(
             AppChrome.GO_HOME to { popup = null; AppChrome.goHome() },
             "Expand All" to { expandAll(); popup = null },
@@ -514,43 +599,41 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
         ) + viewOpts { popup = null } + listOf("Exit ${ctx.getString(R.string.app_name)}" to { popup = null; exitApp(ctx) }), focusKey = "more", onClose = { popup = null })
     }
     menuCh?.let { ch ->
-        val row = rows.firstOrNull { it.ch.key == ch.key }
+        val row = paneRows.firstOrNull { it.ch.key == ch.key } ?: rows.firstOrNull { it.ch.key == ch.key }
         val nowOn = row?.on ?: repo.isOn(ch)
         ChannelContextMenu(repo, ch, nowOn,
             onShowHide = { setChannelOn(ch, on = !nowOn, row = row) },
             onSelect = { sel = setOf(ch.key) },
             onClose = { menuCh = null },
-            onCollapseGroup = sections.firstOrNull { sc -> sc.rows.any { it.ch.key == ch.key } }?.let { sc -> { foldGroupOf(sc.key) } },
-            onCollapseAll = { collapseAll() })
+            onFav = { toggleFavStay(ch) })
     }
     groupMenu?.let { n ->
+        val nodeRows = LivePane.rowsOf(n.key, rows, favKeys, recentKeys, tree)
         LiveGroupContextMenu(
             title = n.label,
             groupOn = repo.groupOn(n.key),
-            folded = nodeFolded(n),
+            folded = n.key !in expanded && n.children.isNotEmpty(),
             onShowHide = {
                 repo.toggleGroupKey(n.key, n.label)
                 undo = n.key to !repo.groupOn(n.key)
             },
             onShowAll = {
-                val rs = rowsOf(n)
-                if (rs.isNotEmpty()) repo.setOnRows(rs, true)
+                if (nodeRows.isNotEmpty()) repo.setOnRows(nodeRows, true)
                 if (!repo.groupOn(n.key)) repo.toggleGroupKey(n.key, n.label)
             },
             onHideAll = {
-                val rs = rowsOf(n)
-                if (rs.isNotEmpty()) {
+                if (nodeRows.isNotEmpty()) {
                     if (!view.shows(false)) {
-                        val leave = rs.map { it.ch.key }.toSet()
-                        focusKey = rows.map { it.ch.key }.firstOrNull { it !in leave }.orEmpty()
+                        val leave = nodeRows.map { it.ch.key }.toSet()
+                        focusKey = FocusStay.afterRemoveMany(paneRows.map { it.ch.key }, leave, focusKey).orEmpty()
                     }
-                    repo.setOnRows(rs, false)
+                    repo.setOnRows(nodeRows, false)
                 }
             },
-            onToggleFold = { repo.toggleCollapsed(collapseKeysOf(n)) },
+            onToggleFold = { expanded = LivePane.toggleExpand(expanded, n.key) },
             onExpandAll = { expandAll() },
             onCollapseAll = { collapseAll() },
-            onSelect = { sel = rowsOf(n).map { it.ch.key }.toSet() },
+            onSelect = { sel = nodeRows.map { it.ch.key }.toSet() },
             onClose = { groupMenu = null }
         )
     }
@@ -649,6 +732,7 @@ private fun ChannelRow(repo: Repo, ch: Item, on: Boolean, browseAll: Boolean, pl
     // What is on now, from the guide already saved on this device (the list never asks the portal)
     val minute = rememberMinute()
     val nowTitle = repo.epg.guide[ch.id]?.progs?.let { Epg.now(it, minute)?.title }?.takeIf { it.isNotBlank() }
+    val nextTitle = repo.epg.guide[ch.id]?.progs?.let { Epg.next(it, minute)?.title }?.takeIf { it.isNotBlank() }
     val revealPx = with(LocalDensity.current) { LiveSwipe.REVEAL_DP.dp.toPx() }
     var swipe by remember { mutableStateOf(0f) }
     val drag = rememberDraggableState { delta -> swipe = LiveSwipe.clamp(swipe + delta, revealPx) }
@@ -693,7 +777,8 @@ private fun ChannelRow(repo: Repo, ch: Item, on: Boolean, browseAll: Boolean, pl
                 androidx.compose.material3.Text(name, color = if (playing) Pal.PrimaryText else Pal.Text, fontSize = Ts.ROW.sp,
                     fontWeight = if (f || playing) FontWeight.SemiBold else FontWeight.Medium, maxLines = 1,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-                if (nowTitle != null) Label(nowTitle, Ts.SECONDARY, Pal.Dim)
+                if (nowTitle != null) Label(nowTitle, Ts.SECONDARY, Pal.Dim, maxLines = 1)
+                if (nextTitle != null) Label("Next: $nextTitle", Ts.CAPTION, Pal.Dim, maxLines = 1)
             }
             if (lang.isNotEmpty()) Box(Modifier.clip(RoundedCornerShape(6.dp)).background(Pal.Soft).padding(horizontal = 6.dp, vertical = 2.dp)) {
                 Label(lang, Ts.CAPTION, Pal.Text2)

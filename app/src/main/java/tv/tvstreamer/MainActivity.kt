@@ -234,7 +234,7 @@ fun App(repo: Repo) {
     }
     // Always intercept Back outside the player so Home (and a main tab) cannot finish the app.
     // Popups, search, settings subsections and Live select mode register their own handlers above this.
-    BackHandler(screen !is Screen.Play && !Popups.any) { onAppBack() }
+    BackHandler(screen !is Screen.Play && !Popups.any && !search.open) { onAppBack() }
     LaunchedEffect(screen) { Keys.focused = null; if (SideMenu.open) SideMenu.close(restore = false) }
 
     val play: (List<Item>, Int) -> Unit = { l, i -> if (l.isNotEmpty()) screen = Screen.Play(l, i, screen) }
@@ -375,7 +375,7 @@ fun App(repo: Repo) {
                             search.open = false
                             open(item)
                             fromSearch = screen.takeIf { it is Screen.Detail }
-                        }, { l, i -> search.open = false; play(l, i) })
+                        }, { l, i -> search.open = false; play(l, i) }, onClose = { search.open = false })
                     } else if (!(rememberIsTv() && !phone)) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomEnd) {
                         // Touch screens only: on TV a floating button is a D-pad trap (Right at the end of the top menu
                         // jumped to it with no way back). TV has Search in the top menu, on Live TV and on the remote's key.

@@ -215,7 +215,7 @@ fun ChannelMenu(repo: Repo, ch: Item, @Suppress("UNUSED_PARAMETER") folder: Stri
 /** Compact hold / Menu context menu for a Live TV channel (Show/Hide, Rename, My List, Select). */
 @Composable
 fun ChannelContextMenu(repo: Repo, ch: Item, on: Boolean, onShowHide: () -> Unit, onSelect: () -> Unit, onClose: () -> Unit,
-                       onCollapseGroup: (() -> Unit)? = null, onCollapseAll: (() -> Unit)? = null) {
+                       onCollapseGroup: (() -> Unit)? = null, onCollapseAll: (() -> Unit)? = null, onFav: (() -> Unit)? = null) {
     var page by remember { mutableStateOf("main") }
     val named = repo.named(ch)
     if (page == "rename") {
@@ -229,7 +229,7 @@ fun ChannelContextMenu(repo: Repo, ch: Item, on: Boolean, onShowHide: () -> Unit
                 ItemContext.SHOW, ItemContext.HIDE -> { onShowHide(); onClose() }
                 ItemContext.RENAME -> { page = "rename" }
                 ItemContext.RESET_NAME -> { repo.renameChannel(ch, null); onClose() }
-                ItemContext.ADD_LIST, ItemContext.REMOVE_LIST -> { repo.toggleFav(ch); onClose() }
+                ItemContext.ADD_LIST, ItemContext.REMOVE_LIST -> { if (onFav != null) onFav() else repo.toggleFav(ch); onClose() }
                 ItemContext.SELECT -> { onSelect(); onClose() }
                 ItemContext.COLLAPSE_GROUP -> { onClose(); onCollapseGroup?.invoke() }
                 ItemContext.COLLAPSE_ALL -> { onClose(); onCollapseAll?.invoke() }

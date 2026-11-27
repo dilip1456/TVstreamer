@@ -153,6 +153,7 @@ fun SideMenuPanel(current: RailEntry?, onPick: (RailEntry) -> Unit) {
     val entries = RailEntry.entries
     val frs = remember { entries.map { SideMenu.reqs.getValue(it) } }
     var ix by remember { mutableIntStateOf(entries.indexOf(current ?: RailEntry.HOME).coerceAtLeast(0)) }
+    var expectUp by remember { mutableStateOf(false) }
     AnimatedVisibility(
         visibleState = visible,
         enter = fadeIn(tween(SideMenu.ANIM_MS)) + slideInHorizontally(tween(SideMenu.ANIM_MS)) { -it },
@@ -160,13 +161,23 @@ fun SideMenuPanel(current: RailEntry?, onPick: (RailEntry) -> Unit) {
         modifier = Modifier.fillMaxSize().zIndex(8f)
     ) {
         Box(Modifier.fillMaxSize().onPreviewKeyEvent { e ->
+            if (e.key == Key.Back || e.key == Key.Escape) {
+                val d = OverlayBack.onKey(
+                    isDown = e.type == KeyEventType.KeyDown,
+                    isUp = e.type == KeyEventType.KeyUp,
+                    repeat = e.nativeKeyEvent.repeatCount > 0,
+                    expectUp = expectUp,
+                )
+                expectUp = d.expectUp
+                if (d.close) SideMenu.close()
+                return@onPreviewKeyEvent d.consume
+            }
             if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
             when (e.key) {
                 Key.DirectionUp -> { if (ix > 0) runCatching { frs[ix - 1].requestFocus() }; true }
                 Key.DirectionDown -> { if (ix < entries.size - 1) runCatching { frs[ix + 1].requestFocus() }; true }
                 Key.DirectionLeft -> true
                 Key.DirectionRight -> { SideMenu.close(); true }
-                Key.Back, Key.Escape -> { SideMenu.close(); true }
                 else -> false
             }
         }) {

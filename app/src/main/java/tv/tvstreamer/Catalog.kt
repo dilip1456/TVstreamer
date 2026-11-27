@@ -88,6 +88,11 @@ fun Item.isEpisode(): Boolean = kind == "vod" && num != -1 && (series > 0 || sea
 fun Item.isEpisodeLike(): Boolean = isEpisode() || (kind == "vod" && !isSeries && Tags.hasEpisodeMarker(name))
 
 private const val ROW_LIMIT = 40
+
+/** After a hide / remove in a row or grid, focus this shelf-or-screen key and item key on the next frame. */
+object ListFocus {
+    var pending by mutableStateOf<Pair<String, String>?>(null)
+}
 /** Last rows / hero slides per tab, shown at once when the tab opens again while fresh ones are worked out. */
 private val shelfMemo = java.util.concurrent.ConcurrentHashMap<String, List<Shelf>>()
 private val heroMemo = java.util.concurrent.ConcurrentHashMap<String, List<HeroPick>>()
@@ -586,9 +591,27 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                     }
                     if (item.kind == "vod" && !item.isSeries && shelf.key != "ai") add((if (repo.isWatched(item)) "Mark as Unwatched" else "Mark as Watched") to { repo.setWatched(item, !repo.isWatched(item)); contVer++; menu = null })
                     if (item.kind == "vod" && (shelf.versions[item.key] ?: 0) > 1) add("Versions: ${shelf.versions[item.key]}" to { menu = null; open(item) })
-                    if (item.kind == "vod" && !item.isEpisode() && shelf.key != "cont") add("Hide This Title" to { repo.toggleHideTitle(item); menu = null })
-                    if (shelf.key == "cont") add("Remove from History" to { repo.store.removeResume(item.key); menu = null; contVer++ })
-                    if (item.kind == "itv") add("Hide Channel" to { repo.toggleHideChannel(item); menu = null })
+                    if (item.kind == "vod" && !item.isEpisode() && shelf.key != "cont") add("Hide This Title" to {
+                        val keys = shelf.items.distinctBy { it.key }.take(ROW_LIMIT).map { it.key }
+                        FocusStay.afterRemove(keys, item.key)?.let { n ->
+                            repo.focusItem(screenKey, "${shelf.key}|$n"); ListFocus.pending = shelf.key to n
+                        }
+                        repo.toggleHideTitle(item); menu = null
+                    })
+                    if (shelf.key == "cont") add("Remove from History" to {
+                        val keys = shelf.items.distinctBy { it.key }.take(ROW_LIMIT).map { it.key }
+                        FocusStay.afterRemove(keys, item.key)?.let { n ->
+                            repo.focusItem(screenKey, "${shelf.key}|$n"); ListFocus.pending = shelf.key to n
+                        }
+                        repo.store.removeResume(item.key); menu = null; contVer++
+                    })
+                    if (item.kind == "itv") add("Hide Channel" to {
+                        val keys = shelf.items.distinctBy { it.key }.take(ROW_LIMIT).map { it.key }
+                        FocusStay.afterRemove(keys, item.key)?.let { n ->
+                            repo.focusItem(screenKey, "${shelf.key}|$n"); ListFocus.pending = shelf.key to n
+                        }
+                        repo.toggleHideChannel(item); menu = null
+                    })
                 }
                 if (shelf.key == "cont") add("Clear All History" to { menu = null; clearHist = true })
                 if (shelf.key == "ai") add(AiSuggest.REFRESH to { menu = null; scope.launch { Ai.refreshSuggested(repo, force = true) } })
@@ -613,6 +636,11 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                     if (shelf.error.isNotEmpty()) add("Retry Loading" to { repo.retryRow(c); menu = null })
                 }
                 if (shelf.cat == null) add("Hide This Category" to {
+                    val nextShelf = FocusStay.afterRemove(shelvesShown.map { it.key }, shelf.key)
+                    val hop = shelvesShown.firstOrNull { it.key == nextShelf }?.items?.firstOrNull()
+                    if (hop != null && nextShelf != null) {
+                        repo.focusItem(screenKey, "$nextShelf|${hop.key}"); ListFocus.pending = nextShelf to hop.key
+                    }
                     repo.hideRow(mode, shelf.key, shelf.title); menu = null
                     repo.status = "\"${shelf.title}\" hidden. Show it again in Catalog Selector."
                 })
@@ -769,7 +797,14 @@ private fun ShelfRow(repo: Repo, screen: String, shelf: Shelf, isTv: Boolean, hP
     // TV: the focused card stays ~12 % in from the left; the focused row stays ~12 % down from the top
     val pivot = if (isTv && listState != null) Modifier.pivotInList(vertical = true, state = listState, key = shelf.key) else Modifier
     // After a suggestion is reviewed, move focus to the next (or previous) card, or the Refresh tile
-    LaunchedEffect(shown.map { it.key }, onRefresh != null, Ai.pendingFocus) {
+    LaunchedEffect(shown.map { it.key }, onRefresh != null, Ai.pendingFocus, ListFocus.pending) {
+        val pending = ListFocus.pending
+        if (pending != null && pending.first == shelf.key) {
+            ListFocus.pending = null
+            kotlinx.coroutines.delay(16)
+            runCatching { frOf(pending.second).requestFocus() }
+            return@LaunchedEffect
+        }
         if (shelf.key != "ai") return@LaunchedEffect
         val target = Ai.pendingFocus ?: return@LaunchedEffect
         Ai.pendingFocus = null
@@ -1319,7 +1354,16 @@ fun GridScreen(repo: Repo, cat: Cat, open: (Item) -> Unit, play: (List<Item>, In
         }
     }
     val firstFr = remember { FocusRequester() }
+    val gridFrs = remember(screenKey) { mutableMapOf<String, FocusRequester>() }
+    fun gridFr(k: String) = gridFrs.getOrPut(k) { FocusRequester() }
     LaunchedEffect(items.isNotEmpty()) { if (isTv && items.isNotEmpty() && repo.lastFocus[screenKey] == null) { delay(100); runCatching { firstFr.requestFocus() } } }
+    LaunchedEffect(ListFocus.pending, shownItems.map { it.key }) {
+        val p = ListFocus.pending ?: return@LaunchedEffect
+        if (p.first != screenKey) return@LaunchedEffect
+        ListFocus.pending = null
+        delay(16)
+        runCatching { gridFrs[p.second]?.requestFocus() }
+    }
 
     Box(Modifier.fillMaxSize().background(Pal.Bg)) {
         LazyVerticalGrid(
@@ -1356,7 +1400,7 @@ fun GridScreen(repo: Repo, cat: Cat, open: (Item) -> Unit, play: (List<Item>, In
             }
             gridItemsIndexed(shownItems, key = { _, it -> it.key }) { i, it ->
                 val k = it.key
-                val fr = remember { FocusRequester() }
+                val fr = gridFr(k)
                 RestoreFocus(repo, screenKey, k, fr)
                 PosterCard(it, posterW, null, Modifier.then(if (i == 0) Modifier.focusRequester(firstFr) else Modifier).focusRequester(fr)
                     .then(if (isTv) Modifier.gridWrap(i, shownItems.size, state, wrap) else Modifier),
@@ -1366,7 +1410,7 @@ fun GridScreen(repo: Repo, cat: Cat, open: (Item) -> Unit, play: (List<Item>, In
                 Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(Radii.poster)).shimmer())
             }
         }
-        menu?.let { m -> TitleMenu(repo, m, vcount[m.key] ?: 0, open, { play(listOf(it), 0) }) { menu = null } }
+        menu?.let { m -> TitleMenu(repo, m, vcount[m.key] ?: 0, open, { play(listOf(it), 0) }, shownItems.map { it.key }, screenKey) { menu = null } }
         if (sortMenu) SortDialog(sort, { sort = it; repo.store.saveSort("grid", it); sortMenu = false }) { sortMenu = false }
     }
 }
@@ -1376,7 +1420,8 @@ fun GridScreen(repo: Repo, cat: Cat, open: (Item) -> Unit, play: (List<Item>, In
  * Mark watched, Versions (when there are several), Hide this title.
  */
 @Composable
-fun TitleMenu(repo: Repo, m: Item, versions: Int, open: (Item) -> Unit, play: ((Item) -> Unit)?, onClose: () -> Unit) {
+fun TitleMenu(repo: Repo, m: Item, versions: Int, open: (Item) -> Unit, play: ((Item) -> Unit)?,
+              listKeys: List<String> = emptyList(), stayKey: String = "", onClose: () -> Unit) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     var pick by remember(m.key) { mutableStateOf(false) }
     if (pick) { WatchlistPicker(repo, m, onClose); return }
@@ -1396,6 +1441,9 @@ fun TitleMenu(repo: Repo, m: Item, versions: Int, open: (Item) -> Unit, play: ((
         if (!m.isSeries) add((if (repo.isWatched(m)) "Mark as Unwatched" else "Mark as Watched") to { repo.setWatched(m, !repo.isWatched(m)); onClose() })
         if (versions > 1) add("Versions: $versions" to { onClose(); open(m) })
         if (!m.isEpisode()) add("Hide This Title" to {
+            FocusStay.afterRemove(listKeys, m.key)?.let { n ->
+                if (stayKey.isNotEmpty()) { repo.focusItem(stayKey, n); ListFocus.pending = stayKey to n }
+            }
             repo.toggleHideTitle(m); onClose(); toast(ctx, "Hidden. Show it again in Settings > Hidden.")
         })
     }, focusKey = "title" + m.key, onClose = onClose)
@@ -1430,6 +1478,15 @@ fun PoolScreen(repo: Repo, tab: String, lang: String, genre: String, title: Stri
     val hPad = if (isTv) 48.dp else 14.dp
     val state = remember(screenKey) { repo.gridStates.getOrPut(screenKey) { LazyGridState() } }
     val wrap = remember(screenKey) { GridFocus() }
+    val poolFrs = remember(screenKey) { mutableMapOf<String, FocusRequester>() }
+    fun poolFr(k: String) = poolFrs.getOrPut(k) { FocusRequester() }
+    LaunchedEffect(ListFocus.pending, cards.map { it.key }) {
+        val p = ListFocus.pending ?: return@LaunchedEffect
+        if (p.first != screenKey) return@LaunchedEffect
+        ListFocus.pending = null
+        delay(16)
+        runCatching { poolFrs[p.second]?.requestFocus() }
+    }
     LaunchedEffect(state, cards.size, lib.loading) {
         snapshotFlow { state.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }.collect { last ->
             if (Paging.shouldLoad(last - 1, cards.size, !lib.complete, lib.loading, askedAt)) { askedAt = cards.size; lib.more(tab, setOf(lang)) }
@@ -1452,13 +1509,13 @@ fun PoolScreen(repo: Repo, tab: String, lang: String, genre: String, title: Stri
             gridItemsIndexed(cards, key = { _, g -> g.key }) { i, g ->
                 val it = g.best
                 val k = g.key
-                val fr = remember { FocusRequester() }
+                val fr = poolFr(k)
                 RestoreFocus(repo, screenKey, k, fr)
                 PosterCard(it, posterW, null, Modifier.focusRequester(fr).then(if (isTv) Modifier.gridWrap(i, cards.size, state, wrap) else Modifier),
                     { open(it) }, { menu = it }, fav = repo.isFav(it), versions = g.items.size) { repo.focusItem(screenKey, k); Keys.focused = it }
             }
         }
-        menu?.let { m -> TitleMenu(repo, m, cards.firstOrNull { it.best.key == m.key }?.items?.size ?: 0, open, null) { menu = null } }
+        menu?.let { m -> TitleMenu(repo, m, cards.firstOrNull { it.best.key == m.key }?.items?.size ?: 0, open, null, cards.map { it.best.key }, screenKey) { menu = null } }
         if (sortMenu) SortDialog(sort, { sort = it; repo.store.saveSort("pool:$title", it); sortMenu = false; if (it != Sorts.ADDED) lib.more(tab, setOf(lang)) }) { sortMenu = false }
     }
 }

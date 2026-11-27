@@ -189,6 +189,8 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
     // Live TV (1.53): no player controls, only these overlays (see LiveOverlay): info bar, channels (Left), schedule (Right)
     var layer by remember { mutableStateOf(LiveOverlay.Layer.NONE) }
     var infoTick by remember { mutableIntStateOf(0) }
+    var jumpBuf by remember { mutableStateOf("") }
+    var jumpTick by remember { mutableIntStateOf(0) }
     val panel = layer == LiveOverlay.Layer.CHANNELS || layer == LiveOverlay.Layer.GUIDE
     var err by remember { mutableStateOf("") }
     var resolving by remember { mutableStateOf(true) }
@@ -282,7 +284,7 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
             }
         }
     }
-    fun go(n: Int) {
+    fun go(n: Int, keepOverlay: Boolean = false) {
         if (list.size <= 1) return
         zapDir = when (n) { idx + 1 -> 1; idx - 1 -> -1; else -> 0 }
         saveNow()
@@ -292,7 +294,10 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
         autoRetries = 0
         linkFrom = 0
         zapTick++
-        if (list[to].kind == "itv") { controls = false; showInfo() }
+        if (list[to].kind == "itv") {
+            controls = false
+            if (keepOverlay) showInfo() else layer = LiveOverlay.Layer.NONE
+        }
         touch()
     }
     /** Play episode [n] next (inserting it after the current item when it is not in the list yet). */
@@ -619,16 +624,31 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
         }
     }
     var infoFocused by remember { mutableStateOf(false) }
-    LaunchedEffect(layer, infoTick, infoFocused) {
-        if (layer == LiveOverlay.Layer.INFO && !infoFocused) {
+    var hideHold by remember { mutableStateOf(false) }
+    LaunchedEffect(layer, infoTick, infoFocused, hideHold) {
+        if (layer == LiveOverlay.Layer.INFO && PlayerHide.timeoutWhileFocused(hideHold, infoFocused)) {
             delay(LiveOverlay.INFO_MS)
-            if (layer == LiveOverlay.Layer.INFO && !infoFocused) layer = LiveOverlay.Layer.NONE
+            if (layer == LiveOverlay.Layer.INFO && PlayerHide.timeoutWhileFocused(hideHold, infoFocused)) {
+                layer = LiveOverlay.Layer.NONE
+                hideHold = false
+            }
         }
     }
     LaunchedEffect(flashTick) { if (flash.isNotEmpty()) { delay(700); flash = "" } }
+    LaunchedEffect(jumpTick, jumpBuf) {
+        if (jumpBuf.isEmpty()) return@LaunchedEffect
+        delay(ChannelJump.TIMEOUT_MS)
+        val rows = list.map { LiveModes.Row(it, true) }
+        val hit = ChannelJump.find(jumpBuf, rows, rows)
+        jumpBuf = ""
+        if (hit != null) {
+            val at = list.indexOfFirst { it.key == hit.key }
+            if (at >= 0 && at != idx) go(at)
+        }
+    }
 
     // Move focus to the right place whenever the overlay changes.
-    LaunchedEffect(controls, err, dialog, panel, layer) {
+    LaunchedEffect(controls, err, dialog, panel, layer, infoTick, idx) {
         delay(60)
         runCatching {
             when {
@@ -687,7 +707,12 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
             if (exitArmedAt > 0L) exitHint = false
         }
     }
-    BackHandler(!Popups.any) { onPlayerBack() }
+    var backExpectUp by remember { mutableStateOf(false) }
+    var backFromKey by remember { mutableStateOf(false) }
+    BackHandler(!Popups.any) {
+        if (backFromKey) { backFromKey = false; return@BackHandler }
+        onPlayerBack()
+    }
     fun goBack() { onPlayerBack() }
 
     // Keys that are swallowed on KeyDown also have their KeyUp swallowed,
@@ -700,6 +725,28 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
             .onFocusChanged { if (it.isFocused) Popups.focused(rootFr) }
             .focusable()
             .onPreviewKeyEvent { e ->
+                if ((e.key == Key.Back || e.key == Key.Escape) && !Popups.any) {
+                    if (jumpBuf.isNotEmpty()) {
+                        val d = OverlayBack.onKey(
+                            isDown = e.type == KeyEventType.KeyDown,
+                            isUp = e.type == KeyEventType.KeyUp,
+                            repeat = e.nativeKeyEvent.repeatCount > 0,
+                            expectUp = backExpectUp,
+                        )
+                        backExpectUp = d.expectUp
+                        if (d.close) jumpBuf = ""
+                        return@onPreviewKeyEvent d.consume
+                    }
+                    val d = OverlayBack.onKey(
+                        isDown = e.type == KeyEventType.KeyDown,
+                        isUp = e.type == KeyEventType.KeyUp,
+                        repeat = e.nativeKeyEvent.repeatCount > 0,
+                        expectUp = backExpectUp,
+                    )
+                    backExpectUp = d.expectUp
+                    if (d.close) { backFromKey = true; onPlayerBack(repeat = e.nativeKeyEvent.repeatCount > 0) }
+                    return@onPreviewKeyEvent d.consume
+                }
                 if (e.type == KeyEventType.KeyUp) return@onPreviewKeyEvent swallowUp.remove(e.key)
                 if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 val k = e.key
@@ -717,6 +764,16 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
                 }
                 if (handled) { swallowUp += k; return@onPreviewKeyEvent true }
                 if (dialog != null || panel || showUpNext || Popups.any) { touch(); return@onPreviewKeyEvent false }
+                // Live: number keys jump to that channel and close the overlay
+                if (live) {
+                    val digit = ChannelJump.digitOfCode(k.keyCode, k.toString())
+                    if (digit != null) {
+                        jumpBuf = ChannelJump.append(jumpBuf, digit)
+                        jumpTick++
+                        swallowUp += k
+                        return@onPreviewKeyEvent true
+                    }
+                }
                 // Live: no player controls. Up / Down zap at once (also with the info bar or the error bar showing),
                 // OK shows the info bar (or retries a failed link), Left the category's channels, Right the schedule.
                 if (live) {
@@ -895,6 +952,12 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
             }
         }
 
+        if (live && jumpBuf.isNotEmpty()) {
+            Box(Modifier.align(Alignment.TopCenter).padding(top = 28.dp)
+                .background(Color(0xCC000000), RoundedCornerShape(Radii.row)).padding(horizontal = 22.dp, vertical = 10.dp)) {
+                Text(jumpBuf, color = Color.White, fontSize = Ts.DISPLAY.sp, fontWeight = FontWeight.Bold)
+            }
+        }
         // Live: the floating info bar (now with progress, next), never the player controls
         androidx.compose.animation.AnimatedVisibility(
             visible = live && layer == LiveOverlay.Layer.INFO && err.isEmpty() && dialog == null,
@@ -909,9 +972,29 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
                     val shown = repo.isOn(item)
                     OptionsBar(buildList {
                         add(BarAction("eye", if (shown) Ic.Eye else Ic.EyeOff, if (shown) "Hide" else "Show", {
-                            repo.toggleOn(item)
-                            toast(ctx, if (repo.isOn(item)) "Shown" else "Hidden")
-                            infoTick++
+                            if (shown) {
+                                val hop = PlayerHide.afterHide(list, idx)
+                                repo.toggleOn(item)
+                                toast(ctx, "Hidden")
+                                hideHold = true
+                                if (hop != null) {
+                                    list = hop.first
+                                    val to = hop.second
+                                    saveNow()
+                                    if (to != idx) prevIdx = idx
+                                    idx = to
+                                    autoRetries = 0
+                                    linkFrom = 0
+                                    zapTick++
+                                    controls = false
+                                    layer = LiveOverlay.Layer.INFO
+                                }
+                                infoTick++
+                            } else {
+                                repo.toggleOn(item)
+                                toast(ctx, "Shown")
+                                infoTick++
+                            }
                         }, hideShowFr, active = !shown))
                         add(BarAction("channels", Ic.Channels, "Channels", { layer = LiveOverlay.Layer.CHANNELS }))
                         add(BarAction("guide", Ic.Guide, "Schedule", { layer = LiveOverlay.Layer.GUIDE }))
