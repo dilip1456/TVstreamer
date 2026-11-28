@@ -64,6 +64,9 @@ object Layout {
     val TV_TOP = 27.dp
     val PHONE_SIDE = 14.dp
     val PHONE_TOP = 10.dp
+    /** Compact floating top bar (content height, not including title-safe padding). */
+    val BAR = 40.dp
+    fun floatTop(tv: Boolean) = (if (tv) TV_TOP else PHONE_TOP) + BAR
     /** Compact logo in the top-left corner. */
     val LOGO_TV = 26.dp
     val LOGO_PHONE = 24.dp
@@ -102,7 +105,9 @@ fun TopNavBar(current: String, tabs: List<TopTab>, onOpenRail: (() -> Unit)?, on
     val frs = remember(count) { List(count) { FocusRequester() } }
     var ix by remember { mutableIntStateOf(-1) }
     Box(
-        modifier.fillMaxWidth().heightIn(min = 44.dp)
+        modifier.fillMaxWidth().chromeBar()
+            .padding(start = Layout.TV_SIDE, end = Layout.TV_SIDE, top = Layout.TV_TOP, bottom = 6.dp)
+            .heightIn(min = Layout.BAR)
             .menuRow({ ix }, { count }, onLeftEdge = onOpenRail?.let { open -> {
                 SideMenu.rememberContent(frs.getOrNull(ix) ?: frs.getOrNull(0))
                 open()
@@ -114,7 +119,7 @@ fun TopNavBar(current: String, tabs: List<TopTab>, onOpenRail: (() -> Unit)?, on
             .focusRestorer(),
         contentAlignment = Alignment.Center
     ) {
-        BlueyMark(Modifier.align(Alignment.CenterStart), size = Layout.LOGO_TV)
+        BlueyMark(Modifier.align(Alignment.CenterStart), size = 22.dp)
         Row(horizontalArrangement = Arrangement.spacedBy(Layout.XS), verticalAlignment = Alignment.CenterVertically) {
             tabs.forEachIndexed { i, t ->
                 NavTab(t.label, t.onClick,
@@ -152,10 +157,36 @@ object RowNav {
     fun onKey(index: Int, count: Int, dir: TabNav.Dir, hasMenu: Boolean): Action {
         if (index < 0 || count <= 0) return Action.NONE
         return when (dir) {
+            // Left opens the side menu only on the leftmost card; other cards use the default move
             TabNav.Dir.LEFT -> if (index == 0) (if (hasMenu) Action.TO_MENU else Action.STAY) else Action.NONE
             TabNav.Dir.RIGHT -> if (index >= count - 1) Action.STAY else Action.NONE
             else -> Action.NONE
         }
+    }
+}
+
+/**
+ * Left / Right on the Home / Movies / TV Shows hero (1.99.7).
+ * [button] is 0 for Play (leftmost), then More info, Watchlist; -1 means the billboard itself is focused.
+ * Left moves between buttons, or to the previous hero slide when the billboard is focused and not
+ * on the first slide; the side menu opens only from the leftmost element (Play, or the first slide).
+ */
+object HeroNav {
+    enum class Action { NONE, MOVE, PREV_SLIDE, NEXT_SLIDE, TO_MENU }
+
+    fun onLeft(button: Int, slide: Int, slides: Int, hasMenu: Boolean): Action = when {
+        button > 0 -> Action.MOVE
+        button == 0 -> if (hasMenu) Action.TO_MENU else Action.NONE
+        slides > 1 && slide > 0 -> Action.PREV_SLIDE
+        hasMenu -> Action.TO_MENU
+        else -> Action.NONE
+    }
+
+    fun onRight(button: Int, buttons: Int, slide: Int, slides: Int): Action = when {
+        button in 0 until (buttons - 1) -> Action.MOVE
+        button >= 0 -> Action.NONE
+        slides > 1 -> Action.NEXT_SLIDE
+        else -> Action.NONE
     }
 }
 

@@ -121,9 +121,9 @@ object Pal {
     val Live = Color(Brand.LIVE)
     /** Faint brand-tinted outline for panels and bars. */
     val Outline = Color(Brand.PRIMARY).copy(alpha = 0.16f)
-    /** Focused menu tab / side-menu entry: a light pill with dark text (same in both themes). */
-    val FocusPill = Color(0xF2F4F8FC)
-    val OnFocusPill = Color(0xFF071018)
+    /** Focused menu tab / side-menu / settings / list row: brand-blue pill with light text (same in both themes). */
+    val FocusPill = Color(Brand.PRIMARY)
+    val OnFocusPill = Color(0xFFF4F8FC)
     /** Dimmed backdrop behind dialogs and menus. */
     val Scrim = Color(0xB3000000)
     val Focus = Color(Brand.FOCUS)
@@ -141,7 +141,7 @@ object Pal {
     val Field get() = pick(0xFF12243A, 0xFFE8EEF5)
     val FieldFocus get() = pick(0xFF183048, 0xFFDDE7F2)
     val Row get() = pick(0xFF12243A, 0xFFFFFFFF)
-    val FocusBg get() = pick(Brand.FOCUS_FILL_DARK, Brand.FOCUS_FILL_LIGHT)
+    val FocusBg get() = Color(Brand.PRIMARY).copy(alpha = 0.92f)
     val WarnBox get() = pick(0xFF2A1F1A, 0xFFFFEEDC)
     val ChipSel get() = pick(Brand.CHIP_DARK, Brand.CHIP_LIGHT)
     val Shimmer get() = pick(0xFF1F3550, 0xFFEAF0F7)
@@ -216,12 +216,32 @@ fun Modifier.focusCard(
         .combinedClickable(onClick = onClick, onLongClick = onMenu)
 }
 
-/** The app's one focus look (1.99): a soft brand-coloured glow plus a crisp ring. [amount] 0 = none … 1 = focused. */
+/** The app's one focus look (1.99.7): a soft brand glow plus a crisp ring. [amount] 0 = none … 1 = focused. */
 fun Modifier.focusRing(amount: Float, shape: Shape): Modifier =
     if (amount > 0.01f) this
-        .border(8.dp, Pal.Focus.copy(alpha = 0.16f * amount), shape)
+        .border(8.dp, Pal.Glow.copy(alpha = 0.22f * amount), shape)
         .border(2.dp, Pal.Focus.copy(alpha = 0.95f * amount), shape)
     else this
+
+/** Semi-transparent raised panel for menus and dialogs. Blur of the page behind is not applied to the
+ *  panel's own text (that would look muddy); API 31+ devices can still use a frosted fill. */
+fun Modifier.glassSurface(shape: Shape, alpha: Float = OverlayLook.PANEL_ALPHA): Modifier =
+    this.clip(shape)
+        .background(Pal.Surface.copy(alpha = OverlayLook.panelAlpha(alpha)))
+        .border(1.dp, Color.White.copy(alpha = 0.12f), shape)
+
+/** Thin floating top-bar wash: darker at the top, fading out so the page or hero shows through. */
+fun Modifier.chromeBar(): Modifier =
+    this.background(
+        Brush.verticalGradient(
+            listOf(
+                Pal.Bg.copy(alpha = (OverlayLook.BAR_ALPHA + 0.18f).coerceAtMost(0.92f)),
+                Pal.Bg.copy(alpha = OverlayLook.BAR_ALPHA),
+                Pal.Bg.copy(alpha = 0.18f),
+                Color.Transparent
+            )
+        )
+    )
 
 /** Top menu tab (Netflix style): plain text; focused = soft light pill (animated), current tab = bold white. */
 @Composable
@@ -236,12 +256,12 @@ fun NavTab(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, sel
             .background(bg)
             .combinedClickable(onClick = onClick)
             .semantics { contentDescription = text }
-            .padding(horizontal = if (icon != null) 12.dp else 16.dp, vertical = 7.dp),
+            .padding(horizontal = if (icon != null) 10.dp else 12.dp, vertical = 5.dp),
         contentAlignment = Alignment.Center
     ) {
         // Icon-only tab (Search): the label is read out but not drawn
-        if (icon != null) androidx.compose.material3.Icon(icon, null, tint = fg, modifier = Modifier.size(20.dp))
-        else Text(text, color = fg, fontSize = Ts.ROW.sp, fontWeight = if (selected || f) FontWeight.SemiBold else FontWeight.Medium,
+        if (icon != null) androidx.compose.material3.Icon(icon, null, tint = fg, modifier = Modifier.size(18.dp))
+        else Text(text, color = fg, fontSize = Ts.HEAD.sp, fontWeight = if (selected || f) FontWeight.SemiBold else FontWeight.Medium,
             letterSpacing = 0.2.sp, maxLines = 1)
     }
 }
@@ -282,7 +302,7 @@ fun PillButton(
 ) {
     var f by remember { mutableStateOf(false) }
     val target = when {
-        f -> Pal.Focus
+        f -> Pal.FocusPill
         primary -> Pal.Accent
         selected -> Pal.Selected
         else -> Pal.Soft2

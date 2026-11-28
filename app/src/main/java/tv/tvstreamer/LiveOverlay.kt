@@ -6,7 +6,7 @@ package tv.tvstreamer
  *  - [Layer.INFO]: a floating bar at the bottom with what is on now (progress) and next; hides by itself.
  *  - [Layer.CHANNELS]: Left. The channels of the playing channel's category.
  *  - [Layer.GUIDE]: Right. This channel's schedule as a list.
- * Up / Down change channel at once and close the overlay. Back hides the info bar or a side panel
+ * Up / Down change channel at once and show the info bar for [INFO_MS]. Back hides the info bar or a side panel
  * in one press; with nothing open, the player uses [PlayerBack] (hint, then a second Back leaves).
  */
 object LiveOverlay {
@@ -20,7 +20,7 @@ object LiveOverlay {
         object Exit : Effect()
     }
 
-    const val INFO_MS = 5_000L
+    const val INFO_MS = OverlayLook.INFO_MS
 
     /**
      * A key on the video (no popup has focus). The side panels handle their own keys (Up / Down / OK) and close on
@@ -29,8 +29,8 @@ object LiveOverlay {
     fun press(layer: Layer, key: Pad, hasError: Boolean = false, channels: Int = 2): Pair<Layer, Effect> = when (layer) {
         Layer.CHANNELS, Layer.GUIDE -> if (key == Pad.BACK) Layer.NONE to Effect.None else layer to Effect.None
         else -> when (key) {
-            Pad.UP -> if (channels > 1) Layer.NONE to Effect.Zap(1) else layer to Effect.None
-            Pad.DOWN -> if (channels > 1) Layer.NONE to Effect.Zap(-1) else layer to Effect.None
+            Pad.UP -> if (channels > 1) Layer.INFO to Effect.Zap(1) else layer to Effect.None
+            Pad.DOWN -> if (channels > 1) Layer.INFO to Effect.Zap(-1) else layer to Effect.None
             Pad.LEFT -> Layer.CHANNELS to Effect.None
             Pad.RIGHT -> Layer.GUIDE to Effect.None
             Pad.OK -> if (hasError) layer to Effect.Retry else Layer.INFO to Effect.None   // only shows details; never pauses

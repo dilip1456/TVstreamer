@@ -32,12 +32,13 @@ import kotlinx.coroutines.withContext
 /**
  * One Settings screen for the whole app (1.91): every option lives here exactly once.
  * TV / tablet: a short section list on the left, the section's options on the right. Phone: sections, then options.
- * Option names are plain title case with no brackets; [SettingsLabels] holds them so a test can check that.
+ * Related options are grouped into a handful of sections (1.99.7). Option names are plain title case
+ * with no brackets; [SettingsLabels] holds them so a test can check that.
  */
 object SettingsNav {
     enum class Sec(val title: String) {
-        ACCOUNT("Account"), PORTAL("Portal"), CATALOG("Catalog"), LANGUAGES("Languages"), PLAYBACK("Playback"),
-        KEYS("API Keys"), HIDDEN("Hidden Items"), GENERAL("General"), TROUBLE("Troubleshooting")
+        ACCOUNT("Account"), PORTAL("Portal"), LIBRARY("Library"), PLAYBACK("Playback"),
+        KEYS("API Keys"), APP("App")
     }
     val ALL = Sec.entries.toList()
 
@@ -105,23 +106,25 @@ object SettingsLabels {
     fun nextAspect(a: String) = when (a) { "fit" -> "fill"; "fill" -> "zoom"; else -> "fit" }
 }
 
-/** A big rounded settings row: one-line title, optional small value / note, smooth focus (same motion as the app). */
+/** A compact premium settings button: one-line title, optional small value, brand-blue focus pill. */
 @Composable
 fun SettingRow(title: String, value: String = "", modifier: Modifier = Modifier, selected: Boolean = false, onClick: () -> Unit) {
     var f by remember { mutableStateOf(false) }
-    val bg by animateColorAsState(when { f -> Pal.FocusBg; selected -> Pal.ChipSel.copy(alpha = 0.55f); else -> Pal.Soft }, Motion.colorSpec(), label = "setBg")
+    val bg by animateColorAsState(when { f -> Pal.FocusPill; selected -> Pal.FocusPill.copy(alpha = 0.45f); else -> Pal.Soft }, Motion.colorSpec(), label = "setBg")
+    val fg = if (f) Pal.OnFocusPill else Pal.Text
+    val vg = if (f) Pal.OnFocusPill else Pal.Dim
     val shape = RoundedCornerShape(Radii.row)
     Row(
-        modifier.fillMaxWidth().heightIn(min = 52.dp)
+        modifier.fillMaxWidth().heightIn(min = 44.dp)
             .onFocusChanged { f = it.isFocused }
             .focusCard(onClick, scale = 1.02f, shape = shape)
             .background(bg)
-            .padding(horizontal = 18.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Text(title, color = if (f) Pal.PrimaryText else Pal.Text, fontSize = Ts.ROW.sp, fontWeight = if (f || selected) FontWeight.SemiBold else FontWeight.Medium,
+        Text(title, color = fg, fontSize = Ts.HEAD.sp, fontWeight = if (f || selected) FontWeight.SemiBold else FontWeight.Medium,
             maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-        if (value.isNotEmpty()) Text(value, color = if (f) Pal.PrimaryText else Pal.Dim, fontSize = Ts.HEAD.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+        if (value.isNotEmpty()) Text(value, color = vg, fontSize = Ts.SECONDARY.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
             modifier = Modifier.widthIn(max = 320.dp))
     }
 }
@@ -193,7 +196,7 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
                     scope.launch { repo.api.reset(); repo.load(force = true); note = repo.status.ifEmpty { "Loaded" } }
                 }, primary = true)
             }
-            SettingsNav.Sec.CATALOG -> {
+            SettingsNav.Sec.LIBRARY -> {
                 SettingRow(L.CATALOG_SELECTOR, "Movies, series and Live TV", first) { go(Screen.Categories) }
                 // 1.97: several watchlists; Add to Watchlist uses the default one
                 SettingRow(L.DEFAULT_WATCHLIST, repo.defaultList().name) { wlPage = "default" }
@@ -227,9 +230,7 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
                     SettingRow(L.CLEAR_ALL) { s.clearHistory(); note = "All history cleared"; clearHist = false }
                     SettingRow(L.CANCEL) { clearHist = false }
                 }
-            }
-            SettingsNav.Sec.LANGUAGES -> {
-                SettingRow(L.LANG_MOVIES, "", first) { go(Screen.Languages("movies", Screen.Settings)) }
+                SettingRow(L.LANG_MOVIES) { go(Screen.Languages("movies", Screen.Settings)) }
                 SettingRow(L.LANG_SERIES) { go(Screen.Languages("series", Screen.Settings)) }
                 SettingRow(L.LANG_LIVE) { go(Screen.Languages("live", Screen.Settings)) }
             }
@@ -282,10 +283,7 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
                     })
                 }
             }
-            SettingsNav.Sec.HIDDEN -> {
-                Box(first) { HiddenRowsPanel(repo, title = false) }
-            }
-            SettingsNav.Sec.GENERAL -> {
+            SettingsNav.Sec.APP -> {
                 SettingRow(L.THEME, Theme.label, first) { Theme.mode = Theme.next(Theme.mode); s.theme = Theme.mode }
                 SettingRow(L.REMOTE) { go(Screen.Remote) }
                 SettingRow(L.UPDATE_MODE, updateMode.label) {
@@ -296,10 +294,9 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
                     scope.launch { note = Updater.check(ctx, s, manual = true).ifEmpty { Updater.statusLine().ifEmpty { "Up to date" } } }
                 }
                 val ver = remember { try { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName } catch (e: Exception) { "?" } }
-                Text(stringResource(R.string.app_name) + " version $ver", color = Pal.Dim, fontSize = Ts.CAPTION.sp, modifier = Modifier.padding(start = 6.dp, top = 6.dp))
-            }
-            SettingsNav.Sec.TROUBLE -> {
-                SettingRow(L.PORTAL_REPLIES, "", first) { learn = L.PORTAL_REPLIES to repo.api.debugLog() }
+                Text(stringResource(R.string.app_name) + " version $ver", color = Pal.Dim, fontSize = Ts.CAPTION.sp, modifier = Modifier.padding(start = 6.dp, top = 2.dp, bottom = 4.dp))
+                HiddenRowsPanel(repo, title = false)
+                SettingRow(L.PORTAL_REPLIES) { learn = L.PORTAL_REPLIES to repo.api.debugLog() }
                 SettingRow(L.LINK_DIAG, "Last channels tried") { learn = L.LINK_DIAG to LinkDiag.report() }
                 SettingRow(L.CLEAR_INFO) { Tmdb.clearCache(); note = "Cleared" }
             }
@@ -310,9 +307,9 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
     fun DetailPane(which: SettingsNav.Sec, modifier: Modifier) {
         Column(
             modifier.verticalScroll(rememberScrollState()).imePadding().onFocusChanged { inDetail = it.hasFocus },
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Text(which.title, color = Pal.Text, fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(bottom = 6.dp))
+            Text(which.title, color = Pal.Text, fontSize = Ts.HEAD.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(bottom = 2.dp))
             if (statusText.isNotEmpty()) Text(statusText, color = Pal.Warn, fontSize = Ts.SECONDARY.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Detail(which, Modifier.focusRequester(detailFr))
             Spacer(Modifier.height(40.dp))
@@ -320,9 +317,9 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
     }
 
     Box(Modifier.fillMaxSize().background(Pal.Bg)) {
-        if (split) Row(Modifier.fillMaxSize().padding(horizontal = 40.dp, vertical = 28.dp), horizontalArrangement = Arrangement.spacedBy(36.dp)) {
-            Column(Modifier.width(280.dp).fillMaxHeight().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("Settings", color = Pal.PrimaryText, fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 8.dp, bottom = 14.dp))
+        if (split) Row(Modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 20.dp), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+            Column(Modifier.width(240.dp).fillMaxHeight().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Settings", color = Pal.Text, fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 8.dp, bottom = 8.dp))
                 SettingsNav.ALL.forEach { x ->
                     // Focusing a section shows it on the right (Netflix style); Right / OK go into it
                     SettingRow(x.title, "", Modifier.focusRequester(secFr.getValue(x)).onFocusChanged { if (it.isFocused) { sec = x; note = "" } },
@@ -332,7 +329,7 @@ fun SettingsScreen(repo: Repo, go: (Screen) -> Unit) {
             sec?.let { DetailPane(it, Modifier.weight(1f).fillMaxHeight()) }
         } else {
             val cur = sec
-            if (cur == null) Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (cur == null) Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("Settings", color = Pal.PrimaryText, fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(bottom = 8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.padding(bottom = 6.dp)) {
                     Avatar(52.dp)

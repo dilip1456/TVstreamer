@@ -61,6 +61,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -89,9 +90,15 @@ fun Item.isEpisodeLike(): Boolean = isEpisode() || (kind == "vod" && !isSeries &
 
 private const val ROW_LIMIT = 40
 
-/** After a hide / remove in a row or grid, focus this shelf-or-screen key and item key on the next frame. */
+/** After a hide / remove in a row or grid, focus this shelf-or-screen key and item key once layout has committed. */
 object ListFocus {
     var pending by mutableStateOf<Pair<String, String>?>(null)
+
+    /** True when this row or grid should request [pending] now (the target key is already composed). */
+    fun shouldRequest(row: String, pending: Pair<String, String>?, keys: List<String>): Boolean {
+        val p = pending ?: return false
+        return p.first == row && FocusStay.readyToFocus(keys, p.second)
+    }
 }
 /** Last rows / hero slides per tab, shown at once when the tab opens again while fresh ones are worked out. */
 private val shelfMemo = java.util.concurrent.ConcurrentHashMap<String, List<Shelf>>()
@@ -414,10 +421,9 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
         pendingTop = true
         scope.launch { runCatching { state.animateScrollToItem(0) } }
     }
-    LaunchedEffect(pendingTop, topBarVisible) {
+    LaunchedEffect(pendingTop) {
         if (!pendingTop) return@LaunchedEffect
-        if (isTv && !topBarVisible) return@LaunchedEffect
-        delay(80)
+        delay(40)
         if (isTv && railOn) runCatching { navFr.requestFocus() }
         pendingTop = false
     }
@@ -442,31 +448,9 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
         // Soft cinematic wash at the top (static gradient, no blur — cheap on Fire TV). Not a second copy of the hero art.
         CinematicWash()
         Column(Modifier.fillMaxSize()) {
-            if (AppUi.phoneNav) Column(Modifier.fillMaxWidth().padding(start = hPad, end = hPad, top = Layout.PHONE_TOP, bottom = 6.dp)) {
-                Row(Modifier.fillMaxWidth().padding(bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    BlueyMark(size = Layout.LOGO_PHONE)
-                    Spacer(Modifier.weight(1f))
-                    AvatarButton { AppUi.accountMenu = true }
-                }
-            }
-            AnimatedVisibility(
-                visible = !isTv || topBarVisible,
-                enter = slideInVertically(tween(Motion.SCROLL_MS)) { -it } + fadeIn(tween(Motion.SCROLL_MS)),
-                exit = slideOutVertically(tween(Motion.SCROLL_MS)) { -it } + fadeOut(tween(Motion.SCROLL_MS))
-            ) {
-                if (!AppUi.phoneNav) Column(Modifier.fillMaxWidth().padding(start = hPad, end = hPad, top = Layout.TV_TOP, bottom = Layout.S)
-                    .onFocusChanged { topBarFocused = it.hasFocus }) {
-                    // Left on the first tab always opens the side menu on TV, including while the top bar is showing.
-                    TopNavBar(mode, topTabs(go) { go(Screen.Search) }, if (railOnTv) ({ SideMenu.open() }) else null, { AppUi.accountMenu = true }) { k ->
-                        when (k) {
-                            mode -> Modifier.focusRequester(navFr).onFocusChanged { if (it.isFocused) repo.lastFocus[screenKey] = "nav" }
-                            "search" -> Modifier.focusRequester(searchFr).onFocusChanged { if (it.isFocused) repo.lastFocus[screenKey] = "search" }
-                            else -> Modifier
-                        }
-                    }
-                }
-            }
-        LazyColumn(state = state, modifier = Modifier.fillMaxWidth().weight(1f), contentPadding = PaddingValues(bottom = 48.dp)) {
+            if (AppUi.phoneNav) Spacer(Modifier.height(Layout.floatTop(false)))
+        LazyColumn(state = state, modifier = Modifier.fillMaxWidth().weight(1f),
+            contentPadding = PaddingValues(top = if (!AppUi.phoneNav && hero == null) Layout.floatTop(isTv) else 0.dp, bottom = 48.dp)) {
             item(key = "nav") {
                 Column(Modifier.padding(horizontal = hPad)) {
                     if (tabbed) {
@@ -556,6 +540,31 @@ fun Catalog(repo: Repo, mode: String, go: (Screen) -> Unit, open: (Item) -> Unit
                 )
             }
         }
+        }
+        if (AppUi.phoneNav) {
+            Row(
+                Modifier.align(Alignment.TopStart).fillMaxWidth().zIndex(4f).chromeBar()
+                    .padding(start = hPad, end = hPad, top = Layout.PHONE_TOP, bottom = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                BlueyMark(size = Layout.LOGO_PHONE)
+                Spacer(Modifier.weight(1f))
+                AvatarButton { AppUi.accountMenu = true }
+            }
+        } else {
+            TopNavBar(
+                mode, topTabs(go) { go(Screen.Search) },
+                if (railOnTv) ({ SideMenu.open() }) else null,
+                { AppUi.accountMenu = true },
+                Modifier.align(Alignment.TopStart).fillMaxWidth().zIndex(4f)
+                    .onFocusChanged { topBarFocused = it.hasFocus }
+            ) { k ->
+                when (k) {
+                    mode -> Modifier.focusRequester(navFr).onFocusChanged { if (it.isFocused) repo.lastFocus[screenKey] = "nav" }
+                    "search" -> Modifier.focusRequester(searchFr).onFocusChanged { if (it.isFocused) repo.lastFocus[screenKey] = "search" }
+                    else -> Modifier
+                }
+            }
         }
 
         menu?.let { (shelf, item) ->
@@ -694,18 +703,31 @@ private fun Hero(repo: Repo, raw: Item, isTv: Boolean, hPad: Dp, playLabel: Stri
     val screenH = LocalConfiguration.current.screenHeightDp
     val heroH = if (isTv) (screenH * 0.72f).dp.coerceIn(420.dp, 720.dp) else 280.dp
     val backdrop = BackdropArt.distinct(meta?.backdrop, item.img)
-    // Full-bleed billboard on TV. Left opens the side menu, Up goes to the top menu, Down reaches Play.
-    // Right still steps the carousel when the billboard itself (not a button) has focus.
-    // Keys are handled on KeyEvent, not Preview, so Play / More info / Watchlist keep their own Left / Up.
+    // Full-bleed billboard on TV. Up goes to the top menu, Down reaches Play.
+    // Left on a hero button moves to the previous button; Left on Play (or on the first
+    // slide, when the billboard itself is focused) opens the side menu. Right / Left on
+    // the billboard page the carousel when not at that end.
+    var billboardFocused by remember { mutableStateOf(false) }
     Box(Modifier.fillMaxWidth().height(heroH)
         .then(heroModifier)
         .focusable()
+        .onFocusChanged { billboardFocused = it.isFocused }
         .onKeyEvent { e ->
             if (e.type != KeyEventType.KeyDown) return@onKeyEvent false
             onTouch()
             when (e.key) {
-                Key.DirectionLeft -> { onOpenMenu?.invoke(); onOpenMenu != null }
-                Key.DirectionRight -> { if (slides > 1) { onStep(1); true } else false }
+                Key.DirectionLeft -> {
+                    if (!billboardFocused) return@onKeyEvent false
+                    when (HeroNav.onLeft(-1, slide, slides, onOpenMenu != null)) {
+                        HeroNav.Action.PREV_SLIDE -> { onStep(-1); true }
+                        HeroNav.Action.TO_MENU -> { onOpenMenu?.invoke(); true }
+                        else -> false
+                    }
+                }
+                Key.DirectionRight -> {
+                    if (!billboardFocused) return@onKeyEvent false
+                    if (HeroNav.onRight(-1, 3, slide, slides) == HeroNav.Action.NEXT_SLIDE) { onStep(1); true } else false
+                }
                 Key.DirectionUp -> { onUp?.invoke(); onUp != null }
                 else -> false
             }
@@ -721,7 +743,8 @@ private fun Hero(repo: Repo, raw: Item, isTv: Boolean, hPad: Dp, playLabel: Stri
         Box(Modifier.fillMaxSize().background(Color(0x4D000000)))
         Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Pal.Bg.copy(alpha = 0.92f), Pal.Bg.copy(alpha = 0.45f), Color.Transparent))))
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.45f to Color.Transparent, 1f to Pal.Bg)))
-        Row(Modifier.fillMaxSize().padding(horizontal = if (isTv) 56.dp else hPad, vertical = if (isTv) 36.dp else 18.dp), verticalAlignment = Alignment.Bottom) {
+        Row(Modifier.fillMaxSize().padding(start = if (isTv) 56.dp else hPad, end = if (isTv) 56.dp else hPad,
+            top = if (isTv) Layout.floatTop(true) + 8.dp else 18.dp, bottom = if (isTv) 36.dp else 18.dp), verticalAlignment = Alignment.Bottom) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(if (isTv) 12.dp else 8.dp)) {
                 Text(name, color = Pal.Text, fontSize = if (isTv) 42.sp else Ts.TITLE.sp, fontWeight = FontWeight.Bold,
                     letterSpacing = (-0.6).sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -799,12 +822,15 @@ private fun ShelfRow(repo: Repo, screen: String, shelf: Shelf, isTv: Boolean, hP
     // After a suggestion is reviewed, move focus to the next (or previous) card, or the Refresh tile
     LaunchedEffect(shown.map { it.key }, onRefresh != null, Ai.pendingFocus, ListFocus.pending) {
         val pending = ListFocus.pending
-        if (pending != null && pending.first == shelf.key) {
-            ListFocus.pending = null
+        val readyKeys = shown.map { it.key } +
+            listOfNotNull("__seeall__".takeIf { hasSeeAll }, "__refresh__".takeIf { onRefresh != null })
+        if (ListFocus.shouldRequest(shelf.key, pending, readyKeys)) {
             kotlinx.coroutines.delay(16)
-            runCatching { frOf(pending.second).requestFocus() }
+            runCatching { frOf(pending!!.second).requestFocus() }
+            ListFocus.pending = null
             return@LaunchedEffect
         }
+        if (pending != null && pending.first == shelf.key) return@LaunchedEffect
         if (shelf.key != "ai") return@LaunchedEffect
         val target = Ai.pendingFocus ?: return@LaunchedEffect
         Ai.pendingFocus = null
@@ -905,7 +931,7 @@ private fun ShelfRow(repo: Repo, screen: String, shelf: Shelf, isTv: Boolean, hP
                     val all = shown.isEmpty()
                     val busy = Ai.refreshing
                     Box(
-                        cardPivot(shown.size + (if (hasSeeAll) 1 else 0)).then(if (isTv) Modifier.animateItemPlacement() else Modifier)
+                        cardPivot(shown.size + (if (hasSeeAll) 1 else 0))
                             .width(if (all) posterW * 2 + 16.dp else posterW).aspectRatio(if (all) 4f / 3f else 2f / 3f).focusRequester(rfr)
                             .onFocusChanged { f -> if (f.hasFocus) { focusIx = shown.size + (if (hasSeeAll) 1 else 0); onCardFocus(rfr) } }
                             .focusCard({ if (!busy) onRefresh() }, scale = if (isTv) FocusPivot.CARD_SCALE else 1.06f).background(if (all) Pal.Accent.copy(alpha = 0.22f) else Pal.Card),
@@ -1359,10 +1385,10 @@ fun GridScreen(repo: Repo, cat: Cat, open: (Item) -> Unit, play: (List<Item>, In
     LaunchedEffect(items.isNotEmpty()) { if (isTv && items.isNotEmpty() && repo.lastFocus[screenKey] == null) { delay(100); runCatching { firstFr.requestFocus() } } }
     LaunchedEffect(ListFocus.pending, shownItems.map { it.key }) {
         val p = ListFocus.pending ?: return@LaunchedEffect
-        if (p.first != screenKey) return@LaunchedEffect
-        ListFocus.pending = null
+        if (!ListFocus.shouldRequest(screenKey, p, shownItems.map { it.key })) return@LaunchedEffect
         delay(16)
         runCatching { gridFrs[p.second]?.requestFocus() }
+        ListFocus.pending = null
     }
 
     Box(Modifier.fillMaxSize().background(Pal.Bg)) {
@@ -1482,10 +1508,10 @@ fun PoolScreen(repo: Repo, tab: String, lang: String, genre: String, title: Stri
     fun poolFr(k: String) = poolFrs.getOrPut(k) { FocusRequester() }
     LaunchedEffect(ListFocus.pending, cards.map { it.key }) {
         val p = ListFocus.pending ?: return@LaunchedEffect
-        if (p.first != screenKey) return@LaunchedEffect
-        ListFocus.pending = null
+        if (!ListFocus.shouldRequest(screenKey, p, cards.map { it.key })) return@LaunchedEffect
         delay(16)
         runCatching { poolFrs[p.second]?.requestFocus() }
+        ListFocus.pending = null
     }
     LaunchedEffect(state, cards.size, lib.loading) {
         snapshotFlow { state.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }.collect { last ->

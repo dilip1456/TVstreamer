@@ -7,9 +7,9 @@ import tv.tvstreamer.LiveOverlay.Pad
 import tv.tvstreamer.LiveOverlay.Effect
 
 class LiveOverlayTest {
-    @Test fun upDownZapAtOnceAndCloseTheOverlay() {
-        assertEquals(Layer.NONE to Effect.Zap(1), LiveOverlay.press(Layer.NONE, Pad.UP))
-        assertEquals(Layer.NONE to Effect.Zap(-1), LiveOverlay.press(Layer.INFO, Pad.DOWN))
+    @Test fun upDownZapShowsTheInfoBar() {
+        assertEquals(Layer.INFO to Effect.Zap(1), LiveOverlay.press(Layer.NONE, Pad.UP))
+        assertEquals(Layer.INFO to Effect.Zap(-1), LiveOverlay.press(Layer.INFO, Pad.DOWN))
         assertEquals(Layer.NONE to Effect.None, LiveOverlay.press(Layer.NONE, Pad.UP, channels = 1))
     }
 

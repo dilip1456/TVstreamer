@@ -4,6 +4,7 @@ import androidx.compose.foundation.border
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -67,17 +68,17 @@ fun NowNext(repo: Repo, ch: Item, modifier: Modifier = Modifier) {
     }
 }
 
-/** Read-only text popup (stream details, channel info) with Close. */
+/** Read-only text popup (stream details, channel info). Back closes it. */
 @Composable
 fun InfoDialog(title: String, text: String, onClose: () -> Unit) {
     val fr = remember { FocusRequester() }
     LaunchedEffect(Unit) { delay(60); runCatching { fr.requestFocus() } }
     PopupFrame(onClose) {
-        Column(Modifier.widthIn(min = 320.dp, max = 620.dp).background(Pal.Surface, RoundedCornerShape(Radii.panel)).border(1.dp, Pal.Outline, RoundedCornerShape(Radii.panel)).padding(22.dp),
+        Column(Modifier.widthIn(min = 320.dp, max = 620.dp).glassSurface(RoundedCornerShape(Radii.panel)).padding(22.dp)
+                .focusRequester(fr).focusable(),
             verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(title, color = Pal.Text, fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold)
             Text(text, color = Pal.Dim, fontSize = Ts.SECONDARY.sp, modifier = Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()))
-            MenuEntry("Close", onClose, Modifier.focusRequester(fr), dim = true)
         }
     }
 }
@@ -101,7 +102,7 @@ fun ChannelPanel(repo: Repo, list: List<Item>, playing: Int, title: String = "Ch
             .collect { repo.epg.want(it) }
     }
     PopupFrame(onClose, alignment = Alignment.CenterStart, scrim = Color(0x26000000)) {
-        Column(Modifier.padding(horizontal = 20.dp).fillMaxHeight(0.84f).width(360.dp).clip(RoundedCornerShape(Radii.panel)).background(Pal.Surface.copy(alpha = 0.94f)).border(1.dp, Pal.Outline, RoundedCornerShape(Radii.panel)).padding(vertical = 14.dp)) {
+        Column(Modifier.padding(horizontal = 20.dp).fillMaxHeight(0.84f).width(360.dp).glassSurface(RoundedCornerShape(Radii.panel)).padding(vertical = 14.dp)) {
             Text(title, color = Pal.Text, fontSize = Ts.ROW.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 18.dp))
             Text("OK play · ◀ ▶ later shows", color = Pal.Dim, fontSize = Ts.CAPTION.sp, modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp))
             LazyColumn(state = state, contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -158,7 +159,7 @@ fun ChannelPanel(repo: Repo, list: List<Item>, playing: Int, title: String = "Ch
 }
 
 /**
- * The channel menu (list and player): only the options valid for the channel, Close last.
+ * The channel menu (list and player): only the options valid for the channel. Back closes it.
  * Play, hide / show in the current mode, add to another mode, move to the top of the mode, guide, remind me about
  * the next show, rename / reset name, channel info, plus [extra] (player entries such as "Not working? Retry link").
  */
@@ -361,14 +362,13 @@ fun GuidePanel(repo: Repo, ch: Item, onClose: () -> Unit) {
     val loaded = repo.epg.guide[ch.id] != null
     LaunchedEffect(progs.isNotEmpty()) { delay(80); runCatching { first.requestFocus() } }
     PopupFrame(onClose, alignment = Alignment.CenterEnd, scrim = Color(0x26000000)) {
-        Column(Modifier.padding(horizontal = 20.dp).fillMaxHeight(0.84f).width(380.dp).clip(RoundedCornerShape(Radii.panel)).background(Pal.Surface.copy(alpha = 0.94f)).border(1.dp, Pal.Outline, RoundedCornerShape(Radii.panel)).padding(vertical = 14.dp)) {
+        Column(Modifier.padding(horizontal = 20.dp).fillMaxHeight(0.84f).width(380.dp).glassSurface(RoundedCornerShape(Radii.panel)).padding(vertical = 14.dp)) {
             Text(ChannelTitle.pretty(ch.name), color = Pal.Text, fontSize = Ts.ROW.sp, fontWeight = FontWeight.SemiBold, maxLines = 1,
                 overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 18.dp))
             Text("Schedule  ·  OK on a later show: remind me", color = Pal.Dim, fontSize = Ts.CAPTION.sp, modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp))
             if (progs.isEmpty()) {
                 Text(if (loaded) "No schedule for this channel." else "Loading the schedule…", color = Pal.Dim, fontSize = Ts.ROW.sp,
-                    modifier = Modifier.padding(24.dp))
-                MenuEntry("Close", onClose, Modifier.padding(horizontal = 14.dp).focusRequester(first), dim = true)
+                    modifier = Modifier.padding(24.dp).focusRequester(first).focusable())
             } else LazyColumn(contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 itemsIndexed(progs, key = { _, p -> p.start }) { i, p ->
                     var f by remember { mutableStateOf(false) }

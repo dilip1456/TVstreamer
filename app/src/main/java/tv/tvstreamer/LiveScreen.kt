@@ -43,6 +43,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
@@ -161,10 +162,9 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
         pendingTop = true
         scope.launch { runCatching { state.animateScrollToItem(0) } }
     }
-    LaunchedEffect(pendingTop, topBarVisible) {
+    LaunchedEffect(pendingTop) {
         if (!pendingTop) return@LaunchedEffect
-        if (tv && rail && !topBarVisible) return@LaunchedEffect
-        delay(80)
+        delay(40)
         if (tv && rail) runCatching { navFr.requestFocus() }
         pendingTop = false
     }
@@ -433,14 +433,14 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(Layout.S)
                 ) {
-                    androidx.compose.material3.Text(c.label, color = if (selectedCat || f) Pal.PrimaryText else Pal.Text,
+                    androidx.compose.material3.Text(c.label, color = if (f) Pal.OnFocusPill else if (selectedCat) Pal.PrimaryText else Pal.Text,
                         fontSize = if (c.depth == 0) Ts.HEAD.sp else Ts.SECONDARY.sp,
                         fontWeight = if (selectedCat || f) FontWeight.SemiBold else FontWeight.Medium,
                         maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false))
                     if (c.key != LivePane.SEARCH) Label("${c.count}", Ts.CAPTION, Pal.Dim)
                     Spacer(Modifier.weight(1f))
-                    if (c.expandable) Label(if (c.key in expanded) "⌄" else "›", Ts.SECONDARY, if (f) Pal.PrimaryText else Pal.Dim)
+                    if (c.expandable) Label(if (c.key in expanded) "⌄" else "›", Ts.SECONDARY, if (f) Pal.OnFocusPill else Pal.Dim)
                 }
             }
         }
@@ -544,18 +544,7 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
         else false
     }) {
         Column(Modifier.fillMaxSize()) {
-            AnimatedVisibility(
-                visible = topBarVisible,
-                enter = slideInVertically(tween(Motion.SCROLL_MS)) { -it } + fadeIn(tween(Motion.SCROLL_MS)),
-                exit = slideOutVertically(tween(Motion.SCROLL_MS)) { -it } + fadeOut(tween(Motion.SCROLL_MS))
-            ) {
-                TopNavBar("live", topTabs(go, onSearch), if (tv && rail) ({ SideMenu.open() }) else null, { AppUi.accountMenu = true },
-                    Modifier.padding(start = Layout.TV_SIDE, end = Layout.TV_SIDE, top = Layout.TV_TOP, bottom = Layout.S)
-                        .onFocusChanged { topBarFocused = it.hasFocus }) { k ->
-                        if (k == "live") Modifier.focusRequester(navFr) else Modifier
-                    }
-            }
-            Column(Modifier.weight(1f).fillMaxWidth().padding(start = Layout.TV_SIDE, end = Layout.TV_SIDE)) {
+            Column(Modifier.weight(1f).fillMaxWidth().padding(start = Layout.TV_SIDE, end = Layout.TV_SIDE, top = Layout.floatTop(tv))) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Layout.S),
                     modifier = Modifier.fillMaxWidth().padding(top = Layout.XS, bottom = Layout.S)) {
                     Column(Modifier.weight(1f)) {
@@ -575,6 +564,11 @@ fun Live(repo: Repo, play: (List<Item>, Int) -> Unit, go: (Screen) -> Unit = {},
                 ListPane(Modifier.weight(1f))
             }
         }
+        TopNavBar("live", topTabs(go, onSearch), if (tv && rail) ({ SideMenu.open() }) else null, { AppUi.accountMenu = true },
+            Modifier.align(Alignment.TopStart).fillMaxWidth().zIndex(4f)
+                .onFocusChanged { topBarFocused = it.hasFocus }) { k ->
+                if (k == "live") Modifier.focusRequester(navFr) else Modifier
+            }
     } else {
         Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
@@ -677,11 +671,11 @@ private fun TypeHeader(type: String, count: Int, folded: Boolean, tv: Boolean, m
             .combinedClickable(onClick = onToggle, onLongClick = onMenu)
             .padding(horizontal = Layout.M, vertical = if (tv) 6.dp else 4.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Layout.M)) {
-        androidx.compose.material3.Text(type, color = Pal.Text, fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold, maxLines = 1,
+        androidx.compose.material3.Text(type, color = if (f) Pal.OnFocusPill else Pal.Text, fontSize = Ts.TITLE.sp, fontWeight = FontWeight.SemiBold, maxLines = 1,
             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
         Label("$count", Ts.SECONDARY, Pal.Dim)
         Spacer(Modifier.weight(1f))
-        Label(if (folded) "›" else "⌄", Ts.ROW, if (f) Pal.PrimaryText else Pal.Dim)
+        Label(if (folded) "›" else "⌄", Ts.ROW, if (f) Pal.OnFocusPill else Pal.Dim)
     }
 }
 
@@ -708,7 +702,7 @@ private fun SectionHeader(s: LiveModes.Section, folded: Boolean, tv: Boolean, mo
             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
         Label("${s.rows.size}", Ts.CAPTION, Pal.Dim)
         Spacer(Modifier.weight(1f))
-        Label(if (folded) "›" else "⌄", Ts.SECONDARY, if (f) Pal.PrimaryText else Pal.Dim)
+        Label(if (folded) "›" else "⌄", Ts.SECONDARY, if (f) Pal.OnFocusPill else Pal.Dim)
     }
 }
 
@@ -767,14 +761,14 @@ private fun ChannelRow(repo: Repo, ch: Item, on: Boolean, browseAll: Boolean, pl
             // from the list), language tag and a Playing badge
             if (checked != null) CheckDot(checked)
             Box(Modifier.widthIn(min = 32.dp), contentAlignment = Alignment.CenterEnd) {
-                if (ch.num > 0) Label("${ch.num}", Ts.SECONDARY, if (playing) Pal.PrimaryText else Pal.Dim)
+                if (ch.num > 0) Label("${ch.num}", Ts.SECONDARY, if (f) Pal.OnFocusPill else if (playing) Pal.PrimaryText else Pal.Dim)
             }
             Box(Modifier.size(if (tv) 58.dp else 52.dp, if (tv) 34.dp else 32.dp).clip(RoundedCornerShape(8.dp)).background(Pal.Card), contentAlignment = Alignment.Center) {
                 if (ch.img.isNotEmpty()) Poster(ch.img, name, Modifier.fillMaxSize().padding(5.dp), ContentScale.Fit, initialsSize = 12)
                 else Label(ChannelTitle.initials(name), Ts.CAPTION, Pal.PrimaryText)
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                androidx.compose.material3.Text(name, color = if (playing) Pal.PrimaryText else Pal.Text, fontSize = Ts.ROW.sp,
+                androidx.compose.material3.Text(name, color = if (f) Pal.OnFocusPill else if (playing) Pal.PrimaryText else Pal.Text, fontSize = Ts.ROW.sp,
                     fontWeight = if (f || playing) FontWeight.SemiBold else FontWeight.Medium, maxLines = 1,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                 if (nowTitle != null) Label(nowTitle, Ts.SECONDARY, Pal.Dim, maxLines = 1)

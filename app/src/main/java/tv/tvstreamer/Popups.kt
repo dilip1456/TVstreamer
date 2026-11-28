@@ -59,7 +59,7 @@ fun Modifier.popupOpener(): Modifier = composed {
  * focus goes back to the opener when it closes.
  */
 @Composable
-fun PopupFrame(onClose: () -> Unit, alignment: Alignment = Alignment.Center, scrim: Color = Pal.Scrim,
+fun PopupFrame(onClose: () -> Unit, alignment: Alignment = Alignment.Center, scrim: Color = Pal.Bg.copy(alpha = OverlayLook.SCRIM_ALPHA),
                content: @Composable () -> Unit) {
     val id = remember { Popups.open() }
     DisposableEffect(Unit) { onDispose { Popups.close(id) } }

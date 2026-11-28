@@ -45,4 +45,19 @@ class FocusStayTest {
         assertEquals("itv:3", FocusStay.afterRemove(favs, "itv:2"))
         assertEquals("itv:2", FocusStay.afterRemove(favs, "itv:3"))
     }
+
+    @Test fun staysAtTheSameIndexSoTheNextItemSlidesIn() {
+        val keys = listOf("a", "b", "c", "d")
+        assertEquals(FocusStay.Hop("c", 1), FocusStay.hopAfterRemove(keys, "b"))
+        assertEquals(FocusStay.Hop("b", 0), FocusStay.hopAfterRemove(keys, "a"))
+        assertEquals(FocusStay.Hop("c", 2), FocusStay.hopAfterRemove(keys, "d"))
+        assertEquals(null, FocusStay.hopAfterRemove(listOf("only"), "only"))
+    }
+
+    @Test fun readyToFocusOnlyAfterTheTargetIsInTheList() {
+        assertFalse(FocusStay.readyToFocus(listOf("a", "c"), "b"))
+        assertTrue(FocusStay.readyToFocus(listOf("a", "c"), "c"))
+        assertFalse(FocusStay.readyToFocus(listOf("a"), null))
+        assertFalse(FocusStay.readyToFocus(emptyList(), "a"))
+    }
 }

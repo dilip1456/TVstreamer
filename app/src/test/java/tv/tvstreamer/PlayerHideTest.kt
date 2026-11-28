@@ -42,11 +42,13 @@ class PlayerHideTest {
         assertTrue(PlayerHide.timeoutWhileFocused(hideHold = false, infoFocused = false))
     }
 
-    @Test fun zapClosesTheOverlayInsteadOfOpeningTheInfoBar() {
-        assertEquals(Layer.NONE to Effect.Zap(1), LiveOverlay.press(Layer.NONE, Pad.UP))
-        assertEquals(Layer.NONE to Effect.Zap(-1), LiveOverlay.press(Layer.INFO, Pad.DOWN))
-        assertEquals(Layer.NONE to Effect.Zap(1), LiveOverlay.press(Layer.INFO, Pad.UP))
+    @Test fun zapShowsTheInfoBarThenTheTimeoutHidesIt() {
+        assertEquals(Layer.INFO to Effect.Zap(1), LiveOverlay.press(Layer.NONE, Pad.UP))
+        assertEquals(Layer.INFO to Effect.Zap(-1), LiveOverlay.press(Layer.INFO, Pad.DOWN))
+        assertEquals(Layer.INFO to Effect.Zap(1), LiveOverlay.press(Layer.INFO, Pad.UP))
         assertEquals(Layer.NONE to Effect.None, LiveOverlay.press(Layer.NONE, Pad.UP, channels = 1))
+        assertEquals(3_000L, OverlayLook.INFO_MS)
+        assertEquals(OverlayLook.INFO_MS, LiveOverlay.INFO_MS)
     }
 
     @Test fun backOnTheInfoBarHidesItAndDoesNotLeaveThePlayer() {

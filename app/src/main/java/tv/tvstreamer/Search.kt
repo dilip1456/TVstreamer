@@ -346,7 +346,6 @@ fun SearchOverlay(repo: Repo, st: SearchState, open: (Item) -> Unit, play: (List
                             }
                             PillButton(if (voice.listening) "■" else "🎤", { if (voice.listening) voice.stop() else voice.start() }, selected = voice.listening, size = Ts.HEAD)
                             if (Gemini.enabled) PillButton("✨ AI", askAi, size = Ts.HEAD)
-                            PillButton("✕", { voice.stop(); st.open = false }, size = Ts.HEAD)
                         }
                     } else {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -362,8 +361,6 @@ fun SearchOverlay(repo: Repo, st: SearchState, open: (Item) -> Unit, play: (List
                             Spacer(Modifier.width(8.dp))
                             PillButton(if (voice.listening) "■" else "🎤", { if (voice.listening) voice.stop() else voice.start() }, selected = voice.listening, size = Ts.HEAD)
                             if (Gemini.enabled) { Spacer(Modifier.width(8.dp)); PillButton("✨ Ask AI", askAi, size = Ts.HEAD) }
-                            Spacer(Modifier.width(8.dp))
-                            PillButton("Close", { voice.stop(); st.open = false }, size = Ts.HEAD)
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Scope.entries.forEach { s -> PillButton(s.label, { st.scope = s }, selected = st.scope == s, size = Ts.HEAD) }

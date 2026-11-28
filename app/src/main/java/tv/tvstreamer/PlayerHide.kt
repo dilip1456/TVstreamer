@@ -3,15 +3,16 @@ package tv.tvstreamer
 /**
  * Player overlay after a channel change or a Hide from the info bar (pure, unit tested).
  *
- * A normal change (zap, Ch+/−, number jump, pick from the overlay list) closes the overlay.
- * Hide removes the playing channel from the current list, plays the next one (or the previous
- * if it was last), and keeps the info bar open with focus on Hide so the next OK hides again.
- * The info bar then auto-hides on its normal timeout, even while Hide still has focus.
+ * A normal change (zap, Ch+/−, number jump, pick from the overlay list) shows the info bar
+ * briefly ([OverlayLook.INFO_MS]) and then hides it. Hide removes the playing channel from
+ * the current list, plays the next one (or the previous if it was last), and keeps the info
+ * bar open with focus on Hide so the next OK hides again. The info bar then auto-hides on
+ * its normal timeout, even while Hide still has focus.
  */
 object PlayerHide {
     enum class Change { ZAP, PICK, NUMBER, HIDE }
 
-    /** Keep the info overlay open only when the change came from Hide. */
+    /** Hold focus on Hide only when the change came from Hide (the info bar still times out). */
     fun keepOverlay(change: Change): Boolean = change == Change.HIDE
 
     /**

@@ -10,8 +10,9 @@ class RowNavTest {
     @Test fun leftOnFirstCardOpensMenuOnTv() = assertEquals(RowNav.Action.TO_MENU, RowNav.onKey(0, 10, L, hasMenu = true))
     @Test fun leftOnFirstCardStaysWithoutMenu() = assertEquals(RowNav.Action.STAY, RowNav.onKey(0, 10, L, hasMenu = false))
     @Test fun rightOnLastCardNeverLeavesRow() = assertEquals(RowNav.Action.STAY, RowNav.onKey(9, 10, R, hasMenu = true))
-    @Test fun middleCardsUseDefaultMove() {
+    @Test fun leftOnALaterCardNeverOpensTheMenu() {
         assertEquals(RowNav.Action.NONE, RowNav.onKey(3, 10, L, true))
+        assertEquals(RowNav.Action.NONE, RowNav.onKey(1, 10, L, true))
         assertEquals(RowNav.Action.NONE, RowNav.onKey(3, 10, R, true))
     }
     @Test fun upDownAreLeftToPage() {
@@ -44,5 +45,29 @@ class FocusPivotTest {
         assertEquals(0f, FocusPivot.scrollBy(192f, 192f), 0.001f)
         assertEquals(608f, FocusPivot.scrollBy(800f, 192f), 0.001f)
         assertEquals(-80f, FocusPivot.scrollBy(80f, 160f), 0.001f)
+    }
+}
+
+class HeroNavTest {
+    @Test fun leftOnMoreInfoOrWatchlistMovesToThePreviousButton() {
+        assertEquals(HeroNav.Action.MOVE, HeroNav.onLeft(button = 1, slide = 0, slides = 3, hasMenu = true))
+        assertEquals(HeroNav.Action.MOVE, HeroNav.onLeft(button = 2, slide = 0, slides = 3, hasMenu = true))
+    }
+
+    @Test fun leftOnPlayOpensTheSideMenu() {
+        assertEquals(HeroNav.Action.TO_MENU, HeroNav.onLeft(button = 0, slide = 0, slides = 3, hasMenu = true))
+        assertEquals(HeroNav.Action.NONE, HeroNav.onLeft(button = 0, slide = 0, slides = 3, hasMenu = false))
+    }
+
+    @Test fun leftOnTheBillboardPagesBackUnlessAlreadyAtTheFirstSlide() {
+        assertEquals(HeroNav.Action.PREV_SLIDE, HeroNav.onLeft(button = -1, slide = 2, slides = 3, hasMenu = true))
+        assertEquals(HeroNav.Action.TO_MENU, HeroNav.onLeft(button = -1, slide = 0, slides = 3, hasMenu = true))
+        assertEquals(HeroNav.Action.TO_MENU, HeroNav.onLeft(button = -1, slide = 0, slides = 1, hasMenu = true))
+    }
+
+    @Test fun rightOnTheBillboardPagesForward() {
+        assertEquals(HeroNav.Action.NEXT_SLIDE, HeroNav.onRight(button = -1, buttons = 3, slide = 0, slides = 3))
+        assertEquals(HeroNav.Action.MOVE, HeroNav.onRight(button = 0, buttons = 3, slide = 0, slides = 3))
+        assertEquals(HeroNav.Action.NONE, HeroNav.onRight(button = 2, buttons = 3, slide = 0, slides = 3))
     }
 }

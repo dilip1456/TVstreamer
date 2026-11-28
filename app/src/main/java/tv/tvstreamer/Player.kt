@@ -36,6 +36,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.input.pointer.pointerInput
@@ -296,7 +297,7 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
         zapTick++
         if (list[to].kind == "itv") {
             controls = false
-            if (keepOverlay) showInfo() else layer = LiveOverlay.Layer.NONE
+            showInfo()
         }
         touch()
     }
@@ -627,7 +628,7 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
     var hideHold by remember { mutableStateOf(false) }
     LaunchedEffect(layer, infoTick, infoFocused, hideHold) {
         if (layer == LiveOverlay.Layer.INFO && PlayerHide.timeoutWhileFocused(hideHold, infoFocused)) {
-            delay(LiveOverlay.INFO_MS)
+            delay(OverlayLook.INFO_MS)
             if (layer == LiveOverlay.Layer.INFO && PlayerHide.timeoutWhileFocused(hideHold, infoFocused)) {
                 layer = LiveOverlay.Layer.NONE
                 hideHold = false
@@ -1177,53 +1178,51 @@ fun PlayerScreen(repo: Repo, initial: List<Item>, start: Int, onBack: () -> Unit
 }
 
 /**
- * A short menu: title, the options valid for the item, Close last. One Back closes it and focus returns to the item that
- * opened it (see PopupFrame).
+ * A short menu: title and the options valid for the item. One Back closes it and focus returns to the item that
+ * opened it (see PopupFrame). There is no Close row; Exit (where offered) still confirms before leaving the app.
  */
 @Composable
 fun ChoiceDialog(title: String, opts: List<Pair<String, () -> Unit>>, focusKey: Any? = title, onClose: () -> Unit) {
     val first = remember { FocusRequester() }
     LaunchedEffect(focusKey, opts.size) { delay(60); runCatching { first.requestFocus() } }
-    // Compact, see-through card on the right (1.54): small text, tight rows, the page stays visible behind it
-    PopupFrame(onClose, alignment = Alignment.CenterEnd, scrim = Color(0x40000000)) {
+    PopupFrame(onClose, alignment = Alignment.CenterEnd) {
         Column(
             Modifier.padding(end = 48.dp).widthIn(min = 252.dp, max = 340.dp).heightIn(max = 440.dp)
-                .clip(RoundedCornerShape(Radii.panel))
-                .background(Pal.Surface.copy(alpha = 0.94f))
-                .border(1.dp, Pal.Outline, RoundedCornerShape(Radii.panel))
-                .padding(horizontal = 10.dp, vertical = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp)
+                .glassSurface(RoundedCornerShape(Radii.panel))
+                .padding(horizontal = 10.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Text(title, color = Pal.Text2, fontSize = Ts.HEAD.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp))
-            Spacer(Modifier.height(4.dp))
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp).then(if (opts.isEmpty()) Modifier.focusRequester(first).focusable() else Modifier))
+            Spacer(Modifier.height(2.dp))
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 itemsIndexed(opts) { i, (label, action) ->
                     MenuEntry(label, action, if (i == 0) Modifier.focusRequester(first) else Modifier)
-                }
-                item {
-                    Spacer(Modifier.height(4.dp))
-                    MenuEntry("Close", onClose, if (opts.isEmpty()) Modifier.focusRequester(first) else Modifier, dim = true)
                 }
             }
         }
     }
 }
 
-/** One menu line: quiet until focused, then a soft gold highlight (Netflix-like, no heavy buttons). */
+/** One compact premium menu button: brand-blue pill and light text when focused. */
 @Composable
 fun MenuEntry(label: String, onClick: () -> Unit, modifier: Modifier = Modifier, dim: Boolean = false) {
     var f by remember { mutableStateOf(false) }
-    val bg by androidx.compose.animation.animateColorAsState(if (f) Pal.Focus else Color.Transparent, Motion.colorSpec(), label = "menuBg")
+    val bg by androidx.compose.animation.animateColorAsState(
+        when { f -> Pal.FocusPill; dim -> Color.Transparent; else -> Pal.Soft },
+        Motion.colorSpec(), label = "menuBg")
+    val s by androidx.compose.animation.core.animateFloatAsState(if (f) 1.03f else 1f, Motion.focusSpec(), label = "menuScale")
     Box(
         modifier.fillMaxWidth().popupOpener().onFocusChanged { f = it.isFocused }
+            .graphicsLayer { scaleX = s; scaleY = s }
             .clip(RoundedCornerShape(Radii.row))
             .background(bg)
+            .focusRing(if (f) 1f else 0f, RoundedCornerShape(Radii.row))
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = Ts.MENU_PAD)
+            .padding(horizontal = 14.dp, vertical = 8.dp)
     ) {
-        Text(label, color = when { f -> Color.Black; dim -> Pal.Dim; else -> Pal.Text }, fontSize = Ts.ROW.sp,
-            fontWeight = if (f) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(label, color = when { f -> Pal.OnFocusPill; dim -> Pal.Dim; else -> Pal.Text }, fontSize = Ts.HEAD.sp,
+            fontWeight = if (f) FontWeight.SemiBold else FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 

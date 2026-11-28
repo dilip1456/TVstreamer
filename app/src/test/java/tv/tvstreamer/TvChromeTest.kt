@@ -5,16 +5,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TvChromeTest {
-    @Test fun topBarShowsAtTheStartOfTheList() {
+    @Test fun topBarStaysVisibleAfterScroll() {
         assertTrue(TvChrome.topBarVisible(0, 0))
         assertTrue(TvChrome.topBarVisible(0, TvChrome.HIDE_OFFSET))
-        assertFalse(TvChrome.topBarVisible(0, TvChrome.HIDE_OFFSET + 1))
-        assertFalse(TvChrome.topBarVisible(1, 0))
+        assertTrue(TvChrome.topBarVisible(0, TvChrome.HIDE_OFFSET + 1))
+        assertTrue(TvChrome.topBarVisible(1, 0))
+        assertTrue(TvChrome.topBarVisible(3, 200))
     }
 
     @Test fun focusKeepsTheTopBarWhileScrolled() {
         assertTrue(TvChrome.topBarVisible(3, 200, topBarFocused = true))
-        // The side menu is an overlay now: it does not force the top bar to un-compose
         assertTrue(TvChrome.topBarVisible(0, 0))
     }
 

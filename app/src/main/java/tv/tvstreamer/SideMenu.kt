@@ -184,10 +184,10 @@ fun SideMenuPanel(current: RailEntry?, onPick: (RailEntry) -> Unit) {
             Box(Modifier.fillMaxSize().background(Pal.Scrim).pointerInput(Unit) { detectTapGestures { SideMenu.close() } })
             Column(
                 Modifier.fillMaxHeight().width(SideMenu.PANEL_W.dp)
-                    .background(Color(0xF20A121C))
+                    .glassSurface(RoundedCornerShape(topEnd = Radii.panel, bottomEnd = Radii.panel), OverlayLook.PANEL_ALPHA)
                     .padding(start = 16.dp, end = 20.dp, top = 36.dp, bottom = 28.dp)
                     .pointerInput(Unit) { detectTapGestures { } },
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 entries.forEachIndexed { i, e ->
                     if (e == RailEntry.EXIT) Spacer(Modifier.height(18.dp))
@@ -209,19 +209,21 @@ fun SideMenuPanel(current: RailEntry?, onPick: (RailEntry) -> Unit) {
 @Composable
 private fun SideMenuItem(e: RailEntry, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
     var f by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(12.dp)
-    val fg = when { f -> Pal.OnFocusPill; selected -> Pal.PrimaryText; else -> Color(0xFFB4C0CE) }
+    val shape = RoundedCornerShape(Radii.row)
+    val fg = when { f -> Pal.OnFocusPill; selected -> Pal.OnFocusPill; else -> Pal.Text2 }
+    val bg = when { f -> Pal.FocusPill; selected -> Pal.FocusPill.copy(alpha = 0.45f); else -> Pal.Soft }
     Row(
         modifier.width(244.dp).onFocusChanged { f = it.isFocused }.clip(shape)
-            .background(if (f) Pal.FocusPill else Color.Transparent)
+            .background(bg)
+            .focusRing(if (f) 1f else 0f, shape)
             .clickable(onClick = onClick)
             .semantics { contentDescription = e.label }
-            .padding(horizontal = 12.dp, vertical = 12.dp),
+            .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(16.dp)
+        horizontalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Icon(RailIcons.of(e), null, tint = fg, modifier = Modifier.size(24.dp))
-        Text(e.label, color = fg, fontSize = (Ts.ROW + 2).sp, maxLines = 1,
-            fontWeight = if (selected || f) FontWeight.Bold else FontWeight.Medium)
+        Icon(RailIcons.of(e), null, tint = fg, modifier = Modifier.size(22.dp))
+        Text(e.label, color = fg, fontSize = Ts.ROW.sp, maxLines = 1,
+            fontWeight = if (selected || f) FontWeight.SemiBold else FontWeight.Medium)
     }
 }

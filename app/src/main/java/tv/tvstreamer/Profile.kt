@@ -151,11 +151,11 @@ fun AccountMenu(store: Store, go: (Screen) -> Unit, onClose: () -> Unit) {
     var msg by remember { mutableStateOf("") }
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { delay(80); runCatching { first.requestFocus() } }
-    PopupFrame(onClose, alignment = if (AppUi.phoneNav) Alignment.BottomCenter else Alignment.TopEnd, scrim = Color(0x99000000)) {
+    PopupFrame(onClose, alignment = if (AppUi.phoneNav) Alignment.BottomCenter else Alignment.TopEnd) {
+        val shape = if (AppUi.phoneNav) RoundedCornerShape(topStart = Radii.panel, topEnd = Radii.panel) else RoundedCornerShape(Radii.panel)
         Column(
             Modifier.then(if (AppUi.phoneNav) Modifier.fillMaxWidth().navigationBarsPadding() else Modifier.padding(24.dp).width(420.dp))
-                .clip(if (AppUi.phoneNav) RoundedCornerShape(topStart = Radii.panel, topEnd = Radii.panel) else RoundedCornerShape(Radii.panel))
-                .background(Pal.Surface).clickable(enabled = false) {}.padding(18.dp),
+                .glassSurface(shape).clickable(enabled = false) {}.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -166,12 +166,15 @@ fun AccountMenu(store: Store, go: (Screen) -> Unit, onClose: () -> Unit) {
                 }
             }
             Spacer(Modifier.height(4.dp))
-            Row1("Settings", { onClose(); go(Screen.Settings) }, Modifier.focusRequester(first))
-            if (Cloud.signedIn) Row1(if (Cloud.busy) "Syncing…" else "Sync Now" + syncAgo(), { Cloud.syncNow() })
-            if (!Cloud.signedIn) Row1("Sign In with Google", { onClose(); go(Screen.Account) })
+            MenuEntry("Settings", { onClose(); go(Screen.Settings) }, Modifier.focusRequester(first))
+            if (Cloud.signedIn) MenuEntry(if (Cloud.busy) "Syncing…" else "Sync Now" + syncAgo(), { Cloud.syncNow() })
+            if (!Cloud.signedIn) MenuEntry("Sign In with Google", { onClose(); go(Screen.Account) })
+            MenuEntry(OverlayLook.UPDATE_NOW, {
+                msg = "Checking for updates…"
+                scope.launch { msg = Updater.check(ctx, store, manual = true).ifEmpty { Updater.statusLine().ifEmpty { "Up to date" } } }
+            })
             if (msg.isNotEmpty()) Label(msg, Ts.HEAD, Pal.Warn, maxLines = 3)
-            Row1("Exit " + stringResource(R.string.app_name), { onClose(); exitApp(ctx) })
-            Row1("Close", onClose)
+            MenuEntry("Exit " + stringResource(R.string.app_name), { onClose(); exitApp(ctx) })
         }
     }
 }
